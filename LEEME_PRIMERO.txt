@@ -1,0 +1,56 @@
+TU VIDA EN TINTA · POLIFAN
+VERSIÓN CONSOLIDADA ONLINE
+
+Esta carpeta contiene la versión completa actual del sistema.
+
+INCLUYE
+- Inicio de sesión con Supabase
+- Dashboard
+- Nuevo pedido
+- Edición y eliminación de pedidos
+- Estados del pedido
+- Lista automática para cortar
+- Stock permanente
+- Movimientos manuales
+- Clientes
+- WhatsApp directo
+- Impresión de ficha de pedido
+- Resumen mensual
+- Catálogo de figuras
+- Copias de seguridad
+- Diseño adaptable a celular
+- Preparación para instalar como aplicación
+
+CÓMO ACTUALIZAR GITHUB
+
+1. Descomprimí este ZIP.
+2. Entrá al repositorio:
+   polifan-online
+3. Presioná:
+   Add file → Upload files
+4. Arrastrá todos los archivos y carpetas descomprimidos.
+5. GitHub reemplazará los archivos anteriores.
+6. En el mensaje escribí:
+   Versión consolidada del sistema Polifan
+7. Presioná:
+   Commit changes
+
+PUBLICACIÓN
+
+Vercel detectará el cambio automáticamente.
+Esperá aproximadamente 1 o 2 minutos y abrí:
+
+https://polifan-online.vercel.app
+
+INICIO DE SESIÓN
+
+Usá el correo y contraseña que creaste en Supabase.
+
+IMPORTANTE
+
+Nunca compartas:
+- La contraseña de Supabase
+- Una clave que empiece con sb_secret_
+- La contraseña de tu usuario
+
+La clave pública incluida en el proyecto puede utilizarse en el navegador porque las políticas RLS ya están activadas.
