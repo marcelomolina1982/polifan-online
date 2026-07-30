@@ -225,6 +225,7 @@ function OrderForm({db,onSave,editing,clearEdit}){
     status:'Ingresado',paid:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(blank())
+  const sortedFigures=useMemo(()=>[...db.figures].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
 
   useEffect(()=>{ if(editing) setForm(JSON.parse(JSON.stringify(editing))) },[editing])
 
@@ -265,9 +266,8 @@ function OrderForm({db,onSave,editing,clearEdit}){
 
       <h3>Figuras</h3>
       {form.items.map((it,ix)=><div className="item-row" key={ix}>
-        <select value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)}>
-          <option value="">Seleccionar figura</option>{db.figures.map(f=><option key={f}>{f}</option>)}
-        </select>
+        <input list={`fig-${ix}`} placeholder="🔍 Buscar figura" value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)}/>
+        <datalist id={`fig-${ix}`}>{sortedFigures.map(f=><option key={f} value={f}/>)}</datalist>
         <input type="number" min="1" value={it.qty} onChange={e=>updateItem(ix,'qty',e.target.value)}/>
         <button type="button" className="danger smallbtn" onClick={()=>setForm(f=>({...f,items:f.items.filter((_,i)=>i!==ix)}))}>×</button>
       </div>)}
@@ -484,6 +484,8 @@ function Monthly({db}){
 
 function Settings({db,onSave}){
   const [newFigure,setNewFigure]=useState('')
+  const [search,setSearch]=useState('')
+  const sortedFigures=useMemo(()=>[...db.figures].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
   function exportData(){
     const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'})
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='respaldo-polifan-'+today()+'.json';a.click()
@@ -494,7 +496,7 @@ function Settings({db,onSave}){
   }
   async function addFigure(){
     const f=newFigure.trim(); if(!f||db.figures.includes(f))return
-    await onSave({...db,figures:[...db.figures,f].sort()});setNewFigure('')
+    await onSave({...db,figures:[...db.figures,f].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'))});setNewFigure('')
   }
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
@@ -502,7 +504,7 @@ function Settings({db,onSave}){
       <div className="panel"><h3>Copias de seguridad</h3><p>Los datos están online, pero conviene guardar una copia periódicamente.</p><div className="actions"><button className="primary" onClick={exportData}>Descargar copia</button><label className="ghost filebtn">Importar copia<input type="file" accept=".json" onChange={importData}/></label></div></div>
       <div className="panel"><h3>Agregar figura</h3><div className="inline"><input value={newFigure} onChange={e=>setNewFigure(e.target.value)} placeholder="Nombre de la nueva figura"/><button className="primary" onClick={addFigure}>Agregar</button></div></div>
     </div>
-    <div className="panel"><h3>Catálogo de figuras ({db.figures.length})</h3><div className="chips">{db.figures.map(f=><span key={f}>{f}</span>)}</div></div>
+    <div className="panel"><h3>Catálogo de figuras ({db.figures.length})</h3><input type="search" placeholder="🔍 Buscar producto..." value={search} onChange={e=>setSearch(e.target.value)}/><div className="chips">{sortedFigures.filter(f=>f.toLowerCase().includes(search.toLowerCase())).map(f=><span key={f}>{f}</span>)}</div></div>
   </>
 }
 
