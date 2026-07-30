@@ -1,0 +1,57 @@
+TU VIDA EN TINTA · POLIFAN — VERSIÓN PROFESIONAL
+
+Esta versión está hecha con React + Vite + Supabase.
+
+YA ESTÁ CONECTADA A:
+https://mcmndnxrbsdlaxpfidsn.supabase.co
+
+ANTES DE PUBLICAR
+- El script SQL ya fue ejecutado.
+- El usuario ya fue creado.
+- No hace falta volver a crear la base.
+
+PUBLICAR EN VERCEL
+1. Entrá en Vercel.
+2. Elegí Add New > Project.
+3. La forma más sencilla es subir esta carpeta mediante GitHub.
+4. Si usás Vercel CLI, ejecutá:
+   npm install
+   npm run build
+   vercel
+
+OPCIÓN RECOMENDADA CON GITHUB
+1. Creá un repositorio nuevo en GitHub.
+2. Subí todos los archivos de esta carpeta.
+3. En Vercel elegí Add New > Project.
+4. Importá el repositorio.
+5. Vercel detectará Vite automáticamente.
+6. Presioná Deploy.
+
+PARA PROBAR EN TU COMPUTADORA
+1. Instalá Node.js.
+2. Abrí una terminal dentro de la carpeta.
+3. Ejecutá:
+   npm install
+   npm run dev
+4. Abrí la dirección que aparece en pantalla.
+
+INICIO DE SESIÓN
+Usá el correo y la contraseña que creaste en Supabase.
+
+FUNCIONES INCLUIDAS
+- Inicio de sesión.
+- Dashboard.
+- Nuevo pedido.
+- Edición y eliminación de pedidos.
+- Estados de pedidos.
+- Lista automática para cortar.
+- Stock permanente.
+- Movimientos manuales.
+- Resumen mensual.
+- Catálogo de figuras.
+- Copia de seguridad.
+- Diseño adaptable a PC y celular.
+
+IMPORTANTE
+Nunca compartas una clave que empiece con sb_secret_.
+La Publishable Key incluida es pública y funciona junto con las políticas RLS de Supabase.
