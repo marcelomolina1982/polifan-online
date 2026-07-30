@@ -1,0 +1,9 @@
+{
+  "name": "Tu Vida En Tinta · Polifan",
+  "short_name": "Polifan",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#5b21b6",
+  "icons": []
+}

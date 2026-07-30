@@ -55,3 +55,10 @@ FUNCIONES INCLUIDAS
 IMPORTANTE
 Nunca compartas una clave que empiece con sb_secret_.
 La Publishable Key incluida es pública y funciona junto con las políticas RLS de Supabase.
+
+
+NOVEDADES DE ESTA VERSIÓN
+- Módulo Clientes.
+- WhatsApp directo desde pedidos y clientes.
+- Ficha imprimible del pedido.
+- Preparación PWA para instalar desde el navegador.

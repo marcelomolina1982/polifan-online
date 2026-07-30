@@ -14,7 +14,8 @@ const emptyState = () => ({
   orders: [],
   movements: [],
   stockMin: {},
-  figures: figuresDefault
+  figures: figuresDefault,
+  clients: []
 })
 
 const statusColors = {
@@ -97,6 +98,7 @@ function App(){
     ['orders','▤','Pedidos'],
     ['cut','✂','Para cortar'],
     ['stock','◇','Stock'],
+    ['clients','♙','Clientes'],
     ['monthly','▥','Resumen mensual'],
     ['settings','⚙','Datos y copias'],
   ]
@@ -131,6 +133,7 @@ function App(){
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}} />}
         {page==='cut' && <CutList db={db} />}
         {page==='stock' && <Stock db={db} onSave={saveData} />}
+        {page==='clients' && <Clients db={db} onSave={saveData} goOrders={()=>setPage('orders')} />}
         {page==='monthly' && <Monthly db={db} />}
         {page==='settings' && <Settings db={db} onSave={saveData} />}
       </main>
@@ -299,6 +302,35 @@ function Orders({db,onSave,onEdit}){
     await onSave({...db,orders:db.orders.map(x=>x.id===o.id?{...x,status:newStatus,updatedAt:new Date().toISOString()}:x)})
   }
 
+  function openWhatsApp(o){
+    const number=String(o.phone||'').replace(/\D/g,'')
+    const text=`Hola ${o.client}, te escribimos de Tu Vida En Tinta por tu pedido N° ${o.number}. Estado actual: ${o.status}.`
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank')
+  }
+
+  function printOrder(o){
+    const items=(o.items||[]).map(i=>`<tr><td>${i.figure}</td><td>${i.qty}</td></tr>`).join('')
+    const win=window.open('','_blank')
+    win.document.write(`
+      <html><head><title>Pedido ${o.number}</title>
+      <style>body{font-family:Arial;padding:25px}h1{text-align:center}.box{border:2px solid #111;padding:18px}
+      .grid{display:grid;grid-template-columns:160px 1fr}.grid div{padding:7px;border-bottom:1px solid #bbb}
+      table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border:1px solid #111;padding:9px;text-align:left}</style></head>
+      <body><div class="box"><h1>TU VIDA EN TINTA · POLIFAN</h1>
+      <div class="grid">
+      <div><b>Pedido</b></div><div>#${o.number}</div>
+      <div><b>Cliente</b></div><div>${o.client}</div>
+      <div><b>Teléfono</b></div><div>${o.phone||'-'}</div>
+      <div><b>Zona</b></div><div>${o.zone||'-'}</div>
+      <div><b>Transporte</b></div><div>${o.carrier||'-'}</div>
+      <div><b>Estado</b></div><div>${o.status}</div>
+      </div>
+      <table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${items}</tbody></table>
+      <p><b>Total:</b> ${money(o.total)}</p><p><b>Observaciones:</b> ${o.notes||'-'}</p></div>
+      <script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.close()
+  }
+
   return <>
     <Title title="Pedidos" sub="Buscá, editá y actualizá el estado de cada pedido."/>
     <div className="panel filters">
@@ -309,7 +341,12 @@ function Orders({db,onSave,onEdit}){
       <tbody>{list.map(o=><tr key={o.id}><td>#{o.number}</td><td>{o.date}</td><td><b>{o.client}</b><small className="block">{o.phone}</small></td>
         <td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td>
         <td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td>
-        <td>{money(o.total)}</td><td className="row-actions"><button className="ghost" onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody>
+        <td>{money(o.total)}</td><td className="row-actions">
+          <button className="ghost" onClick={()=>printOrder(o)}>Imprimir</button>
+          {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
+          <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
+          <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
+        </td></tr>)}</tbody>
     </table></div>
   </>
 }
@@ -376,6 +413,51 @@ function Stock({db,onSave}){
       <Field label="Movimiento"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>{['Entrada extra','Salida manual','Ajuste positivo','Ajuste negativo'].map(x=><option key={x}>{x}</option>)}</select></Field>
       <Field label="Cantidad"><input type="number" min="1" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field>
     </div><Field label="Detalle"><input value={form.detail} onChange={e=>setForm({...form,detail:e.target.value})}/></Field><button className="primary">Guardar movimiento</button></form>
+  </>
+}
+
+
+function Clients({db,onSave}){
+  const [q,setQ]=useState('')
+  const [form,setForm]=useState({name:'',phone:'',zone:'',notes:''})
+  const clients=db.clients||[]
+
+  async function add(e){
+    e.preventDefault()
+    if(!form.name.trim())return
+    const existing=clients.find(c=>c.phone&&form.phone&&c.phone===form.phone)
+    if(existing)return alert('Ya existe un cliente con ese teléfono.')
+    await onSave({...db,clients:[...clients,{...form,id:crypto.randomUUID(),createdAt:new Date().toISOString()}]})
+    setForm({name:'',phone:'',zone:'',notes:''})
+  }
+
+  async function remove(id){
+    if(confirm('¿Eliminar este cliente?')) await onSave({...db,clients:clients.filter(c=>c.id!==id)})
+  }
+
+  const list=clients.filter(c=>(c.name+' '+c.phone+' '+c.zone).toLowerCase().includes(q.toLowerCase()))
+  function ordersCount(c){return db.orders.filter(o=>(c.phone&&o.phone===c.phone)||o.client.toLowerCase()===c.name.toLowerCase()).length}
+  function openWA(c){
+    const n=String(c.phone||'').replace(/\D/g,'')
+    window.open(`https://wa.me/${n}?text=${encodeURIComponent('Hola '+c.name+', te escribimos de Tu Vida En Tinta.')}`,'_blank')
+  }
+
+  return <>
+    <Title title="Clientes" sub="Guardá sus datos y consultá cuántos pedidos realizó cada uno."/>
+    <form className="panel" onSubmit={add}>
+      <div className="form-grid">
+        <Field label="Nombre"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
+        <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+        <Field label="Zona"><input value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})}/></Field>
+        <Field label="Observaciones"><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
+      </div>
+      <button className="primary">Guardar cliente</button>
+    </form>
+    <div className="panel filters"><input placeholder="Buscar cliente…" value={q} onChange={e=>setQ(e.target.value)}/></div>
+    <div className="panel table-wrap"><table><thead><tr><th>Cliente</th><th>Teléfono</th><th>Zona</th><th>Pedidos</th><th>Acciones</th></tr></thead>
+    <tbody>{list.map(c=><tr key={c.id}><td><b>{c.name}</b><small className="block">{c.notes}</small></td><td>{c.phone||'-'}</td><td>{c.zone||'-'}</td><td>{ordersCount(c)}</td>
+    <td className="row-actions">{c.phone&&<button className="whatsapp" onClick={()=>openWA(c)}>WhatsApp</button>}<button className="danger" onClick={()=>remove(c.id)}>Eliminar</button></td></tr>)}
+    {!list.length&&<tr><td colSpan="5">No hay clientes cargados.</td></tr>}</tbody></table></div>
   </>
 }
 
