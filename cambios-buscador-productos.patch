@@ -1,0 +1,95 @@
+*** Begin Patch
+*** Update File: src/App.jsx
+@@
+ function OrderForm({db,onSave,editing,clearEdit}){
+@@
+   const [form,setForm]=useState(blank())
++  const figuresSorted=useMemo(
++    ()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
++    [db.figures]
++  )
+@@
+       <h3>Figuras</h3>
+       {form.items.map((it,ix)=><div className="item-row" key={ix}>
+-        <select value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)}>
+-          <option value="">Seleccionar figura</option>{db.figures.map(f=><option key={f}>{f}</option>)}
+-        </select>
++        <input
++          list={`figures-${ix}`}
++          placeholder="🔍 Buscar figura…"
++          value={it.figure}
++          onChange={e=>updateItem(ix,'figure',e.target.value)}
++        />
++        <datalist id={`figures-${ix}`}>
++          {figuresSorted.map(f=><option key={f} value={f}/>)}
++        </datalist>
+         <input type="number" min="1" value={it.qty} onChange={e=>updateItem(ix,'qty',e.target.value)}/>
+@@
+ function stockRows(db){
+-  return db.figures.map(f=>{
++  return [...(db.figures||[])]
++    .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
++    .map(f=>{
+@@
+ function Stock({db,onSave}){
+   const [form,setForm]=useState({date:today(),figure:db.figures[0]||'',type:'Entrada extra',qty:1,detail:''})
+   const rows=stockRows(db)
++  const figuresSorted=useMemo(
++    ()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
++    [db.figures]
++  )
+@@
+-      <Field label="Figura"><select value={form.figure} onChange={e=>setForm({...form,figure:e.target.value})}>{db.figures.map(f=><option key={f}>{f}</option>)}</select></Field>
++      <Field label="Figura">
++        <input
++          list="stock-figures"
++          placeholder="🔍 Buscar figura…"
++          value={form.figure}
++          onChange={e=>setForm({...form,figure:e.target.value})}
++        />
++        <datalist id="stock-figures">
++          {figuresSorted.map(f=><option key={f} value={f}/>)}
++        </datalist>
++      </Field>
+@@
+ function Settings({db,onSave}){
+   const [newFigure,setNewFigure]=useState('')
++  const [figureQuery,setFigureQuery]=useState('')
++  const figuresSorted=useMemo(
++    ()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
++    [db.figures]
++  )
++  const visibleFigures=figuresSorted.filter(f=>
++    f.toLocaleLowerCase('es').includes(figureQuery.trim().toLocaleLowerCase('es'))
++  )
+@@
+   async function addFigure(){
+-    const f=newFigure.trim(); if(!f||db.figures.includes(f))return
+-    await onSave({...db,figures:[...db.figures,f].sort()});setNewFigure('')
++    const f=newFigure.trim()
++    if(!f)return
++    if(db.figures.some(x=>x.localeCompare(f,'es',{sensitivity:'base'})===0)){
++      return alert('Ese producto ya existe.')
++    }
++    const figures=[...db.figures,f].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
++    await onSave({...db,figures})
++    setNewFigure('')
+   }
+@@
+-    <div className="panel"><h3>Catálogo de figuras ({db.figures.length})</h3><div className="chips">{db.figures.map(f=><span key={f}>{f}</span>)}</div></div>
++    <div className="panel">
++      <h3>Catálogo de figuras ({db.figures.length})</h3>
++      <div className="filters">
++        <input
++          type="search"
++          placeholder="🔍 Buscar producto…"
++          value={figureQuery}
++          onChange={e=>setFigureQuery(e.target.value)}
++        />
++      </div>
++      <div className="chips">
++        {visibleFigures.map(f=><span key={f}>{f}</span>)}
++      </div>
++      {!visibleFigures.length && <p>No se encontraron productos.</p>}
++    </div>
+*** End Patch
