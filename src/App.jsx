@@ -219,15 +219,37 @@ function Kpi({label,value}){return <div className="kpi"><small>{label}</small><b
 function Badge({status}){return <span className={'badge '+(statusColors[status]||'gray')}>{status}</span>}
 
 function OrderForm({db,onSave,editing,clearEdit}){
+  const DRAFT_KEY='polifan-order-draft-v1'
   const blank=()=>({
     id:crypto.randomUUID(), number:String((Math.max(0,...db.orders.map(o=>Number(o.number)||0))+1)).padStart(3,'0'),
     date:today(), client:'',phone:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',notes:'',items:[{figure:'',qty:1}]
   })
-  const [form,setForm]=useState(blank())
-  const sortedFigures=useMemo(()=>[...db.figures].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const [form,setForm]=useState(()=>{
+    try{
+      const saved=localStorage.getItem(DRAFT_KEY)
+      return saved ? {...blank(),...JSON.parse(saved)} : blank()
+    }catch{return blank()}
+  })
+  const [draftSaved,setDraftSaved]=useState(false)
+  const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
 
-  useEffect(()=>{ if(editing) setForm(JSON.parse(JSON.stringify(editing))) },[editing])
+  useEffect(()=>{
+    if(editing){
+      setForm(JSON.parse(JSON.stringify(editing)))
+      setDraftSaved(false)
+    }
+  },[editing])
+
+  useEffect(()=>{
+    const timer=setTimeout(()=>{
+      try{
+        localStorage.setItem(DRAFT_KEY,JSON.stringify(form))
+        setDraftSaved(true)
+      }catch{}
+    },400)
+    return ()=>clearTimeout(timer)
+  },[form])
 
   const qty=form.items.reduce((a,i)=>a+Number(i.qty||0),0)
   const total=qty*pricePerUnit(qty)
@@ -243,12 +265,13 @@ function OrderForm({db,onSave,editing,clearEdit}){
     const final={...form,total,unitPrice:pricePerUnit(qty),updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     await onSave({...db,orders})
-    setForm(blank()); clearEdit()
+    localStorage.removeItem(DRAFT_KEY)
+    setForm(blank()); setDraftSaved(false); clearEdit()
     alert(editing?'Pedido actualizado.':'Pedido guardado.')
   }
 
   return <>
-    <Title title={editing?'Editar pedido':'Nuevo pedido'} sub="Cargá todos los datos del pedido y las figuras solicitadas."/>
+    <Title title={editing?'Editar pedido':'Nuevo pedido'} sub="Cargá todos los datos del pedido y las figuras solicitadas." actions={<span className="draft-status">{draftSaved?'Borrador guardado automáticamente':'Guardando borrador…'}</span>}/>
     <form className="panel" onSubmit={submit}>
       <div className="form-grid">
         <Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
@@ -280,7 +303,7 @@ function OrderForm({db,onSave,editing,clearEdit}){
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
         <div><small>Valor del pedido</small><b>{money(total)}</b></div>
       </div>
-      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{clearEdit();setForm(blank())}}>Cancelar</button>}</div>
+      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);clearEdit();setForm(blank());setDraftSaved(false)}}>Cancelar</button>}</div>
     </form>
   </>
 }
@@ -483,9 +506,17 @@ function Monthly({db}){
 }
 
 function Settings({db,onSave}){
-  const [newFigure,setNewFigure]=useState('')
+  const [newFigures,setNewFigures]=useState(()=>localStorage.getItem('polifan-new-figures-draft')||'')
   const [search,setSearch]=useState('')
-  const sortedFigures=useMemo(()=>[...db.figures].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  useEffect(()=>{localStorage.setItem('polifan-new-figures-draft',newFigures)},[newFigures])
+  const sortedFigures=useMemo(
+    ()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
+    [db.figures]
+  )
+  const visibleFigures=sortedFigures.filter(f=>
+    f.toLocaleLowerCase('es').includes(search.trim().toLocaleLowerCase('es'))
+  )
+
   function exportData(){
     const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'})
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='respaldo-polifan-'+today()+'.json';a.click()
@@ -494,17 +525,88 @@ function Settings({db,onSave}){
     const file=e.target.files?.[0]; if(!file)return
     try{const data=JSON.parse(await file.text());await onSave({...emptyState(),...data});alert('Copia importada.')}catch{alert('Archivo inválido.')}
   }
-  async function addFigure(){
-    const f=newFigure.trim(); if(!f||db.figures.includes(f))return
-    await onSave({...db,figures:[...db.figures,f].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'))});setNewFigure('')
+  async function addFigures(){
+    const candidates=newFigures
+      .split(/[\n,;]+/)
+      .map(f=>f.trim())
+      .filter(Boolean)
+    if(!candidates.length)return alert('Escribí al menos un nombre.')
+
+    const existing=new Set((db.figures||[]).map(f=>f.toLocaleLowerCase('es')))
+    const added=[]
+    for(const name of candidates){
+      const key=name.toLocaleLowerCase('es')
+      if(!existing.has(key)){
+        existing.add(key)
+        added.push(name)
+      }
+    }
+    if(!added.length)return alert('Todos esos productos ya existen.')
+
+    const figures=[...(db.figures||[]),...added]
+      .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+    await onSave({...db,figures})
+    setNewFigures('')
+    localStorage.removeItem('polifan-new-figures-draft')
+    alert(`${added.length} producto${added.length===1?' agregado':'s agregados'}.`)
   }
+  async function editFigure(oldName){
+    const newName=window.prompt('Nuevo nombre del producto:',oldName)?.trim()
+    if(!newName||newName===oldName)return
+    const duplicate=(db.figures||[]).some(f=>
+      f!==oldName && f.localeCompare(newName,'es',{sensitivity:'base'})===0
+    )
+    if(duplicate)return alert('Ya existe un producto con ese nombre.')
+
+    const figures=(db.figures||[])
+      .map(f=>f===oldName?newName:f)
+      .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+    const orders=(db.orders||[]).map(order=>({
+      ...order,
+      items:(order.items||[]).map(item=>item.figure===oldName?{...item,figure:newName}:item)
+    }))
+    const movements=(db.movements||[]).map(m=>m.figure===oldName?{...m,figure:newName}:m)
+    const stockMin={...(db.stockMin||{})}
+    if(Object.prototype.hasOwnProperty.call(stockMin,oldName)){
+      stockMin[newName]=stockMin[oldName]
+      delete stockMin[oldName]
+    }
+    await onSave({...db,figures,orders,movements,stockMin})
+  }
+  async function deleteFigure(name){
+    const ok=window.confirm(`¿Eliminar “${name}” del catálogo?\n\nLos pedidos anteriores conservarán ese nombre.`)
+    if(!ok)return
+    const figures=(db.figures||[]).filter(f=>f!==name)
+    const stockMin={...(db.stockMin||{})}
+    delete stockMin[name]
+    await onSave({...db,figures,stockMin})
+  }
+
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
     <div className="grid2">
       <div className="panel"><h3>Copias de seguridad</h3><p>Los datos están online, pero conviene guardar una copia periódicamente.</p><div className="actions"><button className="primary" onClick={exportData}>Descargar copia</button><label className="ghost filebtn">Importar copia<input type="file" accept=".json" onChange={importData}/></label></div></div>
-      <div className="panel"><h3>Agregar figura</h3><div className="inline"><input value={newFigure} onChange={e=>setNewFigure(e.target.value)} placeholder="Nombre de la nueva figura"/><button className="primary" onClick={addFigure}>Agregar</button></div></div>
+      <div className="panel">
+        <h3>Agregar uno o varios productos</h3>
+        <p>Escribí un nombre por línea. También podés separarlos con coma.</p>
+        <textarea value={newFigures} onChange={e=>setNewFigures(e.target.value)} placeholder={'Ejemplo:\nCorazón grande\nMariposa\nNúmero 15'}/>
+        <button className="primary full" onClick={addFigures}>Agregar productos</button>
+      </div>
     </div>
-    <div className="panel"><h3>Catálogo de figuras ({db.figures.length})</h3><input type="search" placeholder="🔍 Buscar producto..." value={search} onChange={e=>setSearch(e.target.value)}/><div className="chips">{sortedFigures.filter(f=>f.toLowerCase().includes(search.toLowerCase())).map(f=><span key={f}>{f}</span>)}</div></div>
+    <div className="panel">
+      <h3>Catálogo de figuras ({db.figures.length})</h3>
+      <input type="search" placeholder="🔍 Buscar producto..." value={search} onChange={e=>setSearch(e.target.value)}/>
+      <div className="catalog-list">
+        {visibleFigures.map(f=><div className="catalog-row" key={f}>
+          <span>{f}</span>
+          <div className="row-actions">
+            <button className="ghost smallbtn" onClick={()=>editFigure(f)}>Editar</button>
+            <button className="danger smallbtn" onClick={()=>deleteFigure(f)}>Eliminar</button>
+          </div>
+        </div>)}
+      </div>
+      {!visibleFigures.length&&<p>No se encontraron productos.</p>}
+    </div>
   </>
 }
 
