@@ -12,3 +12,9 @@
 
 .draft-status{display:inline-block;background:#ecfdf3;color:#027a48;border:1px solid #abefc6;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}
 @media(max-width:760px){.draft-status{font-size:11px}}
+
+.danger-zone{border:1px solid rgba(220,38,38,.35);background:rgba(254,242,242,.7)}
+.danger-zone h3{color:#991b1b}
+
+.danger-zone{border:1px solid rgba(220,38,38,.35);background:rgba(254,242,242,.7)}
+.danger-zone h3{color:#991b1b}

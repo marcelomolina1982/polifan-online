@@ -694,6 +694,21 @@ function Settings({db,onSave}){
     await onSave({...db,figures,stockMin})
   }
 
+  async function resetTestData(){
+    const first=window.confirm(
+      '¿Borrar todos los datos de prueba?\n\nSe eliminarán pedidos, facturación, movimientos de stock y placas de corte.\nSe conservarán el catálogo de figuras, los clientes y la configuración.'
+    )
+    if(!first)return
+    const code=window.prompt('Para confirmar, escribí BORRAR:')
+    if(code!=='BORRAR')return alert('No se borró nada.')
+
+    const next={...db,orders:[],movements:[],cuttingBatches:[]}
+    await onSave(next)
+    localStorage.removeItem('polifan-order-draft')
+    localStorage.removeItem('polifan-new-figures-draft')
+    alert('Datos de prueba eliminados. Los contadores, el stock y la facturación quedaron en cero.')
+  }
+
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
     <div className="grid2">
@@ -704,6 +719,11 @@ function Settings({db,onSave}){
         <textarea value={newFigures} onChange={e=>setNewFigures(e.target.value)} placeholder={'Ejemplo:\nCorazón grande\nMariposa\nNúmero 15'}/>
         <button className="primary full" onClick={addFigures}>Agregar productos</button>
       </div>
+    </div>
+    <div className="panel danger-zone">
+      <h3>Comenzar a usar el sistema desde cero</h3>
+      <p>Usá esta opción cuando termines las pruebas. Borra pedidos, dinero del resumen mensual, movimientos de stock y placas de corte. Conserva el catálogo de figuras, los clientes y la configuración.</p>
+      <button className="danger" onClick={resetTestData}>Borrar datos de prueba</button>
     </div>
     <div className="panel">
       <h3>Catálogo de figuras ({db.figures.length})</h3>
