@@ -508,7 +508,7 @@ function CuttingBatches({db,onSave}){
       <h3>Piezas de la placa</h3>
       {form.items.map((it,ix)=><div className="item-row" key={ix}><input list={`cutfig-${ix}`} value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)} placeholder="Buscar figura…"/><datalist id={`cutfig-${ix}`}>{sortedFigures.map(f=><option key={f} value={f}/>)}</datalist><input type="number" min="1" value={it.qty} onChange={e=>updateItem(ix,'qty',e.target.value)}/><button type="button" className="danger" onClick={()=>setForm(f=>({...f,items:f.items.filter((_,i)=>i!==ix)}))}>Quitar</button></div>)}
       <button type="button" className="ghost" onClick={()=>setForm(f=>({...f,items:[...f.items,{figure:'',qty:1}]}))}>＋ Agregar figura</button>
-      <Field label="Notas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value)}/></Field>
+      <Field label="Notas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
       <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar placa'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{setEditing(null);setForm(blank())}}>Cancelar</button>}</div>
     </form>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Contenido</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
