@@ -15,3 +15,41 @@
 
 /* Listas de corte por fecha */
 .cut-date-filter{display:grid;grid-template-columns:auto minmax(220px,1fr) auto;align-items:center;gap:12px}.delivery-groups{display:grid;gap:16px}.delivery-group{padding:0;overflow:hidden}.delivery-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 18px;background:linear-gradient(90deg,#f4efff,#fafafa);border-bottom:1px solid #e5e7eb}.delivery-head small{font-weight:800;color:#6d28d9}.delivery-head h3{margin:3px 0;text-transform:capitalize}.delivery-head span{font-size:12px;color:#64748b}.delivery-head>b{background:#ede9fe;color:#5b21b6;padding:7px 11px;border-radius:10px;white-space:nowrap}.delivery-group .table-wrap{border:0}.cut-summary summary{cursor:pointer;padding:4px}.cut-summary[open] summary{margin-bottom:12px}@media(max-width:760px){.cut-date-filter{grid-template-columns:1fr}.delivery-head{align-items:flex-start;flex-direction:column}.delivery-head>b{align-self:flex-start}}
+
+
+/* Identidad visual Tu Vida En Tinta */
+:root{
+  --tvet-pink:#ec2c7c;
+  --tvet-pink-dark:#c91864;
+  --tvet-turquoise:#14b8b8;
+  --tvet-blue:#087fc4;
+  --tvet-navy:#082b55;
+  --tvet-purple:#7b3dbb;
+  --tvet-yellow:#f9b915;
+  --tvet-cream:#fff9f2;
+}
+body{background:linear-gradient(135deg,#fff 0%,var(--tvet-cream) 100%)}
+.sidebar{background:linear-gradient(180deg,var(--tvet-navy),#071d38 65%,#0b315d)}
+.brand{gap:10px;padding-bottom:16px}
+.brand-logo{width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 3px 6px #0004);flex:0 0 auto}
+.brand small{color:#fff;font-size:12px}
+.brand b{color:#29c4c2;font-size:23px;text-shadow:0 1px 0 #0003}
+.sidebar nav button:hover,.sidebar nav button.active{background:linear-gradient(90deg,#ec2c7cbb,#7b3dbb99);box-shadow:inset 3px 0 0 #29c4c2}
+.side-help{background:linear-gradient(135deg,#7b3dbb,#087fc4)}
+.primary{background:linear-gradient(135deg,var(--tvet-pink),var(--tvet-purple));box-shadow:0 5px 14px #ec2c7c2c}
+.primary:hover{filter:brightness(1.04)}
+.avatar{background:linear-gradient(135deg,var(--tvet-turquoise),var(--tvet-blue))}
+.page-title h1{color:var(--tvet-navy)}
+.kpi b,.purple-text{color:var(--tvet-purple)}
+.order-total div{background:linear-gradient(135deg,#fff0f6,#f1efff);border-color:#f2b7d1}
+.notice{background:linear-gradient(135deg,#eefcff,#fff4f8);border-color:#9ddfdf;color:var(--tvet-navy)}
+.delivery-head{background:linear-gradient(90deg,#fff0f6,#eefcff)}
+.delivery-head small{color:var(--tvet-pink-dark)}
+.delivery-head>b{background:#dff8f7;color:#087a81}
+.login-bg{background:radial-gradient(circle at 20% 20%,#ec2c7c55,transparent 35%),radial-gradient(circle at 80% 75%,#14b8b855,transparent 38%),linear-gradient(135deg,var(--tvet-navy),#321151)}
+.login-card{border:1px solid #ffffff80;background:linear-gradient(180deg,#fff,#fffaf6)}
+.login-brand-logo{display:block;width:180px;height:180px;object-fit:contain;margin:-8px auto 4px;filter:drop-shadow(0 8px 16px #082b5520)}
+.login-card h1{color:var(--tvet-navy)}
+.login-card h2{color:var(--tvet-pink)}
+input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color:var(--tvet-turquoise)}
+@media(max-width:760px){.brand-logo{width:52px;height:52px}.login-brand-logo{width:155px;height:155px}}

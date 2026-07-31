@@ -17,7 +17,7 @@ export default function Login(){
 
   return <div className="login-bg">
     <form className="login-card" onSubmit={submit}>
-      <div className="login-logo">✂</div>
+      <img className="login-brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/>
       <h1>Tu Vida En Tinta</h1>
       <h2>Gestión de Polifan</h2>
       <p>Ingresá con el usuario creado en Supabase.</p>

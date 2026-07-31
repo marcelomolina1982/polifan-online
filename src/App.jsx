@@ -72,7 +72,7 @@ export default function App(){
 
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><div className="logo">✂</div><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b></div></div>
+      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b></div></div>
       <nav>{nav.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
