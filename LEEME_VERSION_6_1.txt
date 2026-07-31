@@ -1,0 +1,18 @@
+POLIFAN ONLINE - VERSION 6.1
+
+NOVEDADES:
+- Permite cargar un archivo SVG por figura.
+- Usa la transparencia de la silueta para detectar superposiciones.
+- Puede rotar las siluetas automáticamente.
+- Mantiene el modo rectangular para figuras sin SVG.
+- Exporta la plancha como SVG vectorial conservando los contornos originales.
+
+USO:
+1. Entrar en Diseñar planchas.
+2. Cargar el SVG de cada figura.
+3. Indicar ancho, alto y cantidad en centímetros.
+4. Presionar Generar planchas.
+5. Revisar cada plancha y descargarla en SVG.
+
+NOTA:
+El cálculo usa una máscara de resolución optimizada para navegador. Antes de cortar, revisar visualmente el SVG exportado y hacer una prueba de medida.
