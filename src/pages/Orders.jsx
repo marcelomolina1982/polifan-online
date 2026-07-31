@@ -12,6 +12,9 @@ function formatDelivery(value){
 }
 
 function orderTicket(o){
+  const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+  const entryDate=o.createdAt?new Date(o.createdAt):null
+  const entryText=entryDate?entryDate.toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}):'-'
   const items=(o.items||[]).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty||0)}</td></tr>`).join('')
   return `<article class="ticket">
     <div class="brand">TU VIDA EN TINTA · POLIFAN</div>
@@ -23,6 +26,8 @@ function orderTicket(o){
       <div><b>Zona</b></div><div>${esc(o.zone||'-')}</div>
       <div><b>Transporte</b></div><div>${esc(o.carrier||'-')}</div>
       <div><b>Estado</b></div><div>${esc(o.status)}</div>
+      <div><b>Fecha de entrada</b></div><div>${esc(entryText)}</div>
+      <div><b>Total de piezas</b></div><div>${totalPieces}</div>
     </div>
     <table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${items}</tbody></table>
     <p class="total"><b>Total:</b> ${money(o.total)}</p>
