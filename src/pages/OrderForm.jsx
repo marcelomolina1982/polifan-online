@@ -5,15 +5,20 @@ import { money, pricePerUnit, today } from '../lib/format'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
+  const nextOrderNumber=(orders=db.orders)=>String(
+    Math.max(0,...(orders||[]).map(o=>Number(o.number)||0))+1
+  ).padStart(3,'0')
   const blank=()=>({
-    id:crypto.randomUUID(), number:String((Math.max(0,...db.orders.map(o=>Number(o.number)||0))+1)).padStart(3,'0'),
+    id:crypto.randomUUID(), number:nextOrderNumber(),
     date:today(), client:'',phone:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
     try{
       const saved=localStorage.getItem(DRAFT_KEY)
-      return saved ? {...blank(),...JSON.parse(saved)} : blank()
+      if(!saved) return blank()
+      const draft=JSON.parse(saved)
+      return {...blank(),...draft,number:nextOrderNumber()}
     }catch{return blank()}
   })
   const [draftSaved,setDraftSaved]=useState(false)
@@ -47,11 +52,13 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     e.preventDefault()
     if(!form.client.trim()) return alert('Ingresá el nombre del cliente.')
     if(!form.items.some(i=>i.figure && Number(i.qty)>0)) return alert('Agregá al menos una figura.')
-    const final={...form,total,unitPrice:pricePerUnit(qty),updatedAt:new Date().toISOString()}
+    const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
+    const final={...form,number:automaticNumber,total,unitPrice:pricePerUnit(qty),updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     await onSave({...db,orders})
     localStorage.removeItem(DRAFT_KEY)
-    setForm(blank()); setDraftSaved(false); clearEdit()
+    const nextBlank={...blank(),number:nextOrderNumber(orders)}
+    setForm(nextBlank); setDraftSaved(false); clearEdit()
     alert(editing?'Pedido actualizado.':'Pedido guardado.')
   }
 
@@ -60,7 +67,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     <form className="panel" onSubmit={submit}>
       <div className="form-grid">
         <Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
-        <Field label="Nº de pedido"><input value={form.number} onChange={e=>setForm({...form,number:e.target.value})}/></Field>
+        <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
         <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
         <Field label="Zona de envío"><input value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})}/></Field>
