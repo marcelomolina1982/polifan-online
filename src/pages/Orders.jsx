@@ -5,20 +5,27 @@ import { money } from '../lib/format'
 
 const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]))
 
+function deliveryParts(value){
+  if(!value) return {day:'SIN FECHA',date:'-'}
+  const [y,m,d]=value.split('-').map(Number)
+  const date=new Date(y,m-1,d)
+  const day=date.toLocaleDateString('es-AR',{weekday:'long'}).toUpperCase()
+  return {day,date:`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`}
+}
+
 function formatDelivery(value){
-  if(!value) return 'SIN FECHA'
-  const [y,m,d]=value.split('-')
-  return `${d}/${m}/${y}`
+  return deliveryParts(value).date
 }
 
 function orderTicket(o){
   const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
   const entryDate=o.createdAt?new Date(o.createdAt):null
   const entryText=entryDate?entryDate.toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}):'-'
+  const delivery=deliveryParts(o.delivery)
   const items=(o.items||[]).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty||0)}</td></tr>`).join('')
   return `<article class="ticket">
     <div class="brand">TU VIDA EN TINTA · POLIFAN</div>
-    <div class="delivery"><small>FECHA DE ENTREGA</small><strong>${formatDelivery(o.delivery)}</strong></div>
+    <div class="delivery"><small>FECHA DE SALIDA</small><strong class="delivery-day">${esc(delivery.day)}</strong><span class="delivery-date">${esc(delivery.date)}</span></div>
     <div class="order-number">PEDIDO #${esc(o.number)}</div>
     <div class="grid">
       <div><b>Cliente</b></div><div>${esc(o.client)}</div>
@@ -26,12 +33,12 @@ function orderTicket(o){
       <div><b>Zona</b></div><div>${esc(o.zone||'-')}</div>
       <div><b>Transporte</b></div><div>${esc(o.carrier||'-')}</div>
       <div><b>Estado</b></div><div>${esc(o.status)}</div>
-      <div><b>Fecha de entrada</b></div><div>${esc(entryText)}</div>
       <div><b>Total de piezas</b></div><div>${totalPieces}</div>
     </div>
     <table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${items}</tbody></table>
     <p class="total"><b>Total:</b> ${money(o.total)}</p>
     <p class="notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</p>
+    <div class="entry-reference">Fecha de entrada: ${esc(entryText)}</div>
     <div class="footer">¡Gracias por tu compra!</div>
   </article>`
 }
@@ -42,7 +49,7 @@ function printStyles(perPage=2){
   const fontSize=perPage===4?'9px':'10.5px'
   const padding=perPage===4?'4mm':'5mm'
   return `
-    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.print-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:6mm;align-items:start}.ticket{width:${ticketWidth};border:1.5px solid #111;padding:${padding};font-size:${fontSize};break-inside:avoid;page-break-inside:avoid}.brand{text-align:center;font-size:14px;font-weight:800;margin:0 0 5px}.delivery{text-align:center;border-top:1px solid #bbb;border-bottom:1px solid #bbb;padding:5px 0;margin-bottom:6px}.delivery small{display:block;font-weight:800;font-size:9px}.delivery strong{display:block;font-size:${perPage===4?'18px':'22px'};line-height:1.05;margin-top:2px}.order-number{text-align:center;background:#111;color:#fff;padding:4px;font-size:14px;font-weight:800;margin-bottom:6px}.grid{display:grid;grid-template-columns:26mm 1fr}.grid div{padding:2px;border-bottom:1px solid #ccc;min-height:16px}.grid b{font-size:9px}table{width:100%;border-collapse:collapse;margin-top:7px}th,td{border:1px solid #111;padding:${perPage===4?'3px':'4px'};text-align:left}th:last-child,td:last-child{width:27%;text-align:center}.total{font-size:12px;margin:7px 0 3px}.notes{margin:3px 0;min-height:18px}.footer{text-align:center;border-top:1px dashed #555;margin-top:7px;padding-top:5px;font-size:9px;font-style:italic}
+    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.print-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:6mm;align-items:start}.ticket{width:${ticketWidth};border:1.5px solid #111;padding:${padding};font-size:${fontSize};break-inside:avoid;page-break-inside:avoid}.brand{text-align:center;font-size:14px;font-weight:800;margin:0 0 5px}.delivery{text-align:center;border:2px solid #111;padding:${perPage===4?'5px 3px':'7px 4px'};margin-bottom:6px}.delivery small{display:block;font-weight:800;font-size:9px;letter-spacing:.8px}.delivery-day{display:block;font-size:${perPage===4?'24px':'32px'};line-height:1;font-weight:900;margin-top:3px}.delivery-date{display:block;font-size:${perPage===4?'16px':'21px'};line-height:1.05;font-weight:800;margin-top:4px}.order-number{text-align:center;background:#111;color:#fff;padding:4px;font-size:14px;font-weight:800;margin-bottom:6px}.grid{display:grid;grid-template-columns:26mm 1fr}.grid div{padding:2px;border-bottom:1px solid #ccc;min-height:16px}.grid b{font-size:9px}table{width:100%;border-collapse:collapse;margin-top:7px}th,td{border:1px solid #111;padding:${perPage===4?'3px':'4px'};text-align:left}th:last-child,td:last-child{width:27%;text-align:center}.total{font-size:12px;margin:7px 0 3px}.notes{margin:3px 0;min-height:18px}.entry-reference{text-align:right;margin-top:6px;font-size:8px;color:#444}.footer{text-align:center;border-top:1px dashed #555;margin-top:7px;padding-top:5px;font-size:9px;font-style:italic}
     ${perPage===2?'.ticket:nth-child(2n){break-after:page}':perPage===4?'.ticket:nth-child(4n){break-after:page}':'.ticket{break-after:page}.ticket:last-child{break-after:auto}'}
     @media print{body{display:block}}
   `
@@ -78,6 +85,23 @@ export default function Orders({db,onSave,onEdit}){
     const number=String(o.phone||'').replace(/\D/g,'')
     const text=`Hola ${o.client}, te escribimos de Tu Vida En Tinta por tu pedido N° ${o.number}. Estado actual: ${o.status}.`
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank')
+  }
+
+
+  async function duplicateOrder(o){
+    const nextNumber=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
+    const copy={...JSON.parse(JSON.stringify(o)),id:crypto.randomUUID(),number:nextNumber,date:new Date().toISOString().slice(0,10),delivery:'',status:'Ingresado',paid:'No',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),notes:[o.notes,'Pedido duplicado del #'+o.number].filter(Boolean).join(' · ')}
+    await onSave({...db,orders:[...db.orders,copy]})
+    alert(`Pedido duplicado correctamente. Nuevo pedido #${nextNumber}.`)
+  }
+
+  function printLabel(o){
+    const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+    const win=window.open('','_blank')
+    if(!win) return alert('El navegador bloqueó la ventana de impresión.')
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta #${esc(o.number)}</title><style>
+      @page{size:100mm 60mm;margin:4mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0}.label{border:2px solid #111;height:52mm;padding:5mm;display:flex;flex-direction:column;justify-content:space-between}.brand{text-align:center;font-size:12px;font-weight:800}.number{text-align:center;font-size:25px;font-weight:900;background:#111;color:#fff;padding:3px}.client{text-align:center;font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px}.details div{border-top:1px solid #999;padding-top:3px}.details b{display:block;font-size:9px;text-transform:uppercase}</style></head><body><div class="label"><div class="brand">TU VIDA EN TINTA · POLIFAN</div><div class="number">PEDIDO #${esc(o.number)}</div><div class="client">${esc(o.client)}</div><div class="details"><div><b>Entrega</b>${formatDelivery(o.delivery)}</div><div><b>Total de piezas</b>${totalPieces}</div></div></div><script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.close()
   }
 
   function printOrders(orders,perPage=2,includeCutList=false){
@@ -158,6 +182,8 @@ export default function Orders({db,onSave,onEdit}){
         <td>{money(o.total)}</td><td className="row-actions">
           <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir</button>
           {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
+          <button className="ghost" onClick={()=>printLabel(o)}>Etiqueta</button>
+          <button className="ghost" onClick={()=>duplicateOrder(o)}>Duplicar</button>
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
           <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
         </td></tr>)}</tbody>

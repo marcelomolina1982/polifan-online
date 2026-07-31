@@ -1,0 +1,8 @@
+POLIFAN ONLINE - VERSIÓN 5.2
+
+MEJORA DE IMPRESIÓN DE PEDIDOS
+- Ahora se destaca la FECHA DE SALIDA/ENTREGA.
+- El día de la semana aparece arriba, en letras grandes.
+- La fecha de salida aparece debajo del día, también destacada.
+- La fecha de entrada se mantiene pequeña al pie como referencia.
+- Se conserva el total de piezas y el resto de la información del pedido.

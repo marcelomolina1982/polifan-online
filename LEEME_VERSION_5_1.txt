@@ -1,0 +1,12 @@
+POLIFAN ONLINE - VERSIÓN 5.1
+
+NOVEDADES
+- Panel principal ampliado con entregas para hoy, piezas pendientes y ventas diarias.
+- Botón Duplicar pedido: crea una copia con un número automático nuevo.
+- Botón Etiqueta: imprime una etiqueta de 100 x 60 mm para pegar en la bolsa.
+- Historial completo por cliente.
+- Total gastado y total de piezas por cliente.
+- Figuras más pedidas por cada cliente.
+- Identificación actualizada a Versión 5.1.
+
+La versión conserva la misma conexión y estructura de datos de Supabase.

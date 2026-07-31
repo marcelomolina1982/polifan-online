@@ -1,0 +1,15 @@
+POLIFAN ONLINE — VERSIÓN 5.0
+
+Esta versión parte de la versión 4.1 y conserva los datos y funciones existentes.
+
+INCLUYE EN ESTA PRIMERA ENTREGA 5.0:
+- Identificación visible “VERSIÓN 5.0”.
+- Impresión individual y múltiple de pedidos.
+- Fecha de entrada con día de la semana.
+- Total de piezas impreso en cada pedido.
+- Impresión de 1, 2 o 4 pedidos por hoja A4.
+- Lista de corte junto con pedidos seleccionados.
+- Compatibilidad con la misma base de datos de Supabase.
+
+IMPORTANTE:
+No es necesario crear otra base de datos. Se puede reemplazar el proyecto anterior por esta versión manteniendo la configuración de Supabase.
