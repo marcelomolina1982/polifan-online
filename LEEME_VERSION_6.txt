@@ -1,0 +1,16 @@
+VERSIÓN 6.0 - DISEÑADOR AUTOMÁTICO DE PLANCHAS
+
+Novedades:
+- Nueva sección "Diseñar planchas".
+- Tamaño de plancha configurable (por defecto 58 x 118 cm).
+- Carga de nombre, ancho, alto y cantidad de cada figura.
+- Separación configurable entre piezas.
+- Rotación automática opcional.
+- Cálculo de cantidad de planchas necesarias.
+- Vista previa de cada plancha.
+- Porcentaje estimado de aprovechamiento.
+- Descarga SVG de la plancha visible.
+- Impresión de la vista previa.
+
+IMPORTANTE:
+Esta primera versión acomoda rectángulos exteriores. No analiza todavía el contorno irregular real de un SVG. La descarga SVG sirve como guía de distribución y mantiene las medidas cargadas.

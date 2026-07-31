@@ -6,11 +6,12 @@ import { money } from '../lib/format'
 const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]))
 
 function deliveryParts(value){
-  if(!value) return {day:'SIN FECHA',date:'-'}
+  if(!value) return {day:'SIN FECHA',date:'-',dayClass:'day-none'}
   const [y,m,d]=value.split('-').map(Number)
   const date=new Date(y,m-1,d)
   const day=date.toLocaleDateString('es-AR',{weekday:'long'}).toUpperCase()
-  return {day,date:`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`}
+  const classes=['day-sunday','day-monday','day-tuesday','day-wednesday','day-thursday','day-friday','day-saturday']
+  return {day,date:`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`,dayClass:classes[date.getDay()]}
 }
 
 function formatDelivery(value){
@@ -25,7 +26,7 @@ function orderTicket(o){
   const items=(o.items||[]).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty||0)}</td></tr>`).join('')
   return `<article class="ticket">
     <div class="brand">TU VIDA EN TINTA · POLIFAN</div>
-    <div class="delivery"><small>FECHA DE SALIDA</small><strong class="delivery-day">${esc(delivery.day)}</strong><span class="delivery-date">${esc(delivery.date)}</span></div>
+    <div class="delivery ${esc(delivery.dayClass)}"><small>FECHA DE SALIDA</small><strong class="delivery-day">${esc(delivery.day)}</strong><span class="delivery-date">${esc(delivery.date)}</span></div>
     <div class="order-number">PEDIDO #${esc(o.number)}</div>
     <div class="grid">
       <div><b>Cliente</b></div><div>${esc(o.client)}</div>
@@ -33,8 +34,8 @@ function orderTicket(o){
       <div><b>Zona</b></div><div>${esc(o.zone||'-')}</div>
       <div><b>Transporte</b></div><div>${esc(o.carrier||'-')}</div>
       <div><b>Estado</b></div><div>${esc(o.status)}</div>
-      <div><b>Total de piezas</b></div><div>${totalPieces}</div>
     </div>
+    <div class="pieces-highlight"><small>TOTAL DE PIEZAS</small><strong>${totalPieces}</strong></div>
     <table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${items}</tbody></table>
     <p class="total"><b>Total:</b> ${money(o.total)}</p>
     <p class="notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</p>
@@ -49,7 +50,7 @@ function printStyles(perPage=2){
   const fontSize=perPage===4?'9px':'10.5px'
   const padding=perPage===4?'4mm':'5mm'
   return `
-    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.print-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:6mm;align-items:start}.ticket{width:${ticketWidth};border:1.5px solid #111;padding:${padding};font-size:${fontSize};break-inside:avoid;page-break-inside:avoid}.brand{text-align:center;font-size:14px;font-weight:800;margin:0 0 5px}.delivery{text-align:center;border:2px solid #111;padding:${perPage===4?'5px 3px':'7px 4px'};margin-bottom:6px}.delivery small{display:block;font-weight:800;font-size:9px;letter-spacing:.8px}.delivery-day{display:block;font-size:${perPage===4?'24px':'32px'};line-height:1;font-weight:900;margin-top:3px}.delivery-date{display:block;font-size:${perPage===4?'16px':'21px'};line-height:1.05;font-weight:800;margin-top:4px}.order-number{text-align:center;background:#111;color:#fff;padding:4px;font-size:14px;font-weight:800;margin-bottom:6px}.grid{display:grid;grid-template-columns:26mm 1fr}.grid div{padding:2px;border-bottom:1px solid #ccc;min-height:16px}.grid b{font-size:9px}table{width:100%;border-collapse:collapse;margin-top:7px}th,td{border:1px solid #111;padding:${perPage===4?'3px':'4px'};text-align:left}th:last-child,td:last-child{width:27%;text-align:center}.total{font-size:12px;margin:7px 0 3px}.notes{margin:3px 0;min-height:18px}.entry-reference{text-align:right;margin-top:6px;font-size:8px;color:#444}.footer{text-align:center;border-top:1px dashed #555;margin-top:7px;padding-top:5px;font-size:9px;font-style:italic}
+    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.print-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:6mm;align-items:start}.ticket{width:${ticketWidth};border:1.5px solid #111;padding:${padding};font-size:${fontSize};break-inside:avoid;page-break-inside:avoid}.brand{text-align:center;font-size:14px;font-weight:800;margin:0 0 5px}.delivery{text-align:center;border:2px solid #111;padding:${perPage===4?'5px 3px':'7px 4px'};margin-bottom:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}.delivery small{display:block;font-weight:800;font-size:9px;letter-spacing:.8px}.delivery-day{display:block;font-size:${perPage===4?'24px':'32px'};line-height:1;font-weight:900;margin-top:3px}.delivery-date{display:block;font-size:${perPage===4?'16px':'21px'};line-height:1.05;font-weight:800;margin-top:4px}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.order-number{text-align:center;background:#111;color:#fff;padding:4px;font-size:14px;font-weight:800;margin-bottom:6px}.grid{display:grid;grid-template-columns:26mm 1fr}.grid div{padding:2px;border-bottom:1px solid #ccc;min-height:16px}.grid b{font-size:9px}.pieces-highlight{text-align:center;border:2px solid #111;padding:${perPage===4?'5px 3px':'7px 4px'};margin:6px 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pieces-highlight small{display:block;font-weight:800;font-size:9px;letter-spacing:.8px}.pieces-highlight strong{display:block;font-size:${perPage===4?'24px':'32px'};line-height:1;font-weight:900;margin-top:3px}table{width:100%;border-collapse:collapse;margin-top:7px}th,td{border:1px solid #111;padding:${perPage===4?'3px':'4px'};text-align:left}th:last-child,td:last-child{width:27%;text-align:center}.total{font-size:12px;margin:7px 0 3px}.notes{margin:3px 0;min-height:18px}.entry-reference{text-align:right;margin-top:6px;font-size:8px;color:#444}.footer{text-align:center;border-top:1px dashed #555;margin-top:7px;padding-top:5px;font-size:9px;font-style:italic}
     ${perPage===2?'.ticket:nth-child(2n){break-after:page}':perPage===4?'.ticket:nth-child(4n){break-after:page}':'.ticket{break-after:page}.ticket:last-child{break-after:auto}'}
     @media print{body{display:block}}
   `

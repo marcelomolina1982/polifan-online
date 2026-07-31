@@ -1,0 +1,14 @@
+VERSIÓN 5.3
+
+Cambios en la impresión de pedidos:
+- El encabezado de la fecha de salida cambia de color según el día:
+  Lunes verde, martes azul, miércoles amarillo, jueves naranja,
+  viernes rojo y sábado violeta.
+- Domingo y pedidos sin fecha se muestran en gris.
+- El total de piezas aparece en un bloque independiente y con el mismo
+  tamaño destacado que el nombre del día.
+- Se activó la conservación de colores al imprimir mediante
+  print-color-adjust.
+
+Importante: en el cuadro de impresión del navegador debe estar habilitada
+la opción "Gráficos de fondo" para que se impriman los colores.
