@@ -12,3 +12,6 @@
 
 .draft-status{display:inline-block;background:#ecfdf3;color:#027a48;border:1px solid #abefc6;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800}
 @media(max-width:760px){.draft-status{font-size:11px}}
+
+/* Listas de corte por fecha */
+.cut-date-filter{display:grid;grid-template-columns:auto minmax(220px,1fr) auto;align-items:center;gap:12px}.delivery-groups{display:grid;gap:16px}.delivery-group{padding:0;overflow:hidden}.delivery-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 18px;background:linear-gradient(90deg,#f4efff,#fafafa);border-bottom:1px solid #e5e7eb}.delivery-head small{font-weight:800;color:#6d28d9}.delivery-head h3{margin:3px 0;text-transform:capitalize}.delivery-head span{font-size:12px;color:#64748b}.delivery-head>b{background:#ede9fe;color:#5b21b6;padding:7px 11px;border-radius:10px;white-space:nowrap}.delivery-group .table-wrap{border:0}.cut-summary summary{cursor:pointer;padding:4px}.cut-summary[open] summary{margin-bottom:12px}@media(max-width:760px){.cut-date-filter{grid-template-columns:1fr}.delivery-head{align-items:flex-start;flex-direction:column}.delivery-head>b{align-self:flex-start}}
