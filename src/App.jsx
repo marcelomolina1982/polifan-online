@@ -15,7 +15,8 @@ const emptyState = () => ({
   movements: [],
   stockMin: {},
   figures: figuresDefault,
-  clients: []
+  clients: [],
+  cuttingBatches: []
 })
 
 const statusColors = {
@@ -97,6 +98,7 @@ function App(){
     ['new','＋','Nuevo pedido'],
     ['orders','▤','Pedidos'],
     ['cut','✂','Para cortar'],
+    ['cutting','▦','En corte'],
     ['stock','◇','Stock'],
     ['clients','♙','Clientes'],
     ['monthly','▥','Resumen mensual'],
@@ -131,7 +133,8 @@ function App(){
         {page==='dashboard' && <Dashboard db={db} go={setPage}/>}
         {page==='new' && <OrderForm db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)} />}
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}} />}
-        {page==='cut' && <CutList db={db} />}
+        {page==='cut' && <CutList db={db} onSave={saveData} goCutting={()=>setPage('cutting')} />}
+        {page==='cutting' && <CuttingBatches db={db} onSave={saveData} />}
         {page==='stock' && <Stock db={db} onSave={saveData} />}
         {page==='clients' && <Clients db={db} onSave={saveData} goOrders={()=>setPage('orders')} />}
         {page==='monthly' && <Monthly db={db} />}
@@ -374,68 +377,177 @@ function Orders({db,onSave,onEdit}){
   </>
 }
 
-function CutList({db}){
-  const grouped={}
-  db.orders.filter(o=>['Ingresado','En diseño','Listo para cortar'].includes(o.status)).forEach(o=>{
+function activeOrderDemand(db){
+  const demand={}
+  ;(db.orders||[]).filter(o=>!['Cancelado','Entregado'].includes(o.status)).forEach(o=>{
     ;(o.items||[]).forEach(i=>{
       if(!i.figure)return
-      if(!grouped[i.figure]) grouped[i.figure]={qty:0,orders:[],urgent:0}
-      grouped[i.figure].qty+=Number(i.qty||0)
-      grouped[i.figure].orders.push(o.number)
-      if(o.priority==='Urgente') grouped[i.figure].urgent++
+      demand[i.figure]=(demand[i.figure]||0)+Number(i.qty||0)
     })
   })
-  const rows=Object.entries(grouped).sort((a,b)=>b[1].qty-a[1].qty)
+  return demand
+}
+
+function openCutQuantities(db){
+  const inCut={}
+  ;(db.cuttingBatches||[]).filter(b=>b.status==='En corte').forEach(b=>{
+    ;(b.items||[]).forEach(i=>{
+      if(!i.figure)return
+      inCut[i.figure]=(inCut[i.figure]||0)+Number(i.qty||0)
+    })
+  })
+  return inCut
+}
+
+function manualStockByFigure(db){
+  const values={}
+  ;(db.movements||[]).forEach(m=>{
+    const q=Number(m.qty||0)
+    const sign=['Entrada extra','Ajuste positivo','Producción terminada'].includes(m.type)?1:-1
+    values[m.figure]=(values[m.figure]||0)+(sign*q)
+  })
+  return values
+}
+
+function stockRows(db){
+  const demand=activeOrderDemand(db)
+  const manual=manualStockByFigure(db)
+  const figures=[...new Set([...(db.figures||[]),...Object.keys(demand),...Object.keys(manual)])]
+    .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+  return figures.map(f=>{
+    const available=Number(manual[f]||0)
+    const committed=Number(demand[f]||0)
+    const total=available-committed
+    return {figure:f,available,committed,total,min:Number((db.stockMin||{})[f]||0)}
+  })
+}
+
+function CutList({db,onSave,goCutting}){
+  const demand=activeOrderDemand(db)
+  const manual=manualStockByFigure(db)
+  const inCut=openCutQuantities(db)
+  const orderRefs={}
+  ;(db.orders||[]).filter(o=>!['Cancelado','Entregado'].includes(o.status)).forEach(o=>{
+    ;(o.items||[]).forEach(i=>{
+      if(!i.figure)return
+      if(!orderRefs[i.figure])orderRefs[i.figure]=[]
+      orderRefs[i.figure].push(o.number)
+    })
+  })
+  const rows=Object.keys(demand).map(f=>{
+    const deficit=Math.max(0,Number(demand[f]||0)-Number(manual[f]||0))
+    const pending=Math.max(0,deficit-Number(inCut[f]||0))
+    return {figure:f,demand:demand[f],stock:manual[f]||0,inCut:inCut[f]||0,pending,orders:[...new Set(orderRefs[f]||[])]}
+  }).filter(r=>r.pending>0).sort((a,b)=>b.pending-a.pending)
+
+  async function createSuggestedBatch(){
+    if(!rows.length)return alert('No hay piezas pendientes para enviar a cortar.')
+    const batch={
+      id:crypto.randomUUID(),
+      number:String((Math.max(0,...(db.cuttingBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),
+      date:today(),status:'En corte',notes:'Sugerencia automática creada desde Pedidos para cortar',
+      items:rows.map(r=>({figure:r.figure,qty:r.pending})),createdAt:new Date().toISOString()
+    }
+    await onSave({...db,cuttingBatches:[...(db.cuttingBatches||[]),batch]})
+    alert('Se creó una placa sugerida. Podés editar las cantidades en la sección En corte.')
+    goCutting()
+  }
+
   return <>
-    <Title title="Lista para cortar" sub="Se actualiza automáticamente con los pedidos pendientes." actions={<button className="primary" onClick={()=>window.print()}>Imprimir lista</button>}/>
-    <div className="panel table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad</th><th>Pedidos</th><th>Urgentes</th></tr></thead><tbody>
-      {rows.map(([f,v])=><tr key={f}><td><b>{f}</b></td><td className="big">{v.qty}</td><td>{v.orders.join(', ')}</td><td>{v.urgent||'-'}</td></tr>)}
-      {!rows.length&&<tr><td colSpan="4">No hay figuras pendientes para cortar.</td></tr>}
+    <Title title="Pedidos para cortar" sub="Muestra solamente lo que falta fabricar, descontando el stock disponible y lo que ya está en corte." actions={<div className="actions"><button className="ghost" onClick={()=>window.print()}>Imprimir</button><button className="primary" onClick={createSuggestedBatch}>▦ Crear placa sugerida</button></div>}/>
+    <div className="notice"><b>Cálculo automático</b><span>Pedido − stock disponible − piezas ya enviadas a corte = cantidad pendiente.</span></div>
+    <div className="panel table-wrap"><table><thead><tr><th>Figura</th><th>Pedidos</th><th>Stock físico</th><th>Ya en corte</th><th>Falta enviar</th></tr></thead><tbody>
+      {rows.map(r=><tr key={r.figure}><td><b>{r.figure}</b><small className="block">Pedidos: {r.orders.join(', ')}</small></td><td>{r.demand}</td><td>{r.stock}</td><td>{r.inCut}</td><td className="big red-text">{r.pending}</td></tr>)}
+      {!rows.length&&<tr><td colSpan="5">No hay figuras pendientes para cortar.</td></tr>}
     </tbody></table></div>
   </>
 }
 
-function stockRows(db){
-  return db.figures.map(f=>{
-    let entrada=0,salida=0
-    db.movements.filter(m=>m.figure===f).forEach(m=>{
-      const q=Number(m.qty||0)
-      if(['Entrada extra','Ajuste positivo'].includes(m.type)) entrada+=q
-      else salida+=q
-    })
-    let cut=0
-    db.orders.filter(o=>o.status==='Cortado').forEach(o=>(o.items||[]).filter(i=>i.figure===f).forEach(i=>cut+=Number(i.qty||0)))
-    const total=entrada-salida+cut
-    return {figure:f,entrada,salida,cut,total,min:Number(db.stockMin[f]||0)}
-  })
+function CuttingBatches({db,onSave}){
+  const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const pendingRows=useMemo(()=>{
+    const demand=activeOrderDemand(db),manual=manualStockByFigure(db),inCut=openCutQuantities(db)
+    return Object.keys(demand).map(f=>({figure:f,qty:Math.max(0,demand[f]-(manual[f]||0)-(inCut[f]||0))})).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty)
+  },[db])
+  const blank=()=>({id:crypto.randomUUID(),number:String((Math.max(0,...(db.cuttingBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),date:today(),status:'En corte',notes:'',items:[{figure:pendingRows[0]?.figure||sortedFigures[0]||'',qty:1}]})
+  const [form,setForm]=useState(blank)
+  const [editing,setEditing]=useState(null)
+
+  useEffect(()=>{if(!editing)setForm(f=>({...f,number:String((Math.max(0,...(db.cuttingBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')}))},[db.cuttingBatches])
+  function updateItem(ix,key,val){setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))}
+  function useSuggestion(){
+    if(!pendingRows.length)return alert('No hay piezas pendientes.')
+    setForm(f=>({...f,items:pendingRows.map(x=>({...x}))}))
+  }
+  async function save(e){
+    e.preventDefault()
+    const items=form.items.filter(i=>i.figure&&Number(i.qty)>0).map(i=>({...i,qty:Number(i.qty)}))
+    if(!items.length)return alert('Agregá al menos una figura.')
+    const batch={...form,items,updatedAt:new Date().toISOString(),createdAt:form.createdAt||new Date().toISOString()}
+    const list=editing?(db.cuttingBatches||[]).map(b=>b.id===batch.id?batch:b):[...(db.cuttingBatches||[]),batch]
+    await onSave({...db,cuttingBatches:list})
+    setEditing(null);setForm(blank())
+  }
+  async function finish(batch){
+    if(!confirm('¿Marcar esta placa como terminada? Las piezas se sumarán al stock físico.'))return
+    const movements=(batch.items||[]).map(i=>({id:crypto.randomUUID(),date:today(),figure:i.figure,type:'Producción terminada',qty:Number(i.qty),detail:`Placa #${batch.number}`,createdAt:new Date().toISOString()}))
+    const batches=(db.cuttingBatches||[]).map(b=>b.id===batch.id?{...b,status:'Terminada',finishedAt:new Date().toISOString()}:b)
+    await onSave({...db,cuttingBatches:batches,movements:[...(db.movements||[]),...movements]})
+  }
+  async function remove(batch){
+    if(!confirm(`¿Eliminar la placa #${batch.number}?`))return
+    await onSave({...db,cuttingBatches:(db.cuttingBatches||[]).filter(b=>b.id!==batch.id)})
+  }
+  function edit(batch){setEditing(batch.id);setForm(JSON.parse(JSON.stringify(batch)));window.scrollTo({top:0,behavior:'smooth'})}
+
+  return <>
+    <Title title="En corte" sub="Registrá cada placa o tanda que mandás a cortar. Al terminarla, sus piezas se suman al stock."/>
+    <form className="panel" onSubmit={save}>
+      <div className="panel-heading"><h3>{editing?'Editar placa':'Nueva placa de corte'}</h3><button type="button" className="ghost" onClick={useSuggestion}>Usar sugerencia completa</button></div>
+      <div className="form-grid"><Field label="Número"><input value={form.number} onChange={e=>setForm({...form,number:e.target.value})}/></Field><Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field><Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>En corte</option><option>Terminada</option></select></Field></div>
+      <h3>Piezas de la placa</h3>
+      {form.items.map((it,ix)=><div className="item-row" key={ix}><input list={`cutfig-${ix}`} value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)} placeholder="Buscar figura…"/><datalist id={`cutfig-${ix}`}>{sortedFigures.map(f=><option key={f} value={f}/>)}</datalist><input type="number" min="1" value={it.qty} onChange={e=>updateItem(ix,'qty',e.target.value)}/><button type="button" className="danger" onClick={()=>setForm(f=>({...f,items:f.items.filter((_,i)=>i!==ix)}))}>Quitar</button></div>)}
+      <button type="button" className="ghost" onClick={()=>setForm(f=>({...f,items:[...f.items,{figure:'',qty:1}]}))}>＋ Agregar figura</button>
+      <Field label="Notas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value)}/></Field>
+      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar placa'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{setEditing(null);setForm(blank())}}>Cancelar</button>}</div>
+    </form>
+    <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Contenido</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+      {(db.cuttingBatches||[]).slice().reverse().map(b=><tr key={b.id}><td><b>#{b.number}</b></td><td>{b.date}</td><td>{(b.items||[]).map(i=>`${i.figure} × ${i.qty}`).join(' · ')}</td><td>{(b.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td><Badge status={b.status}/></td><td className="row-actions">{b.status==='En corte'?<><button className="primary" onClick={()=>finish(b)}>Terminar</button><button className="ghost" onClick={()=>edit(b)}>Editar</button><button className="danger" onClick={()=>remove(b)}>Eliminar</button></>:<span className="status-text ok">FINALIZADA</span>}</td></tr>)}
+      {!(db.cuttingBatches||[]).length&&<tr><td colSpan="6">Todavía no hay placas registradas.</td></tr>}
+    </tbody></table></div>
+  </>
 }
 
 function Stock({db,onSave}){
-  const [form,setForm]=useState({date:today(),figure:db.figures[0]||'',type:'Entrada extra',qty:1,detail:''})
+  const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const [form,setForm]=useState({date:today(),figure:sortedFigures[0]||'',type:'Entrada extra',qty:1,detail:''})
   const rows=stockRows(db)
 
   async function add(e){
     e.preventDefault()
+    if(!form.figure||Number(form.qty)<=0)return alert('Completá figura y cantidad.')
     const movement={...form,id:crypto.randomUUID(),qty:Number(form.qty),createdAt:new Date().toISOString()}
-    await onSave({...db,movements:[...db.movements,movement]})
+    await onSave({...db,movements:[...(db.movements||[]),movement]})
     setForm({...form,qty:1,detail:''})
   }
-
-  async function minChange(f,v){ await onSave({...db,stockMin:{...db.stockMin,[f]:Number(v)}}) }
+  async function quick(f,delta){
+    const movement={id:crypto.randomUUID(),date:today(),figure:f,type:delta>0?'Entrada extra':'Salida manual',qty:Math.abs(delta),detail:'Ajuste rápido desde stock',createdAt:new Date().toISOString()}
+    await onSave({...db,movements:[...(db.movements||[]),movement]})
+  }
 
   return <>
-    <Title title="Stock permanente" sub="El stock se actualiza cuando un pedido pasa a Cortado o Entregado."/>
-    <div className="notice"><b>Actualización automática</b><span>Los pedidos Cortados suman piezas disponibles. Al pasar a Entregado dejan de formar parte del stock.</span></div>
-    <div className="panel table-wrap"><table><thead><tr><th>Figura</th><th>Entradas extra</th><th>Salidas</th><th>Cortadas de pedidos</th><th>Stock disponible</th><th>Stock mínimo</th><th>Estado</th></tr></thead><tbody>
-      {rows.map(s=><tr key={s.figure}><td><b>{s.figure}</b></td><td className="green-text">{s.entrada}</td><td className="red-text">{s.salida}</td><td className="purple-text">{s.cut}</td><td className={s.total<=s.min?'red-text':'green-text'}><b>{s.total}</b></td>
-      <td><input className="mini" type="number" value={s.min} onChange={e=>minChange(s.figure,e.target.value)}/></td><td><span className={'status-text '+(s.total<=s.min?'low':'ok')}>{s.total<=s.min?'REPOSICIÓN':'OK'}</span></td></tr>)}
+    <Title title="Inventario / Stock" sub="El saldo descuenta automáticamente todos los pedidos activos. Puede quedar negativo para mostrar lo que falta fabricar."/>
+    <div className="notice"><b>Ejemplo</b><span>Si cargás un pedido de 3 pelotas y no tenés ninguna, el saldo muestra −3. Si agregás 1, pasa a −2.</span></div>
+    <div className="panel table-wrap"><table><thead><tr><th>Figura</th><th>Stock físico</th><th>Reservado en pedidos</th><th>Saldo disponible</th><th>Ajuste rápido</th></tr></thead><tbody>
+      {rows.map(s=><tr key={s.figure}><td><b>{s.figure}</b></td><td>{s.available}</td><td>{s.committed}</td><td className={s.total<0?'red-text':s.total>0?'green-text':'purple-text'}><b className="big">{s.total}</b></td><td className="row-actions"><button className="ghost" onClick={()=>quick(s.figure,-1)}>−1</button><button className="primary" onClick={()=>quick(s.figure,1)}>＋1</button></td></tr>)}
     </tbody></table></div>
-    <form className="panel" onSubmit={add}><h3>Entrada o ajuste manual</h3><div className="form-grid">
+    <form className="panel" onSubmit={add}><h3>Agregar o quitar piezas manualmente</h3><div className="form-grid">
       <Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
-      <Field label="Figura"><select value={form.figure} onChange={e=>setForm({...form,figure:e.target.value})}>{db.figures.map(f=><option key={f}>{f}</option>)}</select></Field>
+      <Field label="Figura"><input list="stock-figures" value={form.figure} onChange={e=>setForm({...form,figure:e.target.value)} placeholder="Buscar figura…"/><datalist id="stock-figures">{sortedFigures.map(f=><option key={f} value={f}/>)}</datalist></Field>
       <Field label="Movimiento"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>{['Entrada extra','Salida manual','Ajuste positivo','Ajuste negativo'].map(x=><option key={x}>{x}</option>)}</select></Field>
       <Field label="Cantidad"><input type="number" min="1" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field>
     </div><Field label="Detalle"><input value={form.detail} onChange={e=>setForm({...form,detail:e.target.value})}/></Field><button className="primary">Guardar movimiento</button></form>
+    <div className="panel table-wrap"><h3>Últimos movimientos</h3><table><thead><tr><th>Fecha</th><th>Figura</th><th>Tipo</th><th>Cantidad</th><th>Detalle</th></tr></thead><tbody>{(db.movements||[]).slice().reverse().slice(0,30).map(m=><tr key={m.id}><td>{m.date}</td><td>{m.figure}</td><td>{m.type}</td><td>{m.qty}</td><td>{m.detail||'-'}</td></tr>)}</tbody></table></div>
   </>
 }
 
@@ -582,6 +694,21 @@ function Settings({db,onSave}){
     await onSave({...db,figures,stockMin})
   }
 
+  async function resetTestData(){
+    const first=window.confirm(
+      '¿Borrar todos los datos de prueba?\n\nSe eliminarán pedidos, facturación, movimientos de stock y placas de corte.\nSe conservarán el catálogo de figuras, los clientes y la configuración.'
+    )
+    if(!first)return
+    const code=window.prompt('Para confirmar, escribí BORRAR:')
+    if(code!=='BORRAR')return alert('No se borró nada.')
+
+    const next={...db,orders:[],movements:[],cuttingBatches:[]}
+    await onSave(next)
+    localStorage.removeItem('polifan-order-draft')
+    localStorage.removeItem('polifan-new-figures-draft')
+    alert('Datos de prueba eliminados. Los contadores, el stock y la facturación quedaron en cero.')
+  }
+
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
     <div className="grid2">
@@ -592,6 +719,11 @@ function Settings({db,onSave}){
         <textarea value={newFigures} onChange={e=>setNewFigures(e.target.value)} placeholder={'Ejemplo:\nCorazón grande\nMariposa\nNúmero 15'}/>
         <button className="primary full" onClick={addFigures}>Agregar productos</button>
       </div>
+    </div>
+    <div className="panel danger-zone">
+      <h3>Comenzar a usar el sistema desde cero</h3>
+      <p>Usá esta opción cuando termines las pruebas. Borra pedidos, dinero del resumen mensual, movimientos de stock y placas de corte. Conserva el catálogo de figuras, los clientes y la configuración.</p>
+      <button className="danger" onClick={resetTestData}>Borrar datos de prueba</button>
     </div>
     <div className="panel">
       <h3>Catálogo de figuras ({db.figures.length})</h3>

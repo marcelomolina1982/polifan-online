@@ -1,0 +1,8 @@
+POLIFAN ONLINE - VERSIÓN 3.1
+
+En "Datos y copias" se agregó el botón "Borrar datos de prueba".
+
+Elimina pedidos, facturación, movimientos de stock y placas de corte.
+Conserva catálogo, clientes y configuración.
+Pide confirmación y escribir BORRAR para evitar accidentes.
+Se recomienda descargar una copia antes de usarlo.

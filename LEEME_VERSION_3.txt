@@ -1,0 +1,15 @@
+POLIFAN ONLINE - VERSIÓN 3.0
+
+NOVEDADES
+- El stock ahora muestra: stock físico - piezas reservadas en pedidos activos.
+- Un pedido de 3 pelotas con stock físico 0 muestra saldo -3.
+- Nueva sección "En corte" para registrar placas o tandas.
+- "Pedidos para cortar" descuenta el stock físico y las piezas que ya están en corte.
+- Botón "Crear placa sugerida" con todas las cantidades pendientes.
+- La placa sugerida puede editarse para dejar solamente lo que entra en la plancha.
+- Al marcar una placa como terminada, sus piezas se suman al stock físico.
+- Ajustes rápidos +1 y -1 en Inventario / Stock.
+- Historial de los últimos movimientos.
+
+IMPORTANTE
+Los datos existentes se conservan. El nuevo campo cuttingBatches se agrega automáticamente si todavía no existe.
