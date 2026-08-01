@@ -10,8 +10,8 @@ import CutBatches from './pages/CutBatches'
 import Stock from './pages/Stock'
 import Clients from './pages/Clients'
 import Monthly from './pages/Monthly'
+import Expenses from './pages/Expenses'
 import Settings from './pages/Settings'
-import SheetPlanner from './pages/SheetPlanner'
 
 export default function App(){
   const [session,setSession] = useState(null)
@@ -67,13 +67,13 @@ export default function App(){
 
   const nav = [
     ['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'],
-    ['cut','✂','Para cortar'], ['planner','▧','Diseñar planchas'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario'],
-    ['clients','♙','Clientes'], ['monthly','▥','Resumen mensual'], ['settings','⚙','Datos y copias'],
+    ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario'],
+    ['clients','♙','Clientes'], ['expenses','💸','Gastos'], ['monthly','▥','Resumen mensual'], ['settings','⚙','Datos y copias'],
   ]
 
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 6.2</span></div></div>
+      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 6.4</span></div></div>
       <nav>{nav.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
@@ -92,11 +92,11 @@ export default function App(){
         {page==='dashboard' && <Dashboard db={db} go={setPage}/>} 
         {page==='new' && <OrderForm db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} 
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>} 
-        {page==='planner' && <SheetPlanner/>}
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
         {page==='clients' && <Clients db={db} onSave={saveData}/>} 
+        {page==='expenses' && <Expenses db={db} onSave={saveData}/>} 
         {page==='monthly' && <Monthly db={db}/>} 
         {page==='settings' && <Settings db={db} onSave={saveData}/>} 
       </main>

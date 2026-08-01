@@ -20,6 +20,11 @@ export default function Dashboard({db,go}){
     return d.getMonth()+1===month && d.getFullYear()===year && o.status!=='Cancelado'
   })
   const revenue=monthly.reduce((a,o)=>a+Number(o.total||0),0)
+  const monthlyExpenses=(db.expenses||[]).filter(e=>{
+    const d=new Date((e.date||'').slice(0,10)+'T12:00:00')
+    return d.getMonth()+1===month && d.getFullYear()===year
+  }).reduce((a,e)=>a+Number(e.amount||0),0)
+  const netProfit=revenue-monthlyExpenses
   const low=stockRows(db).filter(s=>s.total<=s.min).length
 
   return <>
@@ -30,6 +35,8 @@ export default function Dashboard({db,go}){
       <Kpi label="Piezas pendientes" value={pendingPieces}/>
       <Kpi label="Ventas de hoy" value={money(todayRevenue)}/>
       <Kpi label="Facturación del mes" value={money(revenue)}/>
+      <Kpi label="Gastos del mes" value={money(monthlyExpenses)}/>
+      <Kpi label="Ganancia libre" value={money(netProfit)}/>
       <Kpi label="Stock para reponer" value={low}/>
     </div>
     <div className="grid2">
@@ -46,6 +53,7 @@ export default function Dashboard({db,go}){
           <button onClick={()=>go('cut')}>Lista para cortar</button>
           <button onClick={()=>go('clients')}>Historial de clientes</button>
           <button onClick={()=>go('stock')}>Control de stock</button>
+          <button onClick={()=>go('expenses')}>Registrar gastos</button>
           <button onClick={()=>go('monthly')}>Resumen mensual</button>
         </div>
       </div>

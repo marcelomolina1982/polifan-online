@@ -8,7 +8,7 @@ export const figuresDefault = [
 ]
 
 export const emptyState = () => ({
-  orders: [], movements: [], stockMin: {}, figures: figuresDefault, clients: [], cutBatches: []
+  orders: [], movements: [], stockMin: {}, figures: figuresDefault, clients: [], cutBatches: [], expenses: []
 })
 
 export const statusColors = {

@@ -1,0 +1,7 @@
+POLIFAN ONLINE - VERSIÓN 6.3
+
+CAMBIO REALIZADO:
+- Se eliminó por completo la sección Diseñar planchas.
+- Se quitó la opción del menú y la pantalla del diseñador.
+- Se eliminaron los archivos y estilos relacionados.
+- Se mantienen pedidos, impresión, etiquetas y descargas JPG de la versión 6.2.

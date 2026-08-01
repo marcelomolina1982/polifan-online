@@ -1,0 +1,13 @@
+POLIFAN ONLINE - VERSION 6.4
+
+NOVEDADES:
+- Nueva sección Gastos.
+- Registro, edición, búsqueda y eliminación de gastos.
+- Categorías para placas, cajas, pegamento, DTF, bolsas, transporte, servicios y otros.
+- Resumen mensual con facturación, gastos y ganancia libre.
+- Panel principal con gastos y ganancia libre del mes.
+
+CÁLCULO:
+Ganancia libre = Facturación del mes - Gastos del mes.
+
+Los gastos se guardan dentro del mismo app_state de Supabase, por lo que no requiere crear una tabla nueva.
