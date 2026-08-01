@@ -1,0 +1,7 @@
+POLIFAN ONLINE - VERSIÓN 6.2
+
+NOVEDADES:
+- En cada pedido se puede elegir Imprimir pedido o descargar Pedido JPG.
+- En cada etiqueta se puede elegir Imprimir etiqueta o descargar Etiqueta JPG.
+- Los JPG se generan en alta resolución, con fondo blanco y colores de día de entrega.
+- Los archivos se guardan con el número de pedido en el nombre.

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import html2canvas from 'html2canvas'
 import { Title } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money } from '../lib/format'
@@ -42,6 +43,49 @@ function orderTicket(o){
     <div class="entry-reference">Fecha de entrada: ${esc(entryText)}</div>
     <div class="footer">¡Gracias por tu compra!</div>
   </article>`
+}
+
+
+
+async function downloadHtmlAsJpg(bodyHtml,css,filename,width=900){
+  const frame=document.createElement('iframe')
+  frame.setAttribute('aria-hidden','true')
+  frame.style.position='fixed'
+  frame.style.left='-10000px'
+  frame.style.top='0'
+  frame.style.width=width+'px'
+  frame.style.height='1400px'
+  frame.style.border='0'
+  frame.style.background='#fff'
+  document.body.appendChild(frame)
+  const doc=frame.contentDocument
+  doc.open()
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff!important}body{padding:20px}</style></head><body>${bodyHtml}</body></html>`)
+  doc.close()
+  await new Promise(resolve=>setTimeout(resolve,180))
+  try{
+    const target=doc.body
+    frame.style.height=Math.max(600,target.scrollHeight+40)+'px'
+    const canvas=await html2canvas(target,{backgroundColor:'#ffffff',scale:2,useCORS:true,logging:false,width:target.scrollWidth,height:target.scrollHeight})
+    const link=document.createElement('a')
+    link.download=filename
+    link.href=canvas.toDataURL('image/jpeg',0.95)
+    link.click()
+  }catch(error){
+    console.error(error)
+    alert('No se pudo generar el JPG. Intentá nuevamente.')
+  }finally{
+    frame.remove()
+  }
+}
+
+function labelHtml(o){
+  const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+  return `<div class="label"><div class="brand">TU VIDA EN TINTA · POLIFAN</div><div class="number">PEDIDO #${esc(o.number)}</div><div class="client">${esc(o.client)}</div><div class="details"><div><b>Entrega</b>${formatDelivery(o.delivery)}</div><div><b>Total de piezas</b>${totalPieces}</div></div></div>`
+}
+
+function labelStyles(){
+  return `*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;width:100mm}.label{border:2px solid #111;width:100mm;height:60mm;padding:5mm;display:flex;flex-direction:column;justify-content:space-between;background:#fff}.brand{text-align:center;font-size:12px;font-weight:800}.number{text-align:center;font-size:25px;font-weight:900;background:#111;color:#fff;padding:3px}.client{text-align:center;font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px}.details div{border-top:1px solid #999;padding-top:3px}.details b{display:block;font-size:9px;text-transform:uppercase}`
 }
 
 function printStyles(perPage=2){
@@ -97,12 +141,19 @@ export default function Orders({db,onSave,onEdit}){
   }
 
   function printLabel(o){
-    const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
     const win=window.open('','_blank')
     if(!win) return alert('El navegador bloqueó la ventana de impresión.')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta #${esc(o.number)}</title><style>
-      @page{size:100mm 60mm;margin:4mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0}.label{border:2px solid #111;height:52mm;padding:5mm;display:flex;flex-direction:column;justify-content:space-between}.brand{text-align:center;font-size:12px;font-weight:800}.number{text-align:center;font-size:25px;font-weight:900;background:#111;color:#fff;padding:3px}.client{text-align:center;font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px}.details div{border-top:1px solid #999;padding-top:3px}.details b{display:block;font-size:9px;text-transform:uppercase}</style></head><body><div class="label"><div class="brand">TU VIDA EN TINTA · POLIFAN</div><div class="number">PEDIDO #${esc(o.number)}</div><div class="client">${esc(o.client)}</div><div class="details"><div><b>Entrega</b>${formatDelivery(o.delivery)}</div><div><b>Total de piezas</b>${totalPieces}</div></div></div><script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta #${esc(o.number)}</title><style>@page{size:100mm 60mm;margin:0}${labelStyles()}</style></head><body>${labelHtml(o)}<script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
+  }
+
+  function downloadLabelJpg(o){
+    downloadHtmlAsJpg(labelHtml(o),labelStyles(),`etiqueta-pedido-${o.number}.jpg`,430)
+  }
+
+  function downloadOrderJpg(o){
+    const css=printStyles(1)+'.print-grid{display:block}.ticket{margin:0 auto;break-after:auto!important}'
+    downloadHtmlAsJpg(`<div class="print-grid">${orderTicket(o)}</div>`,css,`pedido-${o.number}.jpg`,900)
   }
 
   function printOrders(orders,perPage=2,includeCutList=false){
@@ -181,9 +232,11 @@ export default function Orders({db,onSave,onEdit}){
         <td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td>
         <td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td>
         <td>{money(o.total)}</td><td className="row-actions">
-          <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir</button>
+          <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir pedido</button>
+          <button className="ghost" onClick={()=>downloadOrderJpg(o)}>Pedido JPG</button>
           {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
-          <button className="ghost" onClick={()=>printLabel(o)}>Etiqueta</button>
+          <button className="ghost" onClick={()=>printLabel(o)}>Imprimir etiqueta</button>
+          <button className="ghost" onClick={()=>downloadLabelJpg(o)}>Etiqueta JPG</button>
           <button className="ghost" onClick={()=>duplicateOrder(o)}>Duplicar</button>
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
           <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
