@@ -12,6 +12,7 @@ import Clients from './pages/Clients'
 import Monthly from './pages/Monthly'
 import Expenses from './pages/Expenses'
 import Settings from './pages/Settings'
+import CatalogAdmin from './pages/CatalogAdmin'
 import CustomerOrder from './pages/CustomerOrder'
 
 export default function App(){
@@ -71,12 +72,12 @@ export default function App(){
   const nav = [
     ['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'],
     ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario'],
-    ['clients','♙','Clientes'], ['expenses','💸','Gastos'], ['monthly','▥','Resumen mensual'], ['settings','⚙','Datos y copias'],
+    ['clients','♙','Clientes'], ['catalog','▦','Administrar catálogo'], ['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual'], ['settings','⚙','Datos y copias'],
   ]
 
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 7.0</span></div></div>
+      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 8.1</span></div></div>
       <nav>{nav.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
@@ -99,6 +100,7 @@ export default function App(){
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
         {page==='clients' && <Clients db={db} onSave={saveData}/>} 
+        {page==='catalog' && <CatalogAdmin db={db} onSave={saveData}/>} 
         {page==='expenses' && <Expenses db={db} onSave={saveData}/>} 
         {page==='monthly' && <Monthly db={db}/>} 
         {page==='settings' && <Settings db={db} onSave={saveData}/>} 

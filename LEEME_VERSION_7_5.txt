@@ -1,0 +1,9 @@
+POLIFAN ONLINE - VERSION 7.5
+
+CATALOGO VISUAL CON IMAGENES INCLUIDAS
+
+- Incluye las 74 fotos del catálogo dentro de un solo archivo del programa.
+- Mantiene nombres, medidas, categorías, buscador, carrito, promociones y WhatsApp.
+- Código postal obligatorio para envíos.
+- No existe la carpeta con 74 imágenes separadas, por lo que el proyecto queda por debajo del límite de 100 archivos de GitHub.
+- Para instalar: descomprimir y subir el contenido de esta carpeta al repositorio, reemplazando los archivos anteriores.

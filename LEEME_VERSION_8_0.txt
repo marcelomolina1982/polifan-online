@@ -1,0 +1,10 @@
+VERSIÓN 8.0 — CATÁLOGO ADMINISTRABLE
+
+- Nueva sección Administrar catálogo.
+- Permite agregar diseños con foto, nombre, medida y categoría.
+- Las imágenes se comprimen automáticamente y se guardan online en Supabase dentro del estado de la aplicación.
+- Permite editar, ocultar, activar y eliminar productos.
+- El catálogo público se actualiza sin volver a modificar GitHub.
+- Conserva los 74 productos e imágenes originales como catálogo inicial.
+
+IMPORTANTE: la primera modificación del catálogo puede demorar unos segundos porque guarda el catálogo inicial completo online.

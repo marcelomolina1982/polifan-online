@@ -12,7 +12,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
     date:today(), client:'',phone:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
-    status:'Ingresado',paid:'No',notes:'',items:[{figure:'',qty:1}]
+    status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
     try{
@@ -90,6 +90,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Prioridad"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option></select></Field>
         <Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Pagado"><select value={form.paid} onChange={e=>setForm({...form,paid:e.target.value})}><option>No</option><option>Sí</option></select></Field>
+        <Field label="¿Lleva embalaje de envío?"><select value={form.shippingPackaging||'No'} onChange={e=>setForm({...form,shippingPackaging:e.target.value})}><option>No</option><option>Sí</option></select></Field>
       </div>
 
       <h3>Figuras</h3>

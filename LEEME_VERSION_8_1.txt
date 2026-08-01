@@ -1,0 +1,21 @@
+POLIFAN ONLINE - VERSIÓN 8.1
+
+NOVEDADES:
+- Nueva sección Caja y gastos para registrar dinero ingresado (señas, saldos, pedidos completos y otros ingresos).
+- Registro de gastos mantenido y mejorado.
+- Nuevo campo en pedidos: ¿Lleva embalaje de envío?
+- Costo automático de embalaje: $3.000 por pedido marcado con embalaje.
+- Ganancia estimada por pedido según cantidad total:
+  * 1 a 5 figuras: $4.900 por figura.
+  * 6 a 11 figuras: $3.100 por figura.
+  * 12 o más figuras: $2.300 por figura.
+- Resumen mensual separado en:
+  * Facturación.
+  * Dinero realmente ingresado.
+  * Gastos cargados.
+  * Embalajes automáticos.
+  * Saldo de caja.
+  * Ganancia mensual estimada.
+
+IMPORTANTE:
+Los ingresos deben cargarse cuando realmente recibís el dinero. Esto permite registrar señas y saldos por separado.

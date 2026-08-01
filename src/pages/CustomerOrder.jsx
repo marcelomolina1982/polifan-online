@@ -21,6 +21,7 @@ export default function CustomerOrder() {
   const urlPhone = cleanPhone(params.get('w'))
   const [config, setConfig] = useState({ whatsapp: urlPhone, businessName: 'Tu Vida En Tinta' })
   const [loading, setLoading] = useState(true)
+  const [products, setProducts] = useState(catalogProducts)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Todos')
   const [cart, setCart] = useState({})
@@ -31,6 +32,7 @@ export default function CustomerOrder() {
       try {
         const { data: row } = await supabase.from('app_state').select('data').eq('id', 'main').maybeSingle()
         const state = row?.data || {}
+        setProducts((state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
         setConfig({
           whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
           businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
@@ -46,16 +48,16 @@ export default function CustomerOrder() {
 
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
-    return catalogProducts.filter(product => {
+    return products.filter(product => {
       const categoryMatch = category === 'Todos' || product.category === category
       const textMatch = !term || `${product.name} ${product.measure} ${product.category}`.toLocaleLowerCase('es').includes(term)
       return categoryMatch && textMatch
     })
-  }, [search, category])
+  }, [search, category, products])
 
   const items = Object.entries(cart)
     .filter(([, qty]) => qty > 0)
-    .map(([id, qty]) => ({ product: catalogProducts.find(product => product.id === id), qty }))
+    .map(([id, qty]) => ({ product: products.find(product => product.id === id), qty }))
     .filter(item => item.product)
 
   const regularQty = items.filter(item => ['Carameleras', 'Figuras para pintar'].includes(item.product.category) || (item.product.category === 'Palabras' && !item.product.fixedPrice)).reduce((sum, item) => sum + item.qty, 0)
@@ -118,7 +120,7 @@ export default function CustomerOrder() {
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
       <section className="customer-section">
-        <div className="customer-section-title"><div><h2>1. Elegí los productos</h2><p>Nombres y medidas tomados de tu catálogo.</p></div><span className="cart-count">{total} piezas</span></div>
+        <div className="customer-section-title"><div><h2>1. Elegí los productos</h2><p>Fotos, nombres y medidas tomados de tu catálogo.</p></div><span className="cart-count">{total} piezas</span></div>
         <div className="customer-categories">
           {catalogCategories.map(item => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
         </div>
@@ -127,7 +129,7 @@ export default function CustomerOrder() {
         {category === 'Cartelería' ? <div className="catalog-empty"><b>Cartelería personalizada</b><p>El PDF compartido todavía no incluye modelos de cartelería. Podés describir lo que necesitás en observaciones y enviarlo por WhatsApp.</p></div> :
           <div className="customer-catalog">
             {visible.map(product => <article className="customer-product" key={product.id}>
-              <div className="customer-product-placeholder" aria-hidden="true">{product.name.slice(0, 1).toUpperCase()}</div>
+              <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" />
               <div className="customer-product-info"><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
               <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
             </article>)}
