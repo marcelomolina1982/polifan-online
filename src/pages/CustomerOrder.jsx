@@ -11,7 +11,7 @@ export default function CustomerOrder(){
   const [loading,setLoading]=useState(true)
   const [search,setSearch]=useState('')
   const [cart,setCart]=useState({})
-  const [data,setData]=useState({name:'',phone:'',address:'',locality:'',delivery:'',method:'Envío',notes:''})
+  const [data,setData]=useState({name:'',phone:'',address:'',locality:'',postalCode:'',delivery:'',method:'Envío',notes:''})
 
   useEffect(()=>{
     async function load(){
@@ -43,7 +43,7 @@ export default function CustomerOrder(){
     if(!data.name.trim())return alert('Ingresá tu nombre.')
     if(!data.phone.trim())return alert('Ingresá tu WhatsApp.')
     if(!items.length)return alert('Elegí al menos una figura.')
-    if(data.method==='Envío'&&(!data.address.trim()||!data.locality.trim()))return alert('Completá dirección y localidad para cotizar el envío.')
+    if(data.method==='Envío'&&(!data.address.trim()||!data.locality.trim()||!data.postalCode.trim()))return alert('Completá dirección, localidad y código postal para cotizar el envío.')
 
     const productLines=items.map(i=>`• ${i.figure}: ${i.qty}`).join('\n')
     const message=[
@@ -52,6 +52,7 @@ export default function CustomerOrder(){
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       `📦 *Entrega:* ${data.method}`,
       data.method==='Envío'?`📍 *Dirección:* ${data.address.trim()}, ${data.locality.trim()}`:'📍 *Retiro por el local*',
+      data.method==='Envío'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.delivery?`📅 *Fecha deseada:* ${data.delivery}`:'',
       '', '*FIGURAS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
@@ -92,7 +93,7 @@ export default function CustomerOrder(){
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={e=>update('phone',e.target.value)} placeholder="Ej.: 11 2345 6789"/></label>
           <label>Forma de entrega<select value={data.method} onChange={e=>update('method',e.target.value)}><option>Envío</option><option>Retiro por el local</option></select></label>
           <label>Fecha deseada<input type="date" value={data.delivery} onChange={e=>update('delivery',e.target.value)}/></label>
-          {data.method==='Envío'&&<><label>Dirección<input value={data.address} onChange={e=>update('address',e.target.value)} placeholder="Calle, número y entrecalles"/></label><label>Localidad<input value={data.locality} onChange={e=>update('locality',e.target.value)} placeholder="Tu localidad"/></label></>}
+          {data.method==='Envío'&&<><label>Dirección<input value={data.address} onChange={e=>update('address',e.target.value)} placeholder="Calle, número y entrecalles" required/></label><label>Localidad<input value={data.locality} onChange={e=>update('locality',e.target.value)} placeholder="Tu localidad" required/></label><label>Código postal<input inputMode="numeric" value={data.postalCode} onChange={e=>update('postalCode',e.target.value.replace(/[^0-9A-Za-z-]/g,''))} placeholder="Ej.: 1655" autoComplete="postal-code" required/></label></>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={e=>update('notes',e.target.value)} placeholder="Colores, medidas, nombres personalizados u otros detalles..."/></label>
         <div className="customer-notice">El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>

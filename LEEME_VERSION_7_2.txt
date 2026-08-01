@@ -1,0 +1,11 @@
+POLIFAN ONLINE - VERSIÓN 7.2
+
+MEJORA PEDIDOS POR WHATSAPP
+
+- Se agregó Código Postal al formulario público de pedidos.
+- Es obligatorio cuando el cliente selecciona Envío.
+- Dirección, localidad y código postal se ocultan al seleccionar Retiro por el local.
+- El código postal se incluye automáticamente en el mensaje enviado por WhatsApp.
+- Se mantiene el número de WhatsApp configurado mediante el enlace para clientes.
+
+Para celulares argentinos usar formato: 549 + código de área + número, sin signos ni espacios.
