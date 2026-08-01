@@ -121,3 +121,21 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .cart-summary{max-width:650px}.cart-line,.cart-total{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #eceef3}.cart-total{border-bottom:0;padding-top:14px;font-size:18px}.customer-loading{max-width:1100px;margin:auto;padding:40px;text-align:center}
 .customer-settings-panel{margin-bottom:18px}.share-link{display:block;margin-top:10px;word-break:break-all;color:#687086}.button-link{display:inline-flex;align-items:center;text-decoration:none}
 @media(max-width:650px){.customer-page{padding:10px}.customer-top{align-items:flex-start;padding:15px}.customer-top img{width:68px;height:68px}.customer-top h1{font-size:22px}.customer-section{padding:16px}.customer-grid{grid-template-columns:1fr}.customer-catalog{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-product{min-height:145px;padding:12px}}
+
+/* Versión 7.3 - Catálogo visual real */
+.customer-promos{max-width:1100px;margin:0 auto 20px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.customer-promos>div{background:linear-gradient(135deg,var(--tvet-navy),var(--tvet-purple));color:white;border-radius:18px;padding:16px;text-align:center}.customer-promos small,.customer-promos strong,.customer-promos span{display:block}.customer-promos small{font-weight:900;letter-spacing:.08em}.customer-promos strong{font-size:26px;margin:4px 0}.customer-promos span{font-size:12px;opacity:.85}.customer-categories{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;margin-bottom:4px}.customer-categories button{border:1px solid #d8dbe6;background:white;border-radius:999px;padding:9px 13px;font-weight:800;white-space:nowrap;cursor:pointer}.customer-categories button.active{background:var(--tvet-pink);border-color:var(--tvet-pink);color:white}.customer-product{padding:0;overflow:hidden;gap:0;min-height:0;background:white}.customer-product-image{width:100%;aspect-ratio:1.12/1;display:block;object-fit:cover;background:#f3f4f6}.customer-product-info{display:flex;flex-direction:column;gap:3px;padding:12px 12px 9px;min-height:72px}.customer-product-info b{line-height:1.15}.customer-product-info small{color:#667085}.customer-product-info span{color:var(--tvet-pink-dark);font-weight:900;margin-top:2px}.customer-product .qty-control{margin:0 12px 12px}.catalog-empty{margin-top:16px;border:1px dashed #c9cddd;border-radius:16px;padding:24px;text-align:center;background:#fafbff}.catalog-empty p{margin:8px auto 0;max-width:620px;color:#667085}.estimated-price{margin-top:14px;padding:14px;border-radius:14px;background:#ecfdf3;border:1px solid #a7f3d0}.estimated-price span,.estimated-price strong,.estimated-price small{display:block}.estimated-price strong{font-size:24px;color:#15803d;margin:3px 0}.estimated-price small{color:#667085}
+@media(max-width:650px){.customer-promos{grid-template-columns:1fr 1fr}.customer-promos>div:last-child{grid-column:1/-1}.customer-catalog{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.customer-product-info{padding:10px;min-height:78px}.customer-product .qty-control{margin:0 10px 10px}.customer-product-image{aspect-ratio:1/1}}
+
+/* Catálogo liviano sin imágenes: evita superar el límite de archivos de GitHub */
+.customer-product-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(240,240,245,.9));
+  border: 1px solid rgba(0,0,0,.08);
+  color: var(--primary, #6b46c1);
+  font-size: clamp(2rem, 8vw, 4rem);
+  font-weight: 800;
+}

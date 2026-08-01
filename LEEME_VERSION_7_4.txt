@@ -1,0 +1,5 @@
+POLIFAN ONLINE v7.4 - CATÁLOGO SIN IMÁGENES
+
+- Conserva nombres, medidas y categorías del catálogo PDF.
+- Conserva buscador, carrito, promociones, código postal y envío por WhatsApp.
+- Se eliminaron las 74 imágenes para poder subir el proyecto desde la web de GitHub (menos de 100 archivos).
