@@ -6,6 +6,7 @@ import { today } from '../lib/format'
 export default function Settings({db,onSave}){
   const [newFigures,setNewFigures]=useState(()=>localStorage.getItem('polifan-new-figures-draft')||'')
   const [search,setSearch]=useState('')
+  const [customerSettings,setCustomerSettings]=useState(()=>({whatsapp:db.customerSettings?.whatsapp||'',businessName:db.customerSettings?.businessName||'Tu Vida En Tinta'}))
   useEffect(()=>{localStorage.setItem('polifan-new-figures-draft',newFigures)},[newFigures])
   const sortedFigures=useMemo(
     ()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
@@ -14,6 +15,23 @@ export default function Settings({db,onSave}){
   const visibleFigures=sortedFigures.filter(f=>
     f.toLocaleLowerCase('es').includes(search.trim().toLocaleLowerCase('es'))
   )
+
+
+  async function saveCustomerSettings(){
+    const whatsapp=customerSettings.whatsapp.replace(/\D/g,'')
+    if(!whatsapp)return alert('Ingresá el número de WhatsApp con código de país y área.')
+    await onSave({...db,customerSettings:{...customerSettings,whatsapp}})
+    setCustomerSettings(v=>({...v,whatsapp}))
+    alert('Datos del catálogo guardados.')
+  }
+  function customerLink(){
+    const whatsapp=(customerSettings.whatsapp||db.customerSettings?.whatsapp||'').replace(/\D/g,'')
+    return `${window.location.origin}${window.location.pathname}?pedido=1${whatsapp?`&w=${whatsapp}`:''}#pedido`
+  }
+  async function copyCustomerLink(){
+    const link=customerLink()
+    try{await navigator.clipboard.writeText(link);alert('Enlace copiado. Ya podés enviarlo a tus clientes.')}catch{window.prompt('Copiá este enlace:',link)}
+  }
 
   function exportData(){
     const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'})
@@ -92,6 +110,20 @@ export default function Settings({db,onSave}){
 
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
+    <div className="panel customer-settings-panel">
+      <h3>Pedidos por WhatsApp</h3>
+      <p>Configurá el número que recibirá las solicitudes. Usá código de país sin el signo +. Para Argentina: 54 + código de área + número, sin 0 ni 15.</p>
+      <div className="customer-grid">
+        <label>Nombre del negocio<input value={customerSettings.businessName} onChange={e=>setCustomerSettings(v=>({...v,businessName:e.target.value}))} placeholder="Tu Vida En Tinta"/></label>
+        <label>WhatsApp del negocio<input inputMode="tel" value={customerSettings.whatsapp} onChange={e=>setCustomerSettings(v=>({...v,whatsapp:e.target.value}))} placeholder="Ej.: 541126255191"/></label>
+      </div>
+      <div className="actions">
+        <button className="primary" onClick={saveCustomerSettings}>Guardar configuración</button>
+        <button className="ghost" onClick={copyCustomerLink}>Copiar enlace para clientes</button>
+        <a className="ghost button-link" href={customerLink()} target="_blank" rel="noreferrer">Ver catálogo</a>
+      </div>
+      <small className="share-link">{customerLink()}</small>
+    </div>
     <div className="grid2">
       <div className="panel"><h3>Copias y reinicio</h3><p>Descargá una copia antes de borrar las pruebas.</p><div className="actions"><button className="primary" onClick={exportData}>Descargar copia</button><label className="ghost filebtn">Importar copia<input type="file" accept=".json" onChange={importData}/></label><button className="danger" onClick={resetTests}>Borrar datos de prueba</button></div></div>
       <div className="panel">

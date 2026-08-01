@@ -1,0 +1,21 @@
+POLIFAN ONLINE - VERSIÓN 7.0
+
+NUEVO: CATÁLOGO Y SOLICITUD DE PEDIDOS POR WHATSAPP
+
+1. Entrá como administrador.
+2. Abrí “Datos y copias”.
+3. En “Pedidos por WhatsApp”, cargá el número con código de país.
+   Ejemplo Argentina: 541126255191 (sin +, sin 0 y sin 15).
+4. Tocá “Guardar configuración”.
+5. Tocá “Copiar enlace para clientes”.
+6. Compartí ese enlace por WhatsApp, Instagram, Facebook o mediante un QR.
+
+El cliente puede:
+- Buscar figuras del catálogo.
+- Elegir cantidades.
+- Indicar nombre, teléfono, fecha, dirección y localidad.
+- Elegir envío o retiro.
+- Agregar observaciones.
+- Enviar la solicitud con el detalle completo por WhatsApp.
+
+El pedido no queda confirmado automáticamente. El mensaje aclara que se debe esperar la cotización del envío, disponibilidad y datos de pago.
