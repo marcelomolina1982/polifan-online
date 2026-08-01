@@ -1,0 +1,9 @@
+VERSIÓN 6.5 - CONTROL DE CAPACIDAD DE CORTE
+
+- Capacidad diaria recomendada: 120 piezas.
+- Cada plancha se calcula con 10 figuras.
+- Al guardar un pedido que completa o supera 120 piezas para la misma fecha de entrega, el sistema pide confirmación.
+- La edición de pedidos descuenta primero el pedido original para no duplicar cantidades.
+- El formulario muestra piezas ya programadas, piezas del pedido, total proyectado y capacidad disponible.
+- Calcula automáticamente planchas y días de producción necesarios.
+- El panel principal muestra la capacidad de corte de las próximas fechas de entrega.

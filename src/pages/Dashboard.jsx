@@ -2,6 +2,7 @@ import React from 'react'
 import { Title, Kpi, Badge } from '../components/UI'
 import { money } from '../lib/format'
 import { stockRows } from '../lib/inventory'
+import { DAILY_PIECE_LIMIT, orderPieces, productionStatus, sheetsForPieces } from '../lib/production'
 
 const localISO=()=>{
   const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10)
@@ -26,6 +27,9 @@ export default function Dashboard({db,go}){
   }).reduce((a,e)=>a+Number(e.amount||0),0)
   const netProfit=revenue-monthlyExpenses
   const low=stockRows(db).filter(s=>s.total<=s.min).length
+  const productionByDate=Object.entries(db.orders.filter(o=>o.delivery && o.status!=='Cancelado').reduce((acc,o)=>{
+    acc[o.delivery]=(acc[o.delivery]||0)+orderPieces(o); return acc
+  },{})).sort(([a],[b])=>a.localeCompare(b)).filter(([date])=>date>=today).slice(0,10)
 
   return <>
     <Title title="Panel principal" sub="Todo lo importante del negocio en una sola pantalla." actions={<button className="primary" onClick={()=>go('new')}>＋ Nuevo pedido</button>}/>
@@ -39,7 +43,18 @@ export default function Dashboard({db,go}){
       <Kpi label="Ganancia libre" value={money(netProfit)}/>
       <Kpi label="Stock para reponer" value={low}/>
     </div>
-    <div className="grid2">
+    <div className="panel">
+      <div className="panel-heading"><div><h3>Capacidad de corte por día</h3><small>Máximo recomendado: {DAILY_PIECE_LIMIT} piezas = 12 planchas.</small></div><button className="ghost" onClick={()=>go('new')}>Agregar pedido</button></div>
+      <div className="production-days">
+        {productionByDate.map(([date,pieces])=>{const status=productionStatus(pieces); return <div className={'production-day '+status} key={date}>
+          <div><b>{new Date(date+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'})}</b><small>{sheetsForPieces(pieces)} planchas</small></div>
+          <div className="day-capacity"><strong>{pieces} / {DAILY_PIECE_LIMIT}</strong><span>{status==='over'?`Exceso: ${pieces-DAILY_PIECE_LIMIT}`:status==='full'?'Día completo':`Libres: ${DAILY_PIECE_LIMIT-pieces}`}</span></div>
+        </div>})}
+        {!productionByDate.length&&<p className="empty-message">No hay fechas de entrega futuras cargadas.</p>}
+      </div>
+    </div>
+
+        <div className="grid2">
       <div className="panel">
         <div className="panel-heading"><h3>Entregas de hoy</h3><button className="ghost" onClick={()=>go('orders')}>Ver todos</button></div>
         <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Piezas</th><th>Estado</th></tr></thead>

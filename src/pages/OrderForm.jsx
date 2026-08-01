@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money, pricePerUnit, today } from '../lib/format'
+import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces } from '../lib/production'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -43,6 +44,11 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   const qty=form.items.reduce((a,i)=>a+Number(i.qty||0),0)
   const total=qty*pricePerUnit(qty)
+  const alreadyScheduled=piecesScheduledForDate(db.orders,form.delivery,editing?.id||null)
+  const projectedPieces=alreadyScheduled+qty
+  const availablePieces=Math.max(0,DAILY_PIECE_LIMIT-alreadyScheduled)
+  const sheets=sheetsForPieces(qty)
+  const productionDays=daysForPieces(qty)
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
@@ -52,8 +58,15 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     e.preventDefault()
     if(!form.client.trim()) return alert('Ingresá el nombre del cliente.')
     if(!form.items.some(i=>i.figure && Number(i.qty)>0)) return alert('Agregá al menos una figura.')
+    if(form.delivery && projectedPieces>=DAILY_PIECE_LIMIT){
+      const excess=Math.max(0,projectedPieces-DAILY_PIECE_LIMIT)
+      const message=projectedPieces===DAILY_PIECE_LIMIT
+        ? `Ese día llegará exactamente a ${DAILY_PIECE_LIMIT} piezas (${sheetsForPieces(projectedPieces)} planchas). ¿Querés guardar el pedido igualmente?`
+        : `Ese día ya tiene ${alreadyScheduled} piezas. Con este pedido pasará a ${projectedPieces} piezas (${sheetsForPieces(projectedPieces)} planchas), superando el límite por ${excess}. ¿Querés seguir agregando para ese día?`
+      if(!window.confirm(message)) return
+    }
     const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
-    const final={...form,number:automaticNumber,total,unitPrice:pricePerUnit(qty),updatedAt:new Date().toISOString()}
+    const final={...form,number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     await onSave({...db,orders})
     localStorage.removeItem(DRAFT_KEY)
@@ -90,8 +103,17 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
       <Field label="Observaciones"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
 
-      <div className="order-total">
+      {form.delivery&&<div className={'production-capacity '+(projectedPieces>DAILY_PIECE_LIMIT?'over':projectedPieces===DAILY_PIECE_LIMIT?'full':projectedPieces>=90?'near':'available')}>
+        <div className="production-capacity-head"><b>Capacidad para la fecha de entrega</b><span>{projectedPieces} / {DAILY_PIECE_LIMIT} piezas</span></div>
+        <div className="capacity-track"><span style={{width:`${Math.min(100,(projectedPieces/DAILY_PIECE_LIMIT)*100)}%`}}/></div>
+        <small>Ya programadas: {alreadyScheduled} · Este pedido: {qty} · Disponibles antes de cargarlo: {availablePieces}</small>
+        {projectedPieces>DAILY_PIECE_LIMIT&&<strong>⚠ Se supera la capacidad diaria por {projectedPieces-DAILY_PIECE_LIMIT} piezas.</strong>}
+      </div>}
+
+      <div className="order-total production-totals">
         <div><small>Total de piezas</small><b>{qty}</b></div>
+        <div><small>Planchas necesarias</small><b>{sheets}</b><span>{PIECES_PER_SHEET} figuras por plancha</span></div>
+        <div><small>Días necesarios</small><b>{productionDays}</b><span>Máximo {DAILY_PIECE_LIMIT} piezas por día</span></div>
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
         <div><small>Valor del pedido</small><b>{money(total)}</b></div>
       </div>
