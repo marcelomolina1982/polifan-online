@@ -1,0 +1,10 @@
+VERSION 10.1 - CORRECCION DE PROMOCIONES
+
+El cálculo de figuras regulares ahora funciona así:
+- 1 a 5: $6.000 por pieza.
+- 6 a 11: $25.000 las primeras 6 y cada adicional a $25.000 / 6.
+- 12 o más: $40.000 las primeras 12 y cada adicional a $40.000 / 12.
+
+Ejemplo: 14 piezas = $40.000 + 2 x ($40.000 / 12) = $46.666,67, mostrado como $46.667.
+
+Después de publicar, recargá la app cerrándola y abriéndola nuevamente. Si el navegador muestra la versión anterior, borrá los datos del sitio o abrí el enlace en una pestaña privada una vez.

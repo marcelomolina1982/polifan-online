@@ -9,8 +9,12 @@ const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', curre
 function regularPrice(qty) {
   if (qty <= 0) return 0
   if (qty <= 5) return qty * 6000
-  if (qty <= 11) return qty * (25000 / 6)
-  return qty * (40000 / 12)
+  if (qty <= 11) {
+    const promoUnitPrice = 25000 / 6
+    return 25000 + (qty - 6) * promoUnitPrice
+  }
+  const promoUnitPrice = 40000 / 12
+  return 40000 + (qty - 12) * promoUnitPrice
 }
 
 function lightPrice(qty) {
@@ -22,8 +26,8 @@ function lightPrice(qty) {
 
 function regularRateLabel(qty) {
   if (qty <= 5) return '$6.000 c/u'
-  if (qty <= 11) return 'precio promo de 6 ($25.000 ÷ 6 por pieza)'
-  return 'precio promo de 12 ($40.000 ÷ 12 por pieza)'
+  if (qty <= 11) return 'promo de 6 + adicionales a $25.000 ÷ 6 c/u'
+  return 'promo de 12 + adicionales a $40.000 ÷ 12 c/u'
 }
 
 function lightRateLabel(qty) {
