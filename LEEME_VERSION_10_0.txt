@@ -1,0 +1,20 @@
+VERSIÓN 10.0 - ESTADÍSTICAS DEL CATÁLOGO
+
+ANTES DE USAR ESTADÍSTICAS:
+1. Entrá a Supabase.
+2. Abrí SQL Editor.
+3. Elegí New query.
+4. Copiá todo el contenido de SUPABASE_ESTADISTICAS.sql.
+5. Presioná Run.
+
+NUEVA SECCIÓN:
+- Estadísticas del catálogo.
+- Visitas y visitantes aproximados.
+- Productos vistos, agregados y pedidos.
+- Pedidos enviados por WhatsApp.
+- Conversión.
+- Provincias, localidades y códigos postales declarados.
+- Opiniones y comentarios.
+
+PRIVACIDAD:
+No se usa GPS ni ubicación exacta. La procedencia se registra solo con los datos que el cliente completa al enviar el pedido.

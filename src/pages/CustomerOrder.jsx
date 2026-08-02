@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { catalogCategories, catalogProducts } from '../lib/catalog'
+import { trackCatalogEvent } from '../lib/analytics'
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
@@ -40,7 +41,8 @@ export default function CustomerOrder() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Todos')
   const [cart, setCart] = useState({})
-  const [data, setData] = useState({ name: '', phone: '', address: '', locality: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
+  const [data, setData] = useState({ name: '', phone: '', address: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
+  const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
 
   useEffect(() => {
     async function load() {
@@ -60,6 +62,10 @@ export default function CustomerOrder() {
     }
     load()
   }, [urlPhone])
+
+  useEffect(() => {
+    trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop' } })
+  }, [])
 
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
@@ -84,7 +90,18 @@ export default function CustomerOrder() {
   const total = items.reduce((sum, item) => sum + item.qty, 0)
 
   function changeQty(id, delta) {
-    setCart(previous => ({ ...previous, [id]: Math.max(0, (previous[id] || 0) + delta) }))
+    const product = products.find(item => item.id === id)
+    const nextQty = Math.max(0, (cart[id] || 0) + delta)
+    setCart(previous => ({ ...previous, [id]: nextQty }))
+    if (product) trackCatalogEvent(delta > 0 ? 'cart_add' : 'cart_remove', { productId: product.id, productName: product.name, category: product.category, quantity: 1 })
+  }
+  function viewProduct(product) {
+    trackCatalogEvent('product_view', { productId: product.id, productName: product.name, category: product.category })
+  }
+  async function sendFeedback(rating) {
+    setFeedback(previous => ({ ...previous, rating }))
+    await trackCatalogEvent('feedback', { rating, comment: feedback.comment })
+    setFeedback(previous => ({ ...previous, rating, sent: true }))
   }
   function update(field, value) {
     setData(previous => ({ ...previous, [field]: value }))
@@ -94,7 +111,7 @@ export default function CustomerOrder() {
     if (!data.name.trim()) return alert('Ingresá tu nombre.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
-    if (data.method === 'Envío' && (!data.address.trim() || !data.locality.trim() || !data.postalCode.trim())) return alert('Completá dirección, localidad y código postal para cotizar el envío.')
+    if (data.method === 'Envío' && (!data.address.trim() || !data.locality.trim() || !data.province.trim() || !data.postalCode.trim())) return alert('Completá dirección, localidad, provincia y código postal para cotizar el envío.')
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const priceLines = [
@@ -108,7 +125,7 @@ export default function CustomerOrder() {
       `👤 *Cliente:* ${data.name.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       `📦 *Entrega:* ${data.method}`,
-      data.method === 'Envío' ? `📍 *Dirección:* ${data.address.trim()}, ${data.locality.trim()}` : '📍 *Retiro por el local*',
+      data.method === 'Envío' ? `📍 *Dirección:* ${data.address.trim()}, ${data.locality.trim()}, ${data.province.trim()}` : '📍 *Retiro por el local*',
       data.method === 'Envío' ? `📮 *Código postal:* ${data.postalCode.trim()}` : '',
       data.delivery ? `📅 *Fecha deseada:* ${data.delivery}` : '',
       '', '*PRODUCTOS*', productLines,
@@ -118,6 +135,14 @@ export default function CustomerOrder() {
       '', 'El total es estimado y no incluye envío. Quedo a la espera de la confirmación, la cotización del envío y los datos para realizar el pago.'
     ].filter(Boolean).join('\n')
 
+    trackCatalogEvent('order_sent', {
+      locality: data.method === 'Envío' ? data.locality : '',
+      province: data.method === 'Envío' ? data.province : '',
+      postalCode: data.method === 'Envío' ? data.postalCode : '',
+      quantity: total,
+      metadata: { method: data.method, estimatedTotal }
+    })
+    items.forEach(item => trackCatalogEvent('order_product', { productId: item.product.id, productName: item.product.name, category: item.product.category, quantity: item.qty }))
     window.open(`https://wa.me/${config.whatsapp}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
@@ -144,8 +169,8 @@ export default function CustomerOrder() {
         {category === 'Cartelería' ? <div className="catalog-empty"><b>Cartelería personalizada</b><p>El PDF compartido todavía no incluye modelos de cartelería. Podés describir lo que necesitás en observaciones y enviarlo por WhatsApp.</p></div> :
           <div className="customer-catalog">
             {visible.map(product => <article className="customer-product" key={product.id}>
-              <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" />
-              <div className="customer-product-info"><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
+              <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" onClick={() => viewProduct(product)} />
+              <div className="customer-product-info" onClick={() => viewProduct(product)}><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
               <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
             </article>)}
           </div>}
@@ -168,12 +193,24 @@ export default function CustomerOrder() {
           {data.method === 'Envío' && <>
             <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
             <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" required /></label>
+            <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" required /></label>
             <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" required /></label>
           </>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
         <button type="button" className="whatsapp-button" onClick={send}>Enviar pedido por WhatsApp</button>
+      </section>
+
+      <section className="customer-section customer-feedback">
+        <h2>¿Te gustó el catálogo?</h2>
+        <p>Tu opinión nos ayuda a mejorarlo.</p>
+        <textarea value={feedback.comment} onChange={event => setFeedback(previous => ({ ...previous, comment: event.target.value, sent: false }))} placeholder="Comentario opcional..." maxLength={500} />
+        <div className="feedback-actions">
+          <button type="button" className={feedback.rating === 'positive' ? 'active' : ''} onClick={() => sendFeedback('positive')}>👍 Sí, me gustó</button>
+          <button type="button" className={feedback.rating === 'negative' ? 'active' : ''} onClick={() => sendFeedback('negative')}>👎 Podría mejorar</button>
+        </div>
+        {feedback.sent && <small className="feedback-thanks">¡Gracias por tu opinión!</small>}
       </section>
     </>}
   </div>
