@@ -5,15 +5,30 @@ import { catalogCategories, catalogProducts } from '../lib/catalog'
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
 
-function bestExactPrice(qty, packs) {
-  const dp = Array(qty + 1).fill(Infinity)
-  dp[0] = 0
-  for (let i = 1; i <= qty; i += 1) {
-    packs.forEach(pack => {
-      if (i >= pack.qty) dp[i] = Math.min(dp[i], dp[i - pack.qty] + pack.price)
-    })
-  }
-  return Number.isFinite(dp[qty]) ? dp[qty] : 0
+function regularPrice(qty) {
+  if (qty <= 0) return 0
+  if (qty <= 5) return qty * 6000
+  if (qty <= 11) return qty * (25000 / 6)
+  return qty * (40000 / 12)
+}
+
+function lightPrice(qty) {
+  if (qty <= 0) return 0
+  if (qty <= 11) return qty * 7000
+  if (qty <= 23) return qty * 6000
+  return qty * 5000
+}
+
+function regularRateLabel(qty) {
+  if (qty <= 5) return '$6.000 c/u'
+  if (qty <= 11) return 'precio promo de 6 ($25.000 ÷ 6 por pieza)'
+  return 'precio promo de 12 ($40.000 ÷ 12 por pieza)'
+}
+
+function lightRateLabel(qty) {
+  if (qty <= 11) return '$7.000 c/u'
+  if (qty <= 23) return '$6.000 c/u'
+  return '$5.000 c/u'
 }
 
 export default function CustomerOrder() {
@@ -63,8 +78,8 @@ export default function CustomerOrder() {
   const regularQty = items.filter(item => ['Carameleras', 'Figuras para pintar'].includes(item.product.category) || (item.product.category === 'Palabras' && !item.product.fixedPrice)).reduce((sum, item) => sum + item.qty, 0)
   const lightQty = items.filter(item => item.product.category === 'Figuras con luces').reduce((sum, item) => sum + item.qty, 0)
   const fixedTotal = items.filter(item => item.product.fixedPrice).reduce((sum, item) => sum + item.product.fixedPrice * item.qty, 0)
-  const regularTotal = bestExactPrice(regularQty, [{ qty: 1, price: 6000 }, { qty: 6, price: 25000 }, { qty: 12, price: 40000 }])
-  const lightTotal = bestExactPrice(lightQty, [{ qty: 1, price: 7000 }, { qty: 12, price: 72000 }, { qty: 24, price: 120000 }])
+  const regularTotal = regularPrice(regularQty)
+  const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
 
@@ -83,8 +98,8 @@ export default function CustomerOrder() {
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const priceLines = [
-      regularQty ? `Figuras regulares (${regularQty}): ${money(regularTotal)}` : '',
-      lightQty ? `Figuras con luces (${lightQty}): ${money(lightTotal)}` : '',
+      regularQty ? `Figuras regulares (${regularQty}, ${regularRateLabel(regularQty)}): ${money(regularTotal)}` : '',
+      lightQty ? `Figuras con luces (${lightQty}, ${lightRateLabel(lightQty)}): ${money(lightTotal)}` : '',
       fixedTotal ? `Productos con precio fijo: ${money(fixedTotal)}` : ''
     ].filter(Boolean).join('\n')
 
@@ -114,8 +129,8 @@ export default function CustomerOrder() {
 
     <section className="customer-promos">
       <div><small>POR UNIDAD</small><strong>$6.000</strong><span>figuras regulares</span></div>
-      <div><small>PROMO 6</small><strong>$25.000</strong><span>combinables</span></div>
-      <div><small>PROMO 12</small><strong>$40.000</strong><span>combinables</span></div>
+      <div><small>DE 6 A 11</small><strong>$25.000 ÷ 6</strong><span>ese valor por cada pieza</span></div>
+      <div><small>12 O MÁS</small><strong>$40.000 ÷ 12</strong><span>ese valor por cada pieza</span></div>
     </section>
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>

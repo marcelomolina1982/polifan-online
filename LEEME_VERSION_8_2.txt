@@ -1,0 +1,16 @@
+POLIFAN ONLINE - VERSION 8.2
+
+CORRECCION DE PRECIOS POR CANTIDAD
+
+Las promociones ahora se aplican a TODAS las piezas según la cantidad total:
+- 1 a 5: $6.000 por pieza.
+- 6 a 11: precio unitario de la promo de 6 ($25.000 / 6).
+- 12 o más: precio unitario de la promo de 12 ($40.000 / 12).
+
+Ejemplo: 50 piezas = 50 x ($40.000 / 12) = $166.666,67, mostrado redondeado como $166.667.
+Ya no calcula 4 packs de 12 más 2 unidades sueltas.
+
+También se corrigió el mismo criterio escalonado para figuras con luces:
+- 1 a 11: $7.000 por pieza.
+- 12 a 23: $6.000 por pieza.
+- 24 o más: $5.000 por pieza.
