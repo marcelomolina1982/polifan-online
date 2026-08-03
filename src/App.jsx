@@ -70,16 +70,18 @@ export default function App(){
   if(!session) return <Login />
   if(loading) return <div className="center-screen">Cargando sistema…</div>
 
-  const nav = [
-    ['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'],
-    ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario'],
-    ['clients','♙','Clientes'], ['catalog','▦','Administrar catálogo'], ['analytics','📊','Estadísticas'], ['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual'], ['settings','⚙','Datos y copias'],
+  const navGroups = [
+    ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
+    ['PRODUCCIÓN', [['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario']]],
+    ['VENTAS', [['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
+    ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
+    ['SISTEMA', [['settings','⚙','Configuración']]],
   ]
 
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 10.0</span></div></div>
-      <nav>{nav.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</nav>
+      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 11.0</span></div></div>
+      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
 

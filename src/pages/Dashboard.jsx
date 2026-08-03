@@ -26,16 +26,27 @@ export default function Dashboard({db,go}){
     return d.getMonth()+1===month && d.getFullYear()===year
   }).reduce((a,e)=>a+Number(e.amount||0),0)
   const netProfit=revenue-monthlyExpenses
-  const low=stockRows(db).filter(s=>s.total<=s.min).length
+  const stockData=stockRows(db)
+  const lowRows=stockData.filter(s=>s.total<=s.min)
+  const low=lowRows.length
+  const todayPieces=todayOrders.reduce((sum,o)=>sum+orderPieces(o),0)
+  const unpaid=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status) && Number(o.paid||0)<Number(o.total||0)).length
+  const alerts=[
+    todayPieces>=DAILY_PIECE_LIMIT ? {tone:'danger',title:'Capacidad de hoy completa',text:`${todayPieces} piezas programadas para hoy.`} : todayPieces>=90 ? {tone:'warning',title:'Producción cerca del límite',text:`${todayPieces} de ${DAILY_PIECE_LIMIT} piezas para hoy.`} : null,
+    low ? {tone:'warning',title:'Stock para reponer',text:`${low} artículo${low===1?'':'s'} llegaron al mínimo.`} : null,
+    unpaid ? {tone:'info',title:'Pedidos con saldo pendiente',text:`${unpaid} pedido${unpaid===1?'':'s'} todavía no están completamente cobrados.`} : null
+  ].filter(Boolean)
   const productionByDate=Object.entries(db.orders.filter(o=>o.delivery && o.status!=='Cancelado').reduce((acc,o)=>{
     acc[o.delivery]=(acc[o.delivery]||0)+orderPieces(o); return acc
   },{})).sort(([a],[b])=>a.localeCompare(b)).filter(([date])=>date>=today).slice(0,10)
 
   return <>
     <Title title="Panel principal" sub="Todo lo importante del negocio en una sola pantalla." actions={<button className="primary" onClick={()=>go('new')}>＋ Nuevo pedido</button>}/>
+    {alerts.length>0&&<div className="business-alerts">{alerts.map((a,i)=><div className={'business-alert '+a.tone} key={i}><b>{a.title}</b><span>{a.text}</span></div>)}</div>}
     <div className="cards dashboard-cards">
       <Kpi label="Pedidos activos" value={activeOrders.length}/>
       <Kpi label="Entregas para hoy" value={todayOrders.length}/>
+      <Kpi label="Producción de hoy" value={`${todayPieces} / ${DAILY_PIECE_LIMIT}`}/>
       <Kpi label="Piezas pendientes" value={pendingPieces}/>
       <Kpi label="Ventas de hoy" value={money(todayRevenue)}/>
       <Kpi label="Facturación del mes" value={money(revenue)}/>

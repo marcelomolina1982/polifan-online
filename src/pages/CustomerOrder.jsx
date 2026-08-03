@@ -43,7 +43,7 @@ export default function CustomerOrder() {
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState(catalogProducts)
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('Todos')
+  const [category, setCategory] = useState('')
   const [cart, setCart] = useState({})
   const [data, setData] = useState({ name: '', phone: '', address: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
@@ -92,6 +92,11 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
+  const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
+  const missingForGoal = nextGoal ? nextGoal - regularQty : 0
+  const progressMax = regularQty < 6 ? 6 : 12
+  const progressValue = Math.min(regularQty, progressMax)
+  const categoryIcons = {'Carameleras':'🍬','Figuras para pintar':'🎨','Palabras':'✍️','Figuras con luces':'💡','Cartelería':'🪧'}
 
   function changeQty(id, delta) {
     const product = products.find(item => item.id === id)
@@ -165,20 +170,28 @@ export default function CustomerOrder() {
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
       <section className="customer-section">
         <div className="customer-section-title"><div><h2>1. Elegí los productos</h2><p>Fotos, nombres y medidas tomados de tu catálogo.</p></div><span className="cart-count">{total} piezas</span></div>
-        <div className="customer-categories">
-          {catalogCategories.map(item => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
-        </div>
-        <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="🔍 Buscar por nombre..." />
+        {!category && !search ? <div className="category-home">
+          {catalogCategories.filter(item=>item!=='Todos').map(item => <button type="button" key={item} onClick={() => setCategory(item)}><span>{categoryIcons[item]||'▦'}</span><b>{item}</b><small>{products.filter(p=>p.category===item).length} diseños</small></button>)}
+        </div> : <>
+          <div className="catalog-toolbar">
+            <button type="button" className="back-categories" onClick={()=>{setCategory('');setSearch('')}}>← Categorías</button>
+            <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="🔍 Buscar por nombre..." />
+          </div>
+          <div className="customer-categories">
+            {catalogCategories.map(item => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
+          </div>
 
-        {category === 'Cartelería' ? <div className="catalog-empty"><b>Cartelería personalizada</b><p>El PDF compartido todavía no incluye modelos de cartelería. Podés describir lo que necesitás en observaciones y enviarlo por WhatsApp.</p></div> :
-          <div className="customer-catalog">
-            {visible.map(product => <article className="customer-product" key={product.id}>
-              <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" onClick={() => viewProduct(product)} />
-              <div className="customer-product-info" onClick={() => viewProduct(product)}><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
-              <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
-            </article>)}
-          </div>}
-      </section>
+          {category === 'Cartelería' ? <div className="catalog-empty"><b>Cartelería personalizada</b><p>Describí lo que necesitás en observaciones y envialo por WhatsApp.</p></div> :
+            <div className="customer-catalog">
+              {visible.map(product => <article className="customer-product" key={product.id}>
+                <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" onClick={() => viewProduct(product)} />
+                <div className="customer-product-info" onClick={() => viewProduct(product)}><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
+                <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
+              </article>)}
+            </div>}
+        </>}      </section>
+
+      {regularQty>0&&<section className="customer-section promo-progress"><div><b>{nextGoal?`Te faltan ${missingForGoal} figura${missingForGoal===1?'':'s'} para el próximo precio`:'🎉 Alcanzaste el mejor precio'}</b><span>{regularQty} figuras regulares seleccionadas</span></div><div className="progress-track"><i style={{width:`${Math.max(8,(progressValue/progressMax)*100)}%`}} /></div></section>}
 
       {items.length > 0 && <section className="customer-section cart-summary">
         <h2>Tu selección</h2>
@@ -217,5 +230,6 @@ export default function CustomerOrder() {
         {feedback.sent && <small className="feedback-thanks">¡Gracias por tu opinión!</small>}
       </section>
     </>}
+    {items.length>0&&<button type="button" className="floating-cart" onClick={()=>document.querySelector('.cart-summary')?.scrollIntoView({behavior:'smooth'})}><span>🛒 {total} piezas</span><strong>{money(estimatedTotal)}</strong></button>}
   </div>
 }

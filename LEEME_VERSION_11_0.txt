@@ -1,0 +1,13 @@
+POLIFAN ONLINE - VERSION 11.0
+
+MEJORAS PRINCIPALES
+- Menú reorganizado por módulos: Negocio, Producción, Ventas, Finanzas y Sistema.
+- Inicio con alertas de capacidad diaria, stock bajo y saldos pendientes.
+- Indicador de producción de hoy.
+- Catálogo que comienza por categorías.
+- Fotos más protagonistas y navegación más limpia.
+- Barra de progreso hacia las promociones de 6 y 12 figuras.
+- Carrito flotante visible durante la selección.
+- Mantiene WhatsApp, estadísticas, catálogo administrable y finanzas.
+
+No requiere ejecutar un SQL nuevo si ya ejecutaste SUPABASE_ESTADISTICAS.sql.
