@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
-import { catalogCategories, catalogProducts } from '../lib/catalog'
+import { catalogCategories, catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
 import { trackCatalogEvent } from '../lib/analytics'
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
@@ -41,7 +41,7 @@ export default function CustomerOrder() {
   const urlPhone = cleanPhone(params.get('w'))
   const [config, setConfig] = useState({ whatsapp: urlPhone, businessName: 'Tu Vida En Tinta' })
   const [loading, setLoading] = useState(true)
-  const [products, setProducts] = useState(catalogProducts)
+  const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [cart, setCart] = useState({})
@@ -53,7 +53,7 @@ export default function CustomerOrder() {
       try {
         const { data: row } = await supabase.from('app_state').select('data').eq('id', 'main').maybeSingle()
         const state = row?.data || {}
-        setProducts((state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+        setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
         setConfig({
           whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
           businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
@@ -85,7 +85,7 @@ export default function CustomerOrder() {
     .map(([id, qty]) => ({ product: products.find(product => product.id === id), qty }))
     .filter(item => item.product)
 
-  const regularQty = items.filter(item => ['Carameleras', 'Figuras para pintar'].includes(item.product.category) || (item.product.category === 'Palabras' && !item.product.fixedPrice)).reduce((sum, item) => sum + item.qty, 0)
+  const regularQty = items.filter(item => item.product.category === 'Carameleras').reduce((sum, item) => sum + item.qty, 0)
   const lightQty = items.filter(item => item.product.category === 'Figuras con luces').reduce((sum, item) => sum + item.qty, 0)
   const fixedTotal = items.filter(item => item.product.fixedPrice).reduce((sum, item) => sum + item.product.fixedPrice * item.qty, 0)
   const regularTotal = regularPrice(regularQty)
@@ -96,7 +96,7 @@ export default function CustomerOrder() {
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
   const progressMax = regularQty < 6 ? 6 : 12
   const progressValue = Math.min(regularQty, progressMax)
-  const categoryIcons = {'Carameleras':'🍬','Figuras para pintar':'🎨','Palabras':'✍️','Figuras con luces':'💡','Cartelería':'🪧'}
+  const categoryIcons = {'Carameleras':'🍬','Palabras con luces':'✨','Figuras con luces':'💡','Cartelería':'🪧'}
 
   function changeQty(id, delta) {
     const product = products.find(item => item.id === id)

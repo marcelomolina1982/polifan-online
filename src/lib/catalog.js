@@ -89,7 +89,7 @@ export const catalogProducts = [
     "id": "te-amo",
     "name": "Te amo",
     "measure": "9 x 27 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["te-amo"]
   },
   {
@@ -159,14 +159,14 @@ export const catalogProducts = [
     "id": "letra-c",
     "name": "Letra C",
     "measure": "23 x 14 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["letra-c"]
   },
   {
     "id": "letra-a",
     "name": "Letra A",
     "measure": "23 x 14 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["letra-a"]
   },
   {
@@ -187,7 +187,7 @@ export const catalogProducts = [
     "id": "numero-18",
     "name": "Número 18",
     "measure": "22 x 16.5 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["numero-18"]
   },
   {
@@ -201,7 +201,7 @@ export const catalogProducts = [
     "id": "palabra-papa",
     "name": "Palabra Papá",
     "measure": "28 x 11 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["palabra-papa"]
   },
   {
@@ -306,7 +306,7 @@ export const catalogProducts = [
     "id": "palabra-mama",
     "name": "Palabra Mamá",
     "measure": "27.5 x 8 cm",
-    "category": "Palabras",
+    "category": "Carameleras",
     "image": catalogImages["palabra-mama"]
   },
   {
@@ -390,77 +390,77 @@ export const catalogProducts = [
     "id": "skye-paw-patrol",
     "name": "Skye Paw Patrol",
     "measure": "20 x 18.5 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["skye-paw-patrol"]
   },
   {
     "id": "rumi-guerreras-kpop",
     "name": "Rumi Guerreras Kpop",
     "measure": "21 x 16.5 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["rumi-guerreras-kpop"]
   },
   {
     "id": "chase-paw-patrol",
     "name": "Chase Paw Patrol",
     "measure": "20 x 18.5 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["chase-paw-patrol"]
   },
   {
     "id": "bluey",
     "name": "Bluey",
     "measure": "21.5 x 15 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["bluey"]
   },
   {
     "id": "minion",
     "name": "Minion",
     "measure": "22 x 14.5 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["minion"]
   },
   {
     "id": "stitch-cara",
     "name": "Stitch Cara",
     "measure": "23 x 16 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["stitch-cara"]
   },
   {
     "id": "stitch-entero",
     "name": "Stitch Entero",
     "measure": "20 x 17 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["stitch-entero"]
   },
   {
     "id": "kuromi",
     "name": "Kuromi",
     "measure": "20 x 20 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["kuromi"]
   },
   {
     "id": "abejita",
     "name": "Abejita",
     "measure": "22 x 14.5 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["abejita"]
   },
   {
     "id": "manzana",
     "name": "Manzana",
     "measure": "17 x 19 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["manzana"]
   },
   {
     "id": "plin-plin",
     "name": "Plin Plin",
     "measure": "23 x 14 cm",
-    "category": "Figuras para pintar",
+    "category": "Carameleras",
     "image": catalogImages["plin-plin"]
   },
   {
@@ -495,7 +495,7 @@ export const catalogProducts = [
     "id": "nombre-con-luz-de-15-cm",
     "name": "Nombre con luz de 15 cm",
     "measure": "Hasta 8 letras",
-    "category": "Palabras",
+    "category": "Palabras con luces",
     "image": catalogImages["nombre-con-luz-de-15-cm"],
     "fixedPrice": 19500
   },
@@ -503,7 +503,7 @@ export const catalogProducts = [
     "id": "nombre-con-luz-de-20-cm",
     "name": "Nombre con luz de 20 cm",
     "measure": "Hasta 8 letras",
-    "category": "Palabras",
+    "category": "Palabras con luces",
     "image": catalogImages["nombre-con-luz-de-20-cm"],
     "fixedPrice": 28000
   },
@@ -511,7 +511,7 @@ export const catalogProducts = [
     "id": "nombre-con-luz-de-30-cm",
     "name": "Nombre con luz de 30 cm",
     "measure": "Hasta 8 letras",
-    "category": "Palabras",
+    "category": "Palabras con luces",
     "image": catalogImages["nombre-con-luz-de-30-cm"],
     "fixedPrice": 45000
   },
@@ -519,10 +519,23 @@ export const catalogProducts = [
     "id": "mis-15-con-luz",
     "name": "Mis 15 con luz",
     "measure": "15 cm de alto",
-    "category": "Palabras",
+    "category": "Palabras con luces",
     "image": catalogImages["mis-15-con-luz"],
     "fixedPrice": 15000
   }
 ]
 
-export const catalogCategories = ["Todos", "Carameleras", "Figuras para pintar", "Palabras", "Figuras con luces", "Cartelería"]
+export const catalogCategories = ["Todos", "Carameleras", "Palabras con luces", "Figuras con luces", "Cartelería"]
+
+export function normalizeCatalogProduct(product) {
+  if (!product) return product
+  let category = product.category
+  if (category === 'Figuras para pintar') category = 'Carameleras'
+  if (category === 'Palabras') category = product.fixedPrice ? 'Palabras con luces' : 'Carameleras'
+  if (category === 'Nombres') category = 'Palabras con luces'
+  return category === product.category ? product : { ...product, category }
+}
+
+export function normalizeCatalogProducts(products = []) {
+  return products.map(normalizeCatalogProduct)
+}

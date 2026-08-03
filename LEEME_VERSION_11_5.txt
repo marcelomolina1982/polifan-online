@@ -1,0 +1,9 @@
+VERSIÓN 11.5 — CATEGORÍAS DEL CATÁLOGO REORGANIZADAS
+
+- Se eliminó la categoría “Figuras para pintar”.
+- Todos esos diseños ahora aparecen en “Carameleras”.
+- La categoría “Palabras” ahora se llama “Palabras con luces”.
+- Solo los nombres y palabras con precio fijo/luz permanecen en “Palabras con luces”.
+- Las letras, números y palabras sin luces pasan a “Carameleras”.
+- La migración se aplica también a catálogos ya guardados en Supabase, sin borrar productos.
+- El PDF descargable usa las nuevas categorías.

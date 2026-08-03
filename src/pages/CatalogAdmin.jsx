@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
-import { catalogProducts, catalogCategories } from '../lib/catalog'
+import { catalogProducts, catalogCategories, normalizeCatalogProducts } from '../lib/catalog'
 import { money } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
@@ -29,7 +29,7 @@ function resizeImage(file){
 }
 
 export default function CatalogAdmin({db,onSave}){
-  const products = db.customerCatalog?.length ? db.customerCatalog : catalogProducts
+  const products = normalizeCatalogProducts(db.customerCatalog?.length ? db.customerCatalog : catalogProducts)
   const [form,setForm]=useState(emptyForm)
   const [search,setSearch]=useState('')
   const [savingImage,setSavingImage]=useState(false)
@@ -50,7 +50,7 @@ export default function CatalogAdmin({db,onSave}){
     if(!form.image)return alert('Subí una imagen del producto.')
     const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
     const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),fixedPrice:Number(form.fixedPrice)||null,active:form.active!==false}
-    const next=form.id?products.map(p=>p.id===form.id?product:p):[...products,product]
+    const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
     await onSave({...db,customerCatalog:next})
     clear(); alert(form.id?'Producto actualizado.':'Producto agregado al catálogo.')
   }
