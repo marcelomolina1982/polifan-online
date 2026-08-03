@@ -1,0 +1,15 @@
+TU VIDA EN TINTA - VERSIÓN 12.0
+
+CAMBIOS
+- Pedido interno arriba y remito para el cliente debajo en la misma hoja A4.
+- Capacidad diaria reducida a 90 piezas (9 planchas).
+- Los domingos no se permiten como fecha de producción/entrega.
+- El catálogo calcula una entrega aproximada según la producción pendiente.
+- El cliente ya no elige fecha.
+- Solicitudes web pendientes de pago con código WEB-XXXXXX.
+- Nueva sección Solicitudes web para confirmar el pago y crear el pedido.
+- Relación de productos mediante productId interno.
+- Actualización silenciosa al volver a la pestaña.
+
+IMPORTANTE
+Ejecutar una sola vez SUPABASE_SOLICITUDES_WEB.sql en Supabase > SQL Editor.

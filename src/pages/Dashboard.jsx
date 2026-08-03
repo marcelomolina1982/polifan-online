@@ -32,7 +32,7 @@ export default function Dashboard({db,go}){
   const todayPieces=todayOrders.reduce((sum,o)=>sum+orderPieces(o),0)
   const unpaid=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status) && Number(o.paid||0)<Number(o.total||0)).length
   const alerts=[
-    todayPieces>=DAILY_PIECE_LIMIT ? {tone:'danger',title:'Capacidad de hoy completa',text:`${todayPieces} piezas programadas para hoy.`} : todayPieces>=90 ? {tone:'warning',title:'Producción cerca del límite',text:`${todayPieces} de ${DAILY_PIECE_LIMIT} piezas para hoy.`} : null,
+    todayPieces>=DAILY_PIECE_LIMIT ? {tone:'danger',title:'Capacidad de hoy completa',text:`${todayPieces} piezas programadas para hoy.`} : todayPieces>=75 ? {tone:'warning',title:'Producción cerca del límite',text:`${todayPieces} de ${DAILY_PIECE_LIMIT} piezas para hoy.`} : null,
     low ? {tone:'warning',title:'Stock para reponer',text:`${low} artículo${low===1?'':'s'} llegaron al mínimo.`} : null,
     unpaid ? {tone:'info',title:'Pedidos con saldo pendiente',text:`${unpaid} pedido${unpaid===1?'':'s'} todavía no están completamente cobrados.`} : null
   ].filter(Boolean)
@@ -55,7 +55,7 @@ export default function Dashboard({db,go}){
       <Kpi label="Stock para reponer" value={low}/>
     </div>
     <div className="panel">
-      <div className="panel-heading"><div><h3>Capacidad de corte por día</h3><small>Máximo recomendado: {DAILY_PIECE_LIMIT} piezas = 12 planchas.</small></div><button className="ghost" onClick={()=>go('new')}>Agregar pedido</button></div>
+      <div className="panel-heading"><div><h3>Capacidad de corte por día</h3><small>Máximo recomendado: {DAILY_PIECE_LIMIT} piezas = 9 planchas.</small></div><button className="ghost" onClick={()=>go('new')}>Agregar pedido</button></div>
       <div className="production-days">
         {productionByDate.map(([date,pieces])=>{const status=productionStatus(pieces); return <div className={'production-day '+status} key={date}>
           <div><b>{new Date(date+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'})}</b><small>{sheetsForPieces(pieces)} planchas</small></div>

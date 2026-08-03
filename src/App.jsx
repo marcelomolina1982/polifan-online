@@ -15,45 +15,54 @@ import Settings from './pages/Settings'
 import CatalogAdmin from './pages/CatalogAdmin'
 import CustomerOrder from './pages/CustomerOrder'
 import Analytics from './pages/Analytics'
+import WebRequests from './pages/WebRequests'
 
 export default function App(){
   const customerMode = window.location.hash === '#pedido' || new URLSearchParams(window.location.search).get('pedido') === '1'
   if(customerMode) return <CustomerOrder />
   const [session,setSession] = useState(null)
-  const [db,setDb] = useState(emptyState())
-  const [loading,setLoading] = useState(true)
+  const cachedState = (()=>{ try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null} })()
+  const [db,setDb] = useState(cachedState ? {...emptyState(),...cachedState} : emptyState())
+  const [loading,setLoading] = useState(!cachedState)
   const [saving,setSaving] = useState(false)
-  const [page,setPage] = useState('dashboard')
+  const [page,setPage] = useState(()=>sessionStorage.getItem('polifan-current-page')||'dashboard')
   const [mobileOpen,setMobileOpen] = useState(false)
   const [editingOrder,setEditingOrder] = useState(null)
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data})=>{
       setSession(data.session)
-      if(data.session) loadData()
+      if(data.session) loadData(!cachedState)
       else setLoading(false)
     })
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s)=>{
       setSession(s)
-      if(s) loadData()
+      if(s) loadData(false)
     })
-    return ()=>subscription.unsubscribe()
+    const refresh=()=>{ if(document.visibilityState==='visible') loadData(false) }
+    document.addEventListener('visibilitychange',refresh)
+    return ()=>{subscription.unsubscribe();document.removeEventListener('visibilitychange',refresh)}
   },[])
 
-  async function loadData(){
-    setLoading(true)
+  useEffect(()=>{sessionStorage.setItem('polifan-current-page',page)},[page])
+
+  async function loadData(initial=false){
+    if(initial) setLoading(true)
     const {data,error} = await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
     if(error){
       alert('No se pudo conectar con Supabase: '+error.message)
       setLoading(false)
       return
     }
-    setDb(data?.data ? {...emptyState(),...data.data} : emptyState())
+    const next=data?.data ? {...emptyState(),...data.data} : emptyState()
+    setDb(next)
+    try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}
     setLoading(false)
   }
 
   async function saveData(next){
     setDb(next)
+    try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}
     setSaving(true)
     const {error} = await supabase.from('app_state').upsert({
       id:'main', data:next, updated_at:new Date().toISOString(), updated_by:session.user.id
@@ -73,14 +82,14 @@ export default function App(){
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
     ['PRODUCCIÓN', [['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario']]],
-    ['VENTAS', [['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
+    ['VENTAS', [['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
   ]
 
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 11.5</span></div></div>
+      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN 12.0.1</span></div></div>
       <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
@@ -103,6 +112,7 @@ export default function App(){
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
         {page==='clients' && <Clients db={db} onSave={saveData}/>} 
+        {page==='webrequests' && <WebRequests db={db} onSave={saveData}/>} 
         {page==='catalog' && <CatalogAdmin db={db} onSave={saveData}/>} 
         {page==='analytics' && <Analytics/>} 
         {page==='expenses' && <Expenses db={db} onSave={saveData}/>} 

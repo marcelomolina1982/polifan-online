@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money, pricePerUnit, today } from '../lib/format'
-import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces } from '../lib/production'
+import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces, isSunday } from '../lib/production'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -58,6 +58,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     e.preventDefault()
     if(!form.client.trim()) return alert('Ingresá el nombre del cliente.')
     if(!form.items.some(i=>i.figure && Number(i.qty)>0)) return alert('Agregá al menos una figura.')
+    if(form.delivery && isSunday(form.delivery)) return alert('Los domingos no se cuentan como días de producción. Elegí otra fecha de entrega.')
     if(form.delivery && projectedPieces>=DAILY_PIECE_LIMIT){
       const excess=Math.max(0,projectedPieces-DAILY_PIECE_LIMIT)
       const message=projectedPieces===DAILY_PIECE_LIMIT
@@ -104,7 +105,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
       <Field label="Observaciones"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
 
-      {form.delivery&&<div className={'production-capacity '+(projectedPieces>DAILY_PIECE_LIMIT?'over':projectedPieces===DAILY_PIECE_LIMIT?'full':projectedPieces>=90?'near':'available')}>
+      {form.delivery&&<div className={'production-capacity '+(projectedPieces>DAILY_PIECE_LIMIT?'over':projectedPieces===DAILY_PIECE_LIMIT?'full':projectedPieces>=75?'near':'available')}>
         <div className="production-capacity-head"><b>Capacidad para la fecha de entrega</b><span>{projectedPieces} / {DAILY_PIECE_LIMIT} piezas</span></div>
         <div className="capacity-track"><span style={{width:`${Math.min(100,(projectedPieces/DAILY_PIECE_LIMIT)*100)}%`}}/></div>
         <small>Ya programadas: {alreadyScheduled} · Este pedido: {qty} · Disponibles antes de cargarlo: {availablePieces}</small>

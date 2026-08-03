@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { catalogCategories, catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
 import { trackCatalogEvent } from '../lib/analytics'
+import { estimateDeliveryRange } from '../lib/production'
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
@@ -41,6 +42,7 @@ export default function CustomerOrder() {
   const urlPhone = cleanPhone(params.get('w'))
   const [config, setConfig] = useState({ whatsapp: urlPhone, businessName: 'Tu Vida En Tinta' })
   const [loading, setLoading] = useState(true)
+  const [orders, setOrders] = useState([])
   const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
@@ -54,6 +56,7 @@ export default function CustomerOrder() {
         const { data: row } = await supabase.from('app_state').select('data').eq('id', 'main').maybeSingle()
         const state = row?.data || {}
         setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+        setOrders(state.orders || [])
         setConfig({
           whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
           businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
@@ -92,6 +95,8 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
+  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method === 'Envío')
+  const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
   const progressMax = regularQty < 6 ? 6 : 12
@@ -115,7 +120,7 @@ export default function CustomerOrder() {
   function update(field, value) {
     setData(previous => ({ ...previous, [field]: value }))
   }
-  function send() {
+  async function send() {
     if (!config.whatsapp) return alert('El comercio todavía no configuró su número de WhatsApp.')
     if (!data.name.trim()) return alert('Ingresá tu nombre.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
@@ -129,14 +134,15 @@ export default function CustomerOrder() {
       fixedTotal ? `Productos con precio fijo: ${money(fixedTotal)}` : ''
     ].filter(Boolean).join('\n')
 
+    const requestCode='WEB-'+Date.now().toString().slice(-6)
     const message = [
-      '🛒 *NUEVA SOLICITUD DE PEDIDO*', '',
+      '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, '',
       `👤 *Cliente:* ${data.name.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       `📦 *Entrega:* ${data.method}`,
       data.method === 'Envío' ? `📍 *Dirección:* ${data.address.trim()}, ${data.locality.trim()}, ${data.province.trim()}` : '📍 *Retiro por el local*',
       data.method === 'Envío' ? `📮 *Código postal:* ${data.postalCode.trim()}` : '',
-      data.delivery ? `📅 *Fecha deseada:* ${data.delivery}` : '',
+      `📅 *Entrega aproximada:* entre ${fmtDate(deliveryEstimate.from)} y ${fmtDate(deliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       priceLines ? `\n💰 *Cálculo estimado:*\n${priceLines}\n*Total estimado: ${money(estimatedTotal)}*` : '',
@@ -144,6 +150,9 @@ export default function CustomerOrder() {
       '', 'El total es estimado y no incluye envío. Quedo a la espera de la confirmación, la cotización del envío y los datos para realizar el pago.'
     ].filter(Boolean).join('\n')
 
+    const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,delivery:''},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:deliveryEstimate.from,estimated_to:deliveryEstimate.to,notes:data.notes.trim()})
+    if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
     trackCatalogEvent('order_sent', {
       locality: data.method === 'Envío' ? data.locality : '',
       province: data.method === 'Envío' ? data.province : '',
@@ -206,7 +215,7 @@ export default function CustomerOrder() {
           <label>Nombre y apellido<input value={data.name} onChange={event => update('name', event.target.value)} placeholder="Tu nombre" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
           <label>Forma de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Envío</option><option>Retiro por el local</option></select></label>
-          <label>Fecha deseada<input type="date" value={data.delivery} onChange={event => update('delivery', event.target.value)} /></label>
+          <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>{fmtDate(deliveryEstimate.from)} al {fmtDate(deliveryEstimate.to)}</b><span>Se confirma después del pago. No se cuentan domingos.</span></div>
           {data.method === 'Envío' && <>
             <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
             <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" required /></label>
@@ -215,7 +224,7 @@ export default function CustomerOrder() {
           </>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
-        <div className="customer-notice">El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
+        <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
         <button type="button" className="whatsapp-button" onClick={send}>Enviar pedido por WhatsApp</button>
       </section>
 

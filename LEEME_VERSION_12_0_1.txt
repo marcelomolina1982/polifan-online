@@ -1,0 +1,13 @@
+VERSIÓN 12.0.1
+
+Incluye:
+- Pedido interno arriba y remito para el cliente debajo, en la misma hoja A4.
+- Capacidad diaria de 90 piezas (9 planchas de 10), sin domingos.
+- Entrega aproximada automática en el catálogo según producción pendiente.
+- Solicitudes web pendientes de pago con código WEB-XXXXXX.
+- Confirmación de pago para crear el pedido automáticamente.
+- Código interno productId entre catálogo y pedido.
+- Caché local y actualización silenciosa al volver a la pestaña.
+
+PASO ÚNICO EN SUPABASE:
+Ejecutar SUPABASE_SOLICITUDES_WEB.sql desde SQL Editor.
