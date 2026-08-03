@@ -1,0 +1,7 @@
+VERSIÓN 11.4 — PDF SIN IMÁGENES DEFORMADAS
+
+- Las imágenes del catálogo PDF conservan su proporción original.
+- Se centran automáticamente dentro de la tarjeta.
+- Ya no se estiran para ocupar un rectángulo fijo.
+- Cuando la proporción no coincide con la tarjeta, se dejan márgenes blancos.
+- El logo de la portada también conserva su proporción.

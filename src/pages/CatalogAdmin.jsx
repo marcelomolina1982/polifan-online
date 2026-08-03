@@ -76,6 +76,25 @@ export default function CatalogAdmin({db,onSave}){
     return 'JPEG'
   }
 
+  function getImageDimensions(dataUrl){
+    return new Promise((resolve,reject)=>{
+      const img=new Image()
+      img.onload=()=>resolve({width:img.naturalWidth||img.width,height:img.naturalHeight||img.height})
+      img.onerror=reject
+      img.src=dataUrl
+    })
+  }
+
+  async function addImageContained(pdf,dataUrl,x,y,boxW,boxH){
+    const {width,height}=await getImageDimensions(dataUrl)
+    const scale=Math.min(boxW/width,boxH/height)
+    const drawW=width*scale
+    const drawH=height*scale
+    const drawX=x+(boxW-drawW)/2
+    const drawY=y+(boxH-drawH)/2
+    pdf.addImage(dataUrl,imageFormat(dataUrl),drawX,drawY,drawW,drawH,undefined,'FAST')
+  }
+
   async function downloadCatalogPdf(){
     const visible=products.filter(p=>p.active!==false)
     if(!visible.length)return alert('No hay productos visibles para exportar.')
@@ -99,7 +118,7 @@ export default function CatalogAdmin({db,onSave}){
       pdf.setFillColor(...purple); pdf.rect(0,78,pageW,7,'F')
       try{
         const logo=await imageToDataUrl('/logo-tu-vida-en-tinta.png')
-        pdf.addImage(logo,imageFormat(logo),margin,12,44,44,undefined,'FAST')
+        await addImageContained(pdf,logo,margin,12,44,44)
       }catch{}
       pdf.setTextColor(255); pdf.setFont('helvetica','bold'); pdf.setFontSize(26); pdf.text('CATÁLOGO DE POLIFAN',64,30)
       pdf.setFontSize(18); pdf.text('Tu Vida En Tinta',64,43)
@@ -132,7 +151,8 @@ export default function CatalogAdmin({db,onSave}){
             pdf.setFillColor(...light); pdf.setDrawColor(220); pdf.roundedRect(x,y,88,68,3,3,'FD')
             try{
               const img=await imageToDataUrl(product.image)
-              pdf.addImage(img,imageFormat(img),x+4,y+4,80,45,undefined,'FAST')
+              pdf.setFillColor(255); pdf.rect(x+4,y+4,80,45,'F')
+              await addImageContained(pdf,img,x+4,y+4,80,45)
             }catch{
               pdf.setFillColor(230); pdf.rect(x+4,y+4,80,45,'F'); pdf.setTextColor(120); pdf.setFontSize(9); pdf.text('Imagen no disponible',x+44,y+27,{align:'center'})
             }
