@@ -1,7 +1,7 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "11.0.0",
+  "version": "11.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

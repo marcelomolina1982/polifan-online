@@ -1,0 +1,7 @@
+POLIFAN ONLINE - VERSION 11.1
+
+Cambios:
+- Precios del catálogo simplificados: Por unidad, Promo por 6 y Promo por 12.
+- Se eliminaron las divisiones de precios de la cabecera para que sean más claras para el cliente.
+- Animación suave de entrada, brillo y elevación en las tarjetas de promociones.
+- Respeta la opción del dispositivo para reducir animaciones.

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { catalogProducts, catalogCategories } from '../lib/catalog'
+import { formatMoney } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
 const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', active:true }
@@ -32,6 +33,7 @@ export default function CatalogAdmin({db,onSave}){
   const [form,setForm]=useState(emptyForm)
   const [search,setSearch]=useState('')
   const [savingImage,setSavingImage]=useState(false)
+  const [exportingPdf,setExportingPdf]=useState(false)
   const filtered=useMemo(()=>products.filter(p=>`${p.name} ${p.category} ${p.measure}`.toLowerCase().includes(search.toLowerCase())),[products,search])
   const update=(field,value)=>setForm(v=>({...v,[field]:value}))
 
@@ -56,6 +58,101 @@ export default function CatalogAdmin({db,onSave}){
   async function remove(product){if(!confirm(`¿Eliminar “${product.name}” del catálogo de clientes?`))return; await onSave({...db,customerCatalog:products.filter(p=>p.id!==product.id)})}
   async function restore(){if(!confirm('¿Restaurar el catálogo original? Se eliminarán los productos nuevos y cambios realizados.'))return; await onSave({...db,customerCatalog:catalogProducts}); clear()}
 
+
+  async function imageToDataUrl(url){
+    if(!url)return null
+    if(String(url).startsWith('data:'))return url
+    const response=await fetch(url)
+    if(!response.ok)throw new Error('No se pudo cargar una imagen')
+    const blob=await response.blob()
+    return await new Promise((resolve,reject)=>{
+      const reader=new FileReader(); reader.onerror=reject; reader.onload=()=>resolve(reader.result); reader.readAsDataURL(blob)
+    })
+  }
+
+  function imageFormat(dataUrl){
+    if(String(dataUrl).startsWith('data:image/png'))return 'PNG'
+    if(String(dataUrl).startsWith('data:image/webp'))return 'WEBP'
+    return 'JPEG'
+  }
+
+  async function downloadCatalogPdf(){
+    const visible=products.filter(p=>p.active!==false)
+    if(!visible.length)return alert('No hay productos visibles para exportar.')
+    setExportingPdf(true)
+    try{
+      const { jsPDF }=await import('jspdf')
+      const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true})
+      const pageW=210, pageH=297, margin=12
+      const purple=[83,46,160], navy=[23,49,95], dark=[30,30,38], light=[246,247,252]
+      const addPageNumber=()=>{
+        const pages=pdf.getNumberOfPages()
+        pdf.setPage(pages); pdf.setFontSize(8); pdf.setTextColor(110); pdf.text(`Tu Vida En Tinta · Página ${pages}`,pageW/2,pageH-6,{align:'center'})
+      }
+      const addHeader=(title)=>{
+        pdf.setFillColor(...navy); pdf.rect(0,0,pageW,22,'F')
+        pdf.setFont('helvetica','bold'); pdf.setFontSize(18); pdf.setTextColor(255); pdf.text(title,margin,14)
+        pdf.setTextColor(...dark)
+      }
+      // Portada
+      pdf.setFillColor(...navy); pdf.rect(0,0,pageW,78,'F')
+      pdf.setFillColor(...purple); pdf.rect(0,78,pageW,7,'F')
+      try{
+        const logo=await imageToDataUrl('/logo-tu-vida-en-tinta.png')
+        pdf.addImage(logo,imageFormat(logo),margin,12,44,44,undefined,'FAST')
+      }catch{}
+      pdf.setTextColor(255); pdf.setFont('helvetica','bold'); pdf.setFontSize(26); pdf.text('CATÁLOGO DE POLIFAN',64,30)
+      pdf.setFontSize(18); pdf.text('Tu Vida En Tinta',64,43)
+      pdf.setFont('helvetica','normal'); pdf.setFontSize(10); pdf.text('Elegí tus diseños y enviá tu pedido por WhatsApp.',64,53)
+      pdf.setTextColor(...dark); pdf.setFont('helvetica','bold'); pdf.setFontSize(16); pdf.text('PRECIOS Y PROMOCIONES',pageW/2,104,{align:'center'})
+      const promos=[['POR UNIDAD','$6.000'],['PROMO POR 6','$25.000'],['PROMO POR 12','$40.000']]
+      promos.forEach((pr,i)=>{
+        const x=margin+i*62
+        pdf.setFillColor(...(i===1?purple:navy)); pdf.roundedRect(x,116,58,32,4,4,'F')
+        pdf.setTextColor(255); pdf.setFontSize(10); pdf.setFont('helvetica','bold'); pdf.text(pr[0],x+29,127,{align:'center'})
+        pdf.setFontSize(17); pdf.text(pr[1],x+29,140,{align:'center'})
+      })
+      pdf.setTextColor(...dark); pdf.setFontSize(11); pdf.setFont('helvetica','normal')
+      pdf.text('Los productos pueden combinarse dentro de cada promoción.',pageW/2,164,{align:'center'})
+      pdf.text('Envíos a todo el país · José León Suárez, Buenos Aires',pageW/2,174,{align:'center'})
+      pdf.setFont('helvetica','bold'); pdf.text('WhatsApp: 11-5919-2358  ·  @tuvidaentinta',pageW/2,190,{align:'center'})
+      addPageNumber()
+
+      for(const category of editableCategories){
+        const categoryProducts=visible.filter(p=>p.category===category)
+        if(!categoryProducts.length)continue
+        pdf.addPage(); addHeader(category.toUpperCase())
+        let y=31
+        for(let i=0;i<categoryProducts.length;i+=2){
+          const pair=categoryProducts.slice(i,i+2)
+          const cardH=74
+          if(y+cardH>pageH-12){addPageNumber();pdf.addPage();addHeader(category.toUpperCase());y=31}
+          for(let col=0;col<pair.length;col++){
+            const product=pair[col], x=margin+col*94
+            pdf.setFillColor(...light); pdf.setDrawColor(220); pdf.roundedRect(x,y,88,68,3,3,'FD')
+            try{
+              const img=await imageToDataUrl(product.image)
+              pdf.addImage(img,imageFormat(img),x+4,y+4,80,45,undefined,'FAST')
+            }catch{
+              pdf.setFillColor(230); pdf.rect(x+4,y+4,80,45,'F'); pdf.setTextColor(120); pdf.setFontSize(9); pdf.text('Imagen no disponible',x+44,y+27,{align:'center'})
+            }
+            pdf.setTextColor(...dark); pdf.setFont('helvetica','bold'); pdf.setFontSize(11)
+            const nameLines=pdf.splitTextToSize(product.name,78).slice(0,2)
+            pdf.text(nameLines,x+5,y+54)
+            pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(85)
+            pdf.text(product.measure||'Consultar medida',x+5,y+64)
+            if(product.fixedPrice){pdf.setFont('helvetica','bold');pdf.setTextColor(...purple);pdf.text(formatMoney(product.fixedPrice),x+83,y+64,{align:'right'})}
+          }
+          y+=74
+        }
+        addPageNumber()
+      }
+      pdf.save(`catalogo-tu-vida-en-tinta-${new Date().toISOString().slice(0,10)}.pdf`)
+    }catch(error){
+      console.error(error); alert('No se pudo generar el PDF. Probá nuevamente con conexión a internet.')
+    }finally{setExportingPdf(false)}
+  }
+
   return <>
     <Title title="Administrar catálogo" sub="Agregá diseños e imágenes sin modificar GitHub."/>
     <div className="panel catalog-editor">
@@ -78,7 +175,7 @@ export default function CatalogAdmin({db,onSave}){
     </div>
 
     <div className="panel">
-      <div className="customer-section-title"><div><h3>Productos del catálogo ({products.length})</h3><p>Los productos desactivados no aparecen para los clientes.</p></div><button className="ghost" onClick={restore}>Restaurar catálogo original</button></div>
+      <div className="customer-section-title"><div><h3>Productos del catálogo ({products.length})</h3><p>Los productos desactivados no aparecen para los clientes.</p></div><div className="actions"><button className="primary" onClick={downloadCatalogPdf} disabled={exportingPdf}>{exportingPdf?'Generando PDF…':'Descargar catálogo en PDF'}</button><button className="ghost" onClick={restore}>Restaurar catálogo original</button></div></div>
       <input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar producto..."/>
       <div className="admin-catalog-grid">
         {filtered.map(p=><article className={`admin-product ${p.active===false?'inactive':''}`} key={p.id}>

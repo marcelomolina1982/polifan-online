@@ -1,0 +1,6 @@
+VERSIÓN 11.2 - DESCARGA DEL CATÁLOGO EN PDF
+
+En Administrar catálogo se agregó el botón "Descargar catálogo en PDF".
+El archivo se genera usando los productos visibles y actualizados de la aplicación.
+Incluye portada, promociones, categorías, imágenes, nombres, medidas y precios fijos cuando correspondan.
+Los productos ocultos no aparecen en el PDF.

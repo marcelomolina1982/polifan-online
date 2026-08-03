@@ -161,10 +161,10 @@ export default function CustomerOrder() {
       <div><small>PEDIDOS DE POLIFAN</small><h1>{config.businessName}</h1><p>Elegí tus productos y enviá la solicitud por WhatsApp. El envío y el pago se coordinan después.</p></div>
     </div>
 
-    <section className="customer-promos">
-      <div><small>POR UNIDAD</small><strong>$6.000</strong><span>figuras regulares</span></div>
-      <div><small>DE 6 A 11</small><strong>$25.000 ÷ 6</strong><span>ese valor por cada pieza</span></div>
-      <div><small>12 O MÁS</small><strong>$40.000 ÷ 12</strong><span>ese valor por cada pieza</span></div>
+    <section className="customer-promos" aria-label="Precios y promociones">
+      <div className="promo-card promo-unit"><small>POR UNIDAD</small><strong>$6.000</strong><span>1 figura</span></div>
+      <div className="promo-card promo-six"><small>PROMO POR 6</small><strong>$25.000</strong><span>6 figuras</span></div>
+      <div className="promo-card promo-twelve"><small>PROMO POR 12</small><strong>$40.000</strong><span>12 figuras</span></div>
     </section>
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
