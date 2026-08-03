@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { catalogProducts, catalogCategories } from '../lib/catalog'
-import { formatMoney } from '../lib/format'
+import { money } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
 const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', active:true }
@@ -141,7 +141,7 @@ export default function CatalogAdmin({db,onSave}){
             pdf.text(nameLines,x+5,y+54)
             pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(85)
             pdf.text(product.measure||'Consultar medida',x+5,y+64)
-            if(product.fixedPrice){pdf.setFont('helvetica','bold');pdf.setTextColor(...purple);pdf.text(formatMoney(product.fixedPrice),x+83,y+64,{align:'right'})}
+            if(product.fixedPrice){pdf.setFont('helvetica','bold');pdf.setTextColor(...purple);pdf.text(money(product.fixedPrice),x+83,y+64,{align:'right'})}
           }
           y+=74
         }

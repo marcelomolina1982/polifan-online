@@ -1,0 +1,4 @@
+VERSIÓN 11.3
+
+Corrección de compilación en Vercel para la descarga del catálogo en PDF.
+Se corrigió la importación de la función de formato monetario.
