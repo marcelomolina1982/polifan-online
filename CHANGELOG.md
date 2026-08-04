@@ -1,3 +1,11 @@
+# Versión 14.4
+
+- Cierre manual de producción por fecha.
+- Las entregas estimadas parten del día posterior al último cierre.
+- Se busca automáticamente el próximo día con espacio dentro del límite de 90 piezas.
+- Domingos y días cerrados quedan excluidos.
+- El catálogo muestra una fecha límite de entrega calculada a 48 horas del último día de corte.
+
 # Versión 13.4.0
 
 - Datos de entrega unificados en pedidos manuales y solicitudes web.

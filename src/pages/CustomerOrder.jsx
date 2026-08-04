@@ -43,6 +43,7 @@ export default function CustomerOrder() {
   const [config, setConfig] = useState({ whatsapp: urlPhone, businessName: 'Tu Vida En Tinta' })
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState([])
+  const [closedProductionDates, setClosedProductionDates] = useState([])
   const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
@@ -57,6 +58,7 @@ export default function CustomerOrder() {
         const state = row?.data || {}
         setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
         setOrders(state.orders || [])
+        setClosedProductionDates(state.productionClosedDates || [])
         setConfig({
           whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
           businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
@@ -95,7 +97,7 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
-  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method !== 'Retiro en el local')
+  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method !== 'Retiro en el local',closedProductionDates)
   const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
@@ -148,7 +150,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `📅 *Entrega aproximada:* entre ${fmtDate(deliveryEstimate.from)} y ${fmtDate(deliveryEstimate.to)}`, 
+      `📅 *Entrega aproximada:* hasta ${fmtDate(deliveryEstimate.deliveryDate || deliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       priceLines ? `\n💰 *Cálculo estimado:*\n${priceLines}\n*Total estimado: ${money(estimatedTotal)}*` : '',
@@ -225,7 +227,7 @@ export default function CustomerOrder() {
           <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>{fmtDate(deliveryEstimate.from)} al {fmtDate(deliveryEstimate.to)}</b><span>Se confirma después del pago. No se cuentan domingos.</span></div>
+          <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>Hasta el {fmtDate(deliveryEstimate.deliveryDate || deliveryEstimate.to)}</b><span>Calculada desde el próximo día de producción disponible. No se cuentan domingos.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>

@@ -114,7 +114,7 @@ export default function App(){
         {page==='dashboard' && <Dashboard db={db} go={setPage}/>} 
         {page==='new' && <OrderForm db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} 
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>} 
-        {page==='calendar' && <ProductionCalendar db={db} go={setPage}/>} 
+        {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={setPage}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 

@@ -188,3 +188,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .control-list input{width:20px;height:20px}.control-note{font-size:13px;color:#666}
 .customer-categories-primary{position:sticky;top:0;z-index:5;background:#fff;padding:10px 0;margin-bottom:14px}
 @media(max-width:600px){.control-head{grid-template-columns:1fr}.control-card{padding:15px}.customer-categories-primary{overflow-x:auto;flex-wrap:nowrap}}
+
+
+/* Producción cerrada v14.4 */
+.production-closure-note{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 0 16px;padding:14px 16px;border-radius:14px;background:#f4efff;border:1px solid #d9cbff;color:#39206d}.production-closure-note span{font-size:13px;color:#665781}.calendar-day.closed{background:#f1f1f4;border-color:#9b9ba7;opacity:.9}.calendar-day.closed b{color:#5c5c66;font-size:12px}.calendar-day.closed i em{background:repeating-linear-gradient(45deg,#7b7b86,#7b7b86 6px,#aaaab2 6px,#aaaab2 12px)}
+@media(max-width:700px){.production-closure-note{align-items:flex-start;flex-direction:column}.panel-heading{align-items:flex-start;gap:10px;flex-direction:column}}
