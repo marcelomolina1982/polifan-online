@@ -45,9 +45,9 @@ export default function CustomerOrder() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('')
+  const [category, setCategory] = useState('Carameleras')
   const [cart, setCart] = useState({})
-  const [data, setData] = useState({ name: '', phone: '', dni: '', address: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
+  const [data, setData] = useState({ name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
 
   useEffect(() => {
@@ -95,16 +95,13 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
-  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method === 'Envío')
+  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method !== 'Retiro en el local')
   const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
   const progressMax = regularQty < 6 ? 6 : 12
   const progressValue = Math.min(regularQty, progressMax)
   const categoryIcons = {'Carameleras':'🍬','Palabras con luces':'✨','Figuras con luces':'💡','Cartelería':'🪧'}
-  const topNames=useMemo(()=>{const totals={};orders.filter(o=>o.status!=='Cancelado').forEach(o=>(o.items||[]).forEach(i=>{if(i.figure)totals[i.figure]=(totals[i.figure]||0)+Number(i.qty||0)}));return Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([name])=>name)},[orders])
-  const featured=useMemo(()=>topNames.map(name=>products.find(p=>p.name===name)).filter(Boolean),[topNames,products])
-  const newest=useMemo(()=>products.slice(-6).reverse(),[products])
 
   function changeQty(id, delta) {
     const product = products.find(item => item.id === id)
@@ -128,7 +125,8 @@ export default function CustomerOrder() {
     if (!data.name.trim()) return alert('Ingresá tu nombre.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
-    if (!data.address.trim() || !data.locality.trim() || !data.province.trim() || !data.postalCode.trim()) return alert('Completá dirección, localidad, provincia y código postal.')
+    if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, código postal y correo electrónico.')
+    if(data.method==='Vía Cargo / Correo Argentino' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, provincia, código postal y correo electrónico.')
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const priceLines = [
@@ -143,11 +141,13 @@ export default function CustomerOrder() {
       `👤 *Cliente:* ${data.name.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       data.dni.trim() ? `🪪 *DNI:* ${data.dni.trim()}` : '',
-      `📦 *Entrega:* ${data.method}`,
-      `📍 *Dirección:* ${data.address.trim()}`,
-      `🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`,
-      `📮 *Código postal:* ${data.postalCode.trim()}`,
-      data.method === 'Retiro por el local' ? '🏪 *Modalidad:* Retiro por el local' : '',
+      data.email.trim() ? `✉️ *Email:* ${data.email.trim()}` : '',
+      `📦 *Tipo de entrega:* ${data.method}`,
+      data.method!=='Retiro en el local'?`📍 *Domicilio:* ${data.address.trim()}`:'',
+      data.method==='Logística'?`↔️ *Entre calles:* ${data.betweenStreets.trim()}`:'',
+      data.method!=='Retiro en el local'?`🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`:'',
+      data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
+      data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
       `📅 *Entrega aproximada:* entre ${fmtDate(deliveryEstimate.from)} y ${fmtDate(deliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
@@ -190,21 +190,10 @@ export default function CustomerOrder() {
     </section>
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
-      {(featured.length>0||newest.length>0)&&<section className="customer-section showcase-section">
-        <div className="customer-section-title"><div><small className="section-kicker">INSPIRATE</small><h2>Diseños que están encantando</h2><p>Los más elegidos y las últimas novedades del catálogo.</p></div></div>
-        <div className="showcase-tabs"><span>🔥 Más elegidos</span><span>✨ Novedades</span></div>
-        <div className="showcase-row">{[...featured,...newest].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i).slice(0,8).map(product=><button type="button" key={product.id} onClick={()=>{setCategory(product.category);setSearch(product.name);viewProduct(product)}}><img src={product.image} alt={product.name}/><b>{product.name}</b><small>{product.measure}</small></button>)}</div>
-      </section>}
       <section className="customer-section">
         <div className="customer-section-title"><div><small className="section-kicker">PASO 1</small><h2>Elegí tus diseños favoritos</h2><p>Podés combinar modelos y aprovechar las promociones por cantidad.</p></div><span className="cart-count">🛒 {total} piezas</span></div>
         <div className="catalog-search-main"><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar un diseño por nombre..." /><span>⌕</span></div>
-        {!category && !search ? <div className="category-home">
-          {catalogCategories.filter(item=>item!=='Todos').map(item => <button type="button" key={item} onClick={() => setCategory(item)}><span>{categoryIcons[item]||'▦'}</span><b>{item}</b><small>{products.filter(p=>p.category===item).length} diseños</small></button>)}
-        </div> : <>
-          <div className="catalog-toolbar">
-            <button type="button" className="back-categories" onClick={()=>{setCategory('');setSearch('')}}>← Categorías</button>
-          </div>
-          <div className="customer-categories">
+        <div className="customer-categories customer-categories-primary">
             {catalogCategories.map(item => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
           </div>
 
@@ -217,7 +206,7 @@ export default function CustomerOrder() {
                 <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
               </article>)}
             </div>}
-        </>}      </section>
+        </section>
 
       {regularQty>0&&<section className="customer-section promo-progress"><div><b>{nextGoal?`Te faltan ${missingForGoal} figura${missingForGoal===1?'':'s'} para el próximo precio`:'🎉 Alcanzaste el mejor precio'}</b><span>{regularQty} figuras regulares seleccionadas</span></div><div className="progress-track"><i style={{width:`${Math.max(8,(progressValue/progressMax)*100)}%`}} /></div></section>}
 
@@ -233,13 +222,16 @@ export default function CustomerOrder() {
         <div className="customer-grid">
           <label>Nombre y apellido<input value={data.name} onChange={event => update('name', event.target.value)} placeholder="Tu nombre" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
-          <label>DNI (opcional)<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="Solo si querés informarlo" /></label>
-          <label>Forma de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Envío</option><option>Retiro por el local</option></select></label>
+          <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
+          <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
+          <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
           <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>{fmtDate(deliveryEstimate.from)} al {fmtDate(deliveryEstimate.to)}</b><span>Se confirma después del pago. No se cuentan domingos.</span></div>
-          <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
-          <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" required /></label>
-          <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" required /></label>
-          <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" required /></label>
+          {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
+          {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
+          <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
+          <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" /></label>
+          <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" /></label></>}
+          {data.method==='Vía Cargo / Correo Argentino'&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>

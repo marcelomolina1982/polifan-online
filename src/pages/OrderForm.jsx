@@ -13,7 +13,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   ).padStart(3,'0')
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
-    date:today(), client:'',phone:'',dni:'',address:'',locality:'',province:'',postalCode:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
+    date:today(), client:'',phone:'',dni:'',email:'',address:'',betweenStreets:'',locality:'',province:'',postalCode:'',zone:'',deliveryType:'Logística',carrier:'Logística',agencyDelivery:'Envío a domicilio',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
@@ -29,7 +29,12 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   useEffect(()=>{
     if(editing){
-      setForm(JSON.parse(JSON.stringify(editing)))
+      const copy=JSON.parse(JSON.stringify(editing))
+      if(!copy.deliveryType){
+        const legacy=String(copy.carrier||'').toLocaleLowerCase('es')
+        copy.deliveryType=legacy.includes('retiro')?'Retiro en el local':(legacy.includes('via cargo')||legacy.includes('vía cargo')||legacy.includes('correo argentino'))?'Vía Cargo / Correo Argentino':'Logística'
+      }
+      setForm({...blank(),...copy})
       setDraftSaved(false)
     }
   },[editing])
@@ -55,11 +60,11 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const matchingClients=useMemo(()=>{
     const term=String(form.phone||form.client||'').trim().toLowerCase()
     if(term.length<3) return []
-    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,dni:o.dni,address:o.address,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
+    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,dni:o.dni,email:o.email,address:o.address,betweenStreets:o.betweenStreets,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
     const seen=new Set()
     return source.filter(c=>{const key=String(c.phone||c.name||'').toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return `${c.name||''} ${c.phone||''}`.toLowerCase().includes(term)}).slice(0,5)
   },[db.clients,db.orders,form.phone,form.client])
-  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,dni:c.dni||f.dni,address:c.address||f.address,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
+  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,dni:c.dni||f.dni,email:c.email||f.email,address:c.address||f.address,betweenStreets:c.betweenStreets||f.betweenStreets,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
@@ -67,12 +72,24 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   async function submit(e){
     e.preventDefault()
-    if(!form.client.trim()) return alert('Ingresá el nombre del cliente.')
+    if(!form.client.trim()) return alert('Ingresá el nombre y apellido del cliente.')
     if(!form.phone.trim()) return alert('Ingresá el teléfono del cliente.')
-    if(!form.address?.trim()) return alert('Ingresá la dirección del cliente.')
-    if(!form.locality?.trim()) return alert('Ingresá la localidad.')
-    if(!form.province?.trim()) return alert('Ingresá la provincia.')
-    if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
+    const deliveryType=form.deliveryType||form.carrier||'Logística'
+    if(deliveryType==='Logística'){
+      if(!form.address?.trim()) return alert('Ingresá el domicilio.')
+      if(!form.betweenStreets?.trim()) return alert('Ingresá las entre calles.')
+      if(!form.locality?.trim()) return alert('Ingresá la localidad.')
+      if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
+      if(!form.email?.trim()) return alert('Ingresá el correo electrónico.')
+    }
+    if(deliveryType==='Vía Cargo / Correo Argentino'){
+      if(!form.dni?.trim()) return alert('Ingresá el DNI.')
+      if(!form.address?.trim()) return alert('Ingresá el domicilio.')
+      if(!form.locality?.trim()) return alert('Ingresá la localidad.')
+      if(!form.province?.trim()) return alert('Ingresá la provincia.')
+      if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
+      if(!form.email?.trim()) return alert('Ingresá el correo electrónico.')
+    }
     if(!form.items.some(i=>i.figure && Number(i.qty)>0)) return alert('Agregá al menos una figura.')
     if(form.delivery && isSunday(form.delivery)) return alert('Los domingos no se cuentan como días de producción. Elegí otra fecha de entrega.')
     if(form.delivery && projectedPieces>=DAILY_PIECE_LIMIT){
@@ -101,14 +118,18 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
         <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
-        <Field label="DNI (opcional)"><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="Si el cliente te lo proporciona"/></Field>
+        <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>setForm({...form,deliveryType:e.target.value,carrier:e.target.value})}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></Field>
+        <Field label={(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="DNI del cliente"/></Field>
+        <Field label="Correo electrónico"><input type="email" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})} placeholder="cliente@email.com"/></Field>
         {matchingClients.length>0&&<div className="client-autofill"><small>Clientes encontrados</small>{matchingClients.map((c,i)=><button type="button" key={(c.phone||c.name)+i} onClick={()=>useClient(c)}><b>{c.name}</b><span>{c.phone||'Sin teléfono'} · {[c.locality,c.province].filter(Boolean).join(', ')||'Sin dirección'}</span></button>)}</div>}
-        <Field label="Dirección"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle, número y entrecalles" required/></Field>
-        <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario" required/></Field>
-        <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Santa Fe" required/></Field>
-        <Field label="Código postal"><input value={form.postalCode||''} onChange={e=>setForm({...form,postalCode:e.target.value.replace(/[^0-9A-Za-z-]/g,'')})} placeholder="Ej.: 2000" autoComplete="postal-code" required/></Field>
-        <Field label="Despachado por"><select value={form.carrier} onChange={e=>setForm({...form,carrier:e.target.value})}>
-          {['Via Cargo','Andreani','Correo Argentino','Logística','Retiro en local'].map(x=><option key={x}>{x}</option>)}</select></Field>
+        {(form.deliveryType||'Logística')!=='Retiro en el local'&&<>
+          <Field label="Domicilio"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle y número"/></Field>
+          {(form.deliveryType||'Logística')==='Logística'&&<Field label="Entre calles"><input value={form.betweenStreets||''} onChange={e=>setForm({...form,betweenStreets:e.target.value})} placeholder="Entre calle... y calle..."/></Field>}
+          <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario"/></Field>
+          <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Santa Fe"/></Field>
+          <Field label="Código postal"><input value={form.postalCode||''} onChange={e=>setForm({...form,postalCode:e.target.value.replace(/[^0-9A-Za-z-]/g,'')})} placeholder="Ej.: 2000" autoComplete="postal-code"/></Field>
+        </>}
+        {(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'&&<Field label="Modalidad del expreso"><select value={form.agencyDelivery||'Envío a domicilio'} onChange={e=>setForm({...form,agencyDelivery:e.target.value})}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></Field>}
         <Field label="Fecha de entrega"><input type="date" value={form.delivery} onChange={e=>setForm({...form,delivery:e.target.value})}/></Field>
         <Field label="Prioridad"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option></select></Field>
         <Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></Field>

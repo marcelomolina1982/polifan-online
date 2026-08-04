@@ -122,3 +122,11 @@
 - Nuevas tarjetas interactivas de pedidos, ventas, ganancia y stock.
 - Alertas accionables y agenda de próximas entregas.
 - Versión centralizada desde `version.json` para evitar números antiguos.
+
+## 14.3.0 — 04/08/2026
+- Datos del pedido interno adaptados a Logística, Retiro en el local y Vía Cargo / Correo Argentino.
+- Listado completo de figuras y QR público de control desde el celular.
+- Pedidos ordenables por fecha de salida y buscador compatible con fechas.
+- Eliminada la acción Duplicar.
+- Catálogo sin bloque “Inspirate”; abre directamente en Carameleras.
+- Solicitudes web con campos condicionales de entrega, email, entre calles y modalidad de agencia/domicilio.

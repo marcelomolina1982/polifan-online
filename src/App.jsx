@@ -14,13 +14,17 @@ import Expenses from './pages/Expenses'
 import Settings from './pages/Settings'
 import CatalogAdmin from './pages/CatalogAdmin'
 import CustomerOrder from './pages/CustomerOrder'
+import OrderControl from './pages/OrderControl'
 import Analytics from './pages/Analytics'
 import WebRequests from './pages/WebRequests'
 import ProductionCalendar from './pages/ProductionCalendar'
 import { APP_VERSION_LABEL, APP_UPDATED_AT } from './version'
 
 export default function App(){
-  const customerMode = window.location.hash === '#pedido' || new URLSearchParams(window.location.search).get('pedido') === '1'
+  const params = new URLSearchParams(window.location.search)
+  const controlMode = params.get('control')
+  const customerMode = window.location.hash === '#pedido' || params.get('pedido') === '1'
+  if(controlMode) return <OrderControl />
   if(customerMode) return <CustomerOrder />
   const [session,setSession] = useState(null)
   const cachedState = (()=>{ try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null} })()

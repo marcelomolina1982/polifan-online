@@ -22,6 +22,15 @@ function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zon
 function orderProvince(o){return o.province||o.customer?.province||'-'}
 function orderPostalCode(o){return o.postalCode||o.customer?.postalCode||o.cp||'-'}
 function orderShipping(o){return Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0}
+function orderEmail(o){return o.email||o.customer?.email||'-'}
+function orderBetweenStreets(o){return o.betweenStreets||o.customer?.betweenStreets||'-'}
+function deliveryType(o){
+  const raw=String(o.deliveryType||o.carrier||'Logística')
+  const key=raw.toLocaleLowerCase('es')
+  if(key.includes('retiro')) return 'Retiro en el local'
+  if(key.includes('via cargo')||key.includes('vía cargo')||key.includes('correo argentino')) return 'Vía Cargo / Correo Argentino'
+  return 'Logística'
+}
 
 const BOX_OPTIONS=[
   {name:'Caja 30×20×20 cm',capacity:6},
@@ -44,12 +53,21 @@ function packagingFor(qty){
   return {summary,parts:grouped,film:true}
 }
 
-function itemSummaryHtml(o,limit=16){
+function itemSummaryHtml(o){
   const items=(o.items||[]).filter(i=>i.figure&&Number(i.qty||0)>0)
-  const shown=items.slice(0,limit)
-  const lines=shown.map(i=>`<div><span>${esc(i.figure)}</span><b>x ${Number(i.qty||0)}</b></div>`).join('')
-  const more=items.length-shown.length
-  return `<div class="summary-list">${lines}${more>0?`<div class="summary-more">+ ${more} modelo${more===1?'':'s'} más · Ver detalle abajo</div>`:''}</div>`
+  const count=items.length
+  const columns=count>48?5:count>32?4:count>18?3:2
+  const density=count>48?'mega':count>32?'ultra':count>18?'dense':''
+  const lines=items.map(i=>`<div><span>${esc(i.figure)}</span><b>x ${Number(i.qty||0)}</b></div>`).join('')
+  return `<div class="summary-list ${density}" style="--summary-columns:${columns}">${lines}</div>`
+}
+
+
+function internalShippingHtml(o){
+  const type=deliveryType(o)
+  if(type==='Retiro en el local') return `<b>RETIRO EN EL LOCAL</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span>`
+  if(type==='Vía Cargo / Correo Argentino') return `<b>VÍA CARGO / CORREO ARGENTINO</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>DNI:</strong> ${esc(o.dni||'-')}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>CP / Localidad:</strong> ${esc(orderPostalCode(o))} · ${esc(orderLocality(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span><span><strong>Modalidad:</strong> ${esc(o.agencyDelivery||'A confirmar')}</span>`
+  return `<b>LOGÍSTICA</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>Entre calles:</strong> ${esc(orderBetweenStreets(o))}</span><span><strong>Localidad / CP:</strong> ${esc(orderLocality(o))} · ${esc(orderPostalCode(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span>`
 }
 
 function internalOrderHtml(o){
@@ -65,16 +83,15 @@ function internalOrderHtml(o){
       <div class="internal-delivery ${esc(delivery.dayClass)}"><small>DÍA DE ENTREGA</small><strong>${esc(delivery.day)}</strong><span>${esc(delivery.date)}</span></div>
       <div class="internal-client"><div><small>CLIENTE</small><b>${esc(o.client)}</b></div><div><small>PEDIDO</small><b>#${esc(o.number)}</b></div></div>
       <div class="internal-kpis"><div><small>TOTAL DE PIEZAS</small><b>${pieces}</b><span>PIEZAS</span></div><div><small>MODELOS DISTINTOS</small><b>${models}</b><span>MODELOS</span></div><div class="box-kpi"><small>CAJA A UTILIZAR</small><b>${esc(packaging.summary)}</b><span>+ FILM NEGRO</span></div></div>
-      <div class="summary-title">RESUMEN DE FIGURAS</div>${itemSummaryHtml(o)}
-      <div class="internal-notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</div>
+      <div class="internal-shipping">${internalShippingHtml(o)}</div>
+      <div class="summary-title">LISTADO COMPLETO DE FIGURAS</div>${itemSummaryHtml(o)}
+      <div class="internal-foot"><div class="internal-notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</div><div class="internal-qr"><img src="${qrImageUrl(o)}" alt="QR"><small>Controlar piezas desde el celular</small></div></div>
     </div>
   </section>`
 }
 
 function qrImageUrl(o){
-  const phone='5491159192358'
-  const text=`Hola, consulto por el pedido #${o.number} de ${o.client}.`
-  const target=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+  const target=`${window.location.origin}${window.location.pathname}?control=${encodeURIComponent(o.id)}`
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(target)}`
 }
 
@@ -88,10 +105,12 @@ function boxLabelHtml(o){
     <div class="label-client">${esc(o.client)}</div>
     <div class="label-data">
       <div><b>Dirección</b><span>${esc(orderAddress(o))}</span></div>
+      ${orderBetweenStreets(o)!=='-'?`<div><b>Entre calles</b><span>${esc(orderBetweenStreets(o))}</span></div>`:''}
       <div><b>Localidad / Provincia</b><span>${esc(orderLocality(o))} · ${esc(orderProvince(o))}</span></div>
       <div><b>Código postal</b><span>${esc(orderPostalCode(o))}</span></div>
       <div><b>Teléfono</b><span>${esc(o.phone||'-')}</span></div>
-      <div><b>Transporte</b><span>${esc(o.carrier||'-')}</span></div>
+      <div><b>Email</b><span>${esc(orderEmail(o))}</span></div>
+      <div><b>Tipo de entrega</b><span>${esc(deliveryType(o))}${o.agencyDelivery?` · ${esc(o.agencyDelivery)}`:''}</span></div>
       <div><b>Embalaje</b><span>${esc(packaging.summary)}</span></div>
     </div>
     <div class="label-bottom"><div class="label-pieces"><b>${pieces}</b><span>PIEZAS</span></div><div class="fragile"><b>FRÁGIL</b><span>Manipular con cuidado</span></div><div class="qr"><img src="${qrImageUrl(o)}" alt="QR"><small>Escaneá para consultar</small></div></div>
@@ -121,7 +140,7 @@ function purchaseDetailHtml(o){
   const delivery=deliveryParts(o.delivery)
   const mainHtml=`<section class="purchase-detail ${all.length>14?'compact-rows':''}">
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
-    <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
+    <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
     <div class="purchase-bottom"><div class="payment-card"><h3>FORMA DE PAGO</h3><p><b>SEÑA / PAGÓ</b><span>${o.deposit?money(o.deposit):'$ __________'}</span></p><p><b>SALDO</b><span>${o.balance?money(o.balance):'$ __________'}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Subtotal</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${shipping?money(shipping):'A cotizar'}</b></p><p class="grand-total"><span>TOTAL</span><b>${money(o.total)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
@@ -152,19 +171,31 @@ function labelHtml(o){return boxLabelHtml(o)}
 function labelStyles(){return printStyles(1)+'.box-label{width:100mm;height:95mm;margin:0 auto}'}
 
 function printStyles(){return `
-@page{size:A4 portrait;margin:5mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#121212;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-grid{display:block}.combined-sheet{width:200mm;min-height:287mm;margin:0 auto;break-after:page;page-break-after:always}.combined-sheet:last-child{break-after:auto}.top-print-row{height:137mm;display:grid;grid-template-columns:123mm 2mm 75mm;gap:0}.vertical-cut{border-left:1px dashed #777;display:flex;align-items:flex-start;justify-content:center;font-size:11px;padding-top:2mm}.horizontal-cut{height:4mm;border-top:1px dashed #777;text-align:left;font-size:11px;line-height:3mm}.internal-order,.box-label,.purchase-detail,.invoice-continuation{border:1px solid #b8c1d1;border-radius:3mm;background:#fff;overflow:hidden}.internal-order{display:grid;grid-template-columns:9mm 1fr;height:137mm}.internal-side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.5px}.internal-body{padding:3mm 4mm;display:flex;flex-direction:column;min-width:0}.mini-brand,.label-brand,.invoice-brand{display:flex;align-items:center;gap:2mm}.mini-brand img,.label-brand img,.invoice-brand img{width:15mm;height:15mm;object-fit:contain}.mini-brand b,.label-brand b,.invoice-brand b{display:block;font-size:13px}.mini-brand small,.label-brand small,.invoice-brand small{display:block;font-size:8px;font-weight:700}.internal-title{position:absolute;margin-left:78mm;margin-top:1mm;background:#111;color:#fff;padding:1mm 3mm;border-radius:2mm;font-size:9px;font-weight:900}.internal-delivery{text-align:center;border-radius:2mm;padding:2mm;margin:2mm 0}.internal-delivery small{display:block;font-size:8px;font-weight:900}.internal-delivery strong{display:block;font-size:29px;line-height:1}.internal-delivery span{font-size:15px;font-weight:900}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.internal-client{display:grid;grid-template-columns:1fr 33mm;border-bottom:1px solid #bbb;padding-bottom:2mm}.internal-client small,.internal-kpis small{display:block;font-size:7px;font-weight:900}.internal-client b{font-size:16px}.internal-client>div:last-child{text-align:center;border-left:1px solid #bbb}.internal-kpis{display:grid;grid-template-columns:28mm 29mm 1fr;gap:2mm;margin:2mm 0}.internal-kpis>div{border-right:1px solid #ccc;text-align:center}.internal-kpis>div:last-child{border:0}.internal-kpis b{display:block;font-size:24px;line-height:1}.internal-kpis span{display:inline-block;background:#1d5fbf;color:#fff;padding:.5mm 2mm;border-radius:1mm;font-size:7px;font-weight:900}.internal-kpis .box-kpi b{font-size:10px;line-height:1.15;margin:2mm 0}.internal-kpis .box-kpi span{background:#111}.summary-title{text-align:center;font-size:8px;font-weight:900;background:#111;color:#fff;border-radius:2mm;padding:.7mm}.summary-list{display:grid;grid-template-columns:1fr 1fr;column-gap:5mm;row-gap:.2mm;font-size:8px;border:1px solid #aaa;border-radius:2mm;padding:1.5mm;margin-top:1mm;min-height:31mm}.summary-list>div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb}.summary-more{grid-column:1/-1;font-weight:900;justify-content:center!important;border:0!important}.internal-notes{margin-top:auto;border:1px solid #ccd5e3;background:#f4f7fb;border-radius:2mm;padding:1.5mm;font-size:8px;min-height:10mm}.box-label{height:137mm;padding:4mm;display:flex;flex-direction:column}.label-head{border:1px solid #aaa;border-radius:3mm;overflow:hidden;text-align:center}.label-day{font-size:25px;font-weight:900;padding:2mm}.label-date{font-size:14px;font-weight:900;padding:1mm}.label-brand{margin:3mm 0 1mm}.label-client{font-size:23px;font-weight:900;border-bottom:1px solid #aaa;padding-bottom:2mm}.label-data{display:grid;grid-template-columns:1fr;gap:1mm;margin-top:2mm;font-size:9px}.label-data div{display:grid;grid-template-columns:25mm 1fr;border-bottom:1px dotted #bbb;padding:.8mm}.label-data b{font-size:7px;text-transform:uppercase}.label-bottom{display:grid;grid-template-columns:20mm 1fr 22mm;gap:2mm;align-items:center;margin-top:auto}.label-pieces{text-align:center;border:1px solid #aaa;border-radius:2mm;padding:1mm}.label-pieces b{display:block;font-size:23px;color:#e72d62}.label-pieces span{font-size:8px;font-weight:900}.fragile{border:1px solid #e72d62;color:#e72d62;border-radius:2mm;padding:2mm;text-align:center}.fragile b{display:block;font-size:14px}.fragile span{font-size:8px;color:#222}.qr{text-align:center}.qr img{width:20mm;height:20mm}.qr small{display:block;font-size:6px}.purchase-detail{height:146mm;padding:3mm 4mm;display:flex;flex-direction:column}.purchase-head{display:grid;grid-template-columns:1fr 1fr 42mm;align-items:center;border-bottom:2px solid #1d5fbf;padding-bottom:2mm}.purchase-head h2{margin:0;color:#1d5fbf;font-size:16px}.purchase-head>div:nth-child(2){text-align:center}.invoice-date{border:1px solid #b9c6d8;background:#f4f7fb;border-radius:2mm;padding:2mm;text-align:center}.invoice-date small{display:block;font-size:7px}.invoice-date b{display:block;font-size:11px}.invoice-date span{font-size:10px;font-weight:900;color:#1d5fbf}.purchase-grid{display:grid;grid-template-columns:52mm 1fr;gap:4mm;margin-top:2mm;min-height:83mm}.customer-card{background:#f4f7fb;border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.customer-card h3,.payment-card h3{font-size:8px;color:#1d5fbf;text-align:center;margin:0 0 1mm}.customer-card p{margin:1.2mm 0}.invoice-table{width:100%;border-collapse:collapse;font-size:8px}.invoice-table th{background:#1d5fbf;color:#fff}.invoice-table th,.invoice-table td{border:1px solid #aeb8c8;padding:1mm}.invoice-table th:nth-child(2),.invoice-table td:nth-child(2){width:13%;text-align:center}.invoice-table th:nth-child(3),.invoice-table td:nth-child(3),.invoice-table th:nth-child(4),.invoice-table td:nth-child(4){width:22%;text-align:right}.compact-rows .invoice-table{font-size:7px}.compact-rows .invoice-table th,.compact-rows .invoice-table td{padding:.65mm}.continued-note{text-align:center;font-size:7px;font-weight:900;padding:1mm;background:#fff3cd}.purchase-bottom{display:grid;grid-template-columns:50mm 1fr 57mm;gap:4mm;margin-top:auto}.payment-card,.observations,.totals{border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.payment-card p,.totals p{display:flex;justify-content:space-between;margin:1.5mm 0}.observations p{margin:2mm 0}.grand-total{background:#1d5fbf;color:#fff;padding:2mm;border-radius:1mm;font-size:12px}.invoice-footer{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#fff0f5,#eef7ff);padding:2mm 3mm;margin-top:2mm;font-size:8px;border-radius:2mm}.invoice-footer span:first-child{font-weight:900;font-size:10px}.invoice-continuation{padding:6mm;break-before:page;page-break-before:always;min-height:270mm}.invoice-continuation .purchase-head{grid-template-columns:1fr 1fr}.invoice-continuation .invoice-table{margin-top:8mm;font-size:10px}.continuation-total{text-align:right;font-size:13px;margin-top:5mm}.cut-page{break-after:page}.cut-page table{width:100%;border-collapse:collapse}.cut-page th,.cut-page td{border:1px solid #111;padding:4px}@media print{body{display:block}}
+@page{size:A4 portrait;margin:5mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#121212;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-grid{display:block}.combined-sheet{width:200mm;min-height:287mm;margin:0 auto;break-after:page;page-break-after:always}.combined-sheet:last-child{break-after:auto}.top-print-row{height:137mm;display:grid;grid-template-columns:123mm 2mm 75mm;gap:0}.vertical-cut{border-left:1px dashed #777;display:flex;align-items:flex-start;justify-content:center;font-size:11px;padding-top:2mm}.horizontal-cut{height:4mm;border-top:1px dashed #777;text-align:left;font-size:11px;line-height:3mm}.internal-order,.box-label,.purchase-detail,.invoice-continuation{border:1px solid #b8c1d1;border-radius:3mm;background:#fff;overflow:hidden}.internal-order{display:grid;grid-template-columns:9mm 1fr;height:137mm}.internal-side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.5px}.internal-body{padding:3mm 4mm;display:flex;flex-direction:column;min-width:0}.mini-brand,.label-brand,.invoice-brand{display:flex;align-items:center;gap:2mm}.mini-brand img,.label-brand img,.invoice-brand img{width:15mm;height:15mm;object-fit:contain}.mini-brand b,.label-brand b,.invoice-brand b{display:block;font-size:13px}.mini-brand small,.label-brand small,.invoice-brand small{display:block;font-size:8px;font-weight:700}.internal-title{position:absolute;margin-left:78mm;margin-top:1mm;background:#111;color:#fff;padding:1mm 3mm;border-radius:2mm;font-size:9px;font-weight:900}.internal-delivery{text-align:center;border-radius:2mm;padding:2mm;margin:2mm 0}.internal-delivery small{display:block;font-size:8px;font-weight:900}.internal-delivery strong{display:block;font-size:29px;line-height:1}.internal-delivery span{font-size:15px;font-weight:900}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.internal-client{display:grid;grid-template-columns:1fr 33mm;border-bottom:1px solid #bbb;padding-bottom:2mm}.internal-client small,.internal-kpis small{display:block;font-size:7px;font-weight:900}.internal-client b{font-size:16px}.internal-client>div:last-child{text-align:center;border-left:1px solid #bbb}.internal-kpis{display:grid;grid-template-columns:28mm 29mm 1fr;gap:2mm;margin:2mm 0}.internal-kpis>div{border-right:1px solid #ccc;text-align:center}.internal-kpis>div:last-child{border:0}.internal-kpis b{display:block;font-size:24px;line-height:1}.internal-kpis span{display:inline-block;background:#1d5fbf;color:#fff;padding:.5mm 2mm;border-radius:1mm;font-size:7px;font-weight:900}.internal-kpis .box-kpi b{font-size:10px;line-height:1.15;margin:2mm 0}.internal-kpis .box-kpi span{background:#111}.summary-title{text-align:center;font-size:8px;font-weight:900;background:#111;color:#fff;border-radius:2mm;padding:.7mm}.summary-list{display:grid;grid-template-columns:1fr 1fr;column-gap:5mm;row-gap:.2mm;font-size:8px;border:1px solid #aaa;border-radius:2mm;padding:1.5mm;margin-top:1mm;min-height:31mm}.summary-list>div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb}.summary-more{grid-column:1/-1;font-weight:900;justify-content:center!important;border:0!important}.internal-shipping{display:grid;grid-template-columns:1fr 1fr;gap:.4mm 2mm;border:1px solid #b9c6d8;background:#f7f9fc;border-radius:2mm;padding:1.2mm;font-size:6.5px;margin:1mm 0}.internal-shipping>b{grid-column:1/-1;color:#1d5fbf;font-size:7px}.internal-shipping span{white-space:normal}.internal-shipping strong{font-size:6px}.internal-foot{display:grid;grid-template-columns:1fr 18mm;gap:1mm;align-items:end;margin-top:auto}.internal-qr{text-align:center;font-size:5px}.internal-qr img{width:16mm;height:16mm}.internal-qr small{display:block}.summary-list.dense{font-size:6.5px;line-height:1.05}.summary-list.ultra{font-size:5.3px;line-height:1}.summary-list.mega{font-size:4.3px;line-height:.95;padding:.8mm}.summary-list{grid-template-columns:repeat(var(--summary-columns,2),1fr);min-height:0;max-height:47mm;overflow:visible}.internal-notes{margin-top:0;border:1px solid #ccd5e3;background:#f4f7fb;border-radius:2mm;padding:1.5mm;font-size:8px;min-height:10mm}.box-label{height:137mm;padding:4mm;display:flex;flex-direction:column}.label-head{border:1px solid #aaa;border-radius:3mm;overflow:hidden;text-align:center}.label-day{font-size:25px;font-weight:900;padding:2mm}.label-date{font-size:14px;font-weight:900;padding:1mm}.label-brand{margin:3mm 0 1mm}.label-client{font-size:23px;font-weight:900;border-bottom:1px solid #aaa;padding-bottom:2mm}.label-data{display:grid;grid-template-columns:1fr;gap:1mm;margin-top:2mm;font-size:9px}.label-data div{display:grid;grid-template-columns:25mm 1fr;border-bottom:1px dotted #bbb;padding:.8mm}.label-data b{font-size:7px;text-transform:uppercase}.label-bottom{display:grid;grid-template-columns:20mm 1fr 22mm;gap:2mm;align-items:center;margin-top:auto}.label-pieces{text-align:center;border:1px solid #aaa;border-radius:2mm;padding:1mm}.label-pieces b{display:block;font-size:23px;color:#e72d62}.label-pieces span{font-size:8px;font-weight:900}.fragile{border:1px solid #e72d62;color:#e72d62;border-radius:2mm;padding:2mm;text-align:center}.fragile b{display:block;font-size:14px}.fragile span{font-size:8px;color:#222}.qr{text-align:center}.qr img{width:20mm;height:20mm}.qr small{display:block;font-size:6px}.purchase-detail{height:146mm;padding:3mm 4mm;display:flex;flex-direction:column}.purchase-head{display:grid;grid-template-columns:1fr 1fr 42mm;align-items:center;border-bottom:2px solid #1d5fbf;padding-bottom:2mm}.purchase-head h2{margin:0;color:#1d5fbf;font-size:16px}.purchase-head>div:nth-child(2){text-align:center}.invoice-date{border:1px solid #b9c6d8;background:#f4f7fb;border-radius:2mm;padding:2mm;text-align:center}.invoice-date small{display:block;font-size:7px}.invoice-date b{display:block;font-size:11px}.invoice-date span{font-size:10px;font-weight:900;color:#1d5fbf}.purchase-grid{display:grid;grid-template-columns:52mm 1fr;gap:4mm;margin-top:2mm;min-height:83mm}.customer-card{background:#f4f7fb;border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.customer-card h3,.payment-card h3{font-size:8px;color:#1d5fbf;text-align:center;margin:0 0 1mm}.customer-card p{margin:1.2mm 0}.invoice-table{width:100%;border-collapse:collapse;font-size:8px}.invoice-table th{background:#1d5fbf;color:#fff}.invoice-table th,.invoice-table td{border:1px solid #aeb8c8;padding:1mm}.invoice-table th:nth-child(2),.invoice-table td:nth-child(2){width:13%;text-align:center}.invoice-table th:nth-child(3),.invoice-table td:nth-child(3),.invoice-table th:nth-child(4),.invoice-table td:nth-child(4){width:22%;text-align:right}.compact-rows .invoice-table{font-size:7px}.compact-rows .invoice-table th,.compact-rows .invoice-table td{padding:.65mm}.continued-note{text-align:center;font-size:7px;font-weight:900;padding:1mm;background:#fff3cd}.purchase-bottom{display:grid;grid-template-columns:50mm 1fr 57mm;gap:4mm;margin-top:auto}.payment-card,.observations,.totals{border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.payment-card p,.totals p{display:flex;justify-content:space-between;margin:1.5mm 0}.observations p{margin:2mm 0}.grand-total{background:#1d5fbf;color:#fff;padding:2mm;border-radius:1mm;font-size:12px}.invoice-footer{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#fff0f5,#eef7ff);padding:2mm 3mm;margin-top:2mm;font-size:8px;border-radius:2mm}.invoice-footer span:first-child{font-weight:900;font-size:10px}.invoice-continuation{padding:6mm;break-before:page;page-break-before:always;min-height:270mm}.invoice-continuation .purchase-head{grid-template-columns:1fr 1fr}.invoice-continuation .invoice-table{margin-top:8mm;font-size:10px}.continuation-total{text-align:right;font-size:13px;margin-top:5mm}.cut-page{break-after:page}.cut-page table{width:100%;border-collapse:collapse}.cut-page th,.cut-page td{border:1px solid #111;padding:4px}@media print{body{display:block}}
 `}
 
 
 export default function Orders({db,onSave,onEdit}){
   const [q,setQ]=useState('')
   const [status,setStatus]=useState('')
+  const [sort,setSort]=useState('delivery-asc')
   const [selected,setSelected]=useState([])
 
-  const list=useMemo(()=>db.orders.filter(o=>{
-    const s=(o.client+' '+o.phone+' '+o.number+' '+(o.items||[]).map(i=>i.figure).join(' ')).toLowerCase()
-    return s.includes(q.toLowerCase()) && (!status || o.status===status)
-  }).slice().reverse(),[db.orders,q,status])
+  const list=useMemo(()=>{
+    const term=q.trim().toLowerCase()
+    const filtered=db.orders.filter(o=>{
+      const delivery=formatDelivery(o.delivery||'')
+      const day=deliveryParts(o.delivery).day
+      const haystack=(o.client+' '+o.phone+' '+o.number+' '+(o.delivery||'')+' '+delivery+' '+day+' '+(o.items||[]).map(i=>i.figure).join(' ')).toLowerCase()
+      return haystack.includes(term) && (!status || o.status===status)
+    })
+    return filtered.slice().sort((a,b)=>{
+      if(sort==='delivery-desc') return String(b.delivery||'').localeCompare(String(a.delivery||'')) || Number(b.number||0)-Number(a.number||0)
+      if(sort==='number-desc') return Number(b.number||0)-Number(a.number||0)
+      if(sort==='number-asc') return Number(a.number||0)-Number(b.number||0)
+      return String(a.delivery||'9999-12-31').localeCompare(String(b.delivery||'9999-12-31')) || Number(a.number||0)-Number(b.number||0)
+    })
+  },[db.orders,q,status,sort])
 
   const selectedOrders=useMemo(()=>db.orders.filter(o=>selected.includes(o.id)),[db.orders,selected])
   const visibleIds=list.map(o=>o.id)
@@ -211,13 +242,6 @@ export default function Orders({db,onSave,onEdit}){
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank','noopener,noreferrer')
   }
 
-
-  async function duplicateOrder(o){
-    const nextNumber=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
-    const copy={...JSON.parse(JSON.stringify(o)),id:crypto.randomUUID(),number:nextNumber,date:new Date().toISOString().slice(0,10),delivery:'',status:'Ingresado',paid:'No',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),notes:[o.notes,'Pedido duplicado del #'+o.number].filter(Boolean).join(' · ')}
-    await onSave({...db,orders:[...db.orders,copy]})
-    alert(`Pedido duplicado correctamente. Nuevo pedido #${nextNumber}.`)
-  }
 
   function printLabel(o){
     const win=window.open('','_blank')
@@ -288,8 +312,9 @@ export default function Orders({db,onSave,onEdit}){
   return <>
     <Title title="Pedidos" sub="Buscá, editá, seleccioná e imprimí varios pedidos juntos."/>
     <div className="panel filters">
-      <input placeholder="Buscar cliente, teléfono, número o figura…" value={q} onChange={e=>setQ(e.target.value)}/>
+      <input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select>
+      <select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select>
     </div>
 
     <div className="panel bulk-toolbar">
@@ -311,7 +336,6 @@ export default function Orders({db,onSave,onEdit}){
           <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir pedido</button>
           <button className="ghost" onClick={()=>downloadOrderJpg(o)}>Pedido JPG</button>
           {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
-          <button className="ghost" onClick={()=>duplicateOrder(o)}>Duplicar</button>
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
           <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
         </td></tr>)}</tbody>
