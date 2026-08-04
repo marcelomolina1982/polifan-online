@@ -110,3 +110,8 @@
 - Autocompletado de datos al crear pedidos usando teléfono o nombre.
 - Dashboard ampliado con solicitudes web, embalados y acceso al calendario.
 - Embalaje inteligente con recomendación automática de cajas y materiales.
+
+## 14.1.0
+- Alta y actualización automática de clientes desde pedidos.
+- DNI opcional en pedidos, catálogo y clientes.
+- Importación histórica de clientes sin duplicados.

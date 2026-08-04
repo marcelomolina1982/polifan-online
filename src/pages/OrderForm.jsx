@@ -4,6 +4,7 @@ import { statusColors } from '../lib/constants'
 import { money, pricePerUnit, today } from '../lib/format'
 import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces, isSunday } from '../lib/production'
 import { packagingForPieces } from '../lib/packaging'
+import { upsertClientFromOrder } from '../lib/clients'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -12,7 +13,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   ).padStart(3,'0')
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
-    date:today(), client:'',phone:'',address:'',locality:'',province:'',postalCode:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
+    date:today(), client:'',phone:'',dni:'',address:'',locality:'',province:'',postalCode:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
@@ -54,11 +55,11 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const matchingClients=useMemo(()=>{
     const term=String(form.phone||form.client||'').trim().toLowerCase()
     if(term.length<3) return []
-    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,address:o.address,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
+    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,dni:o.dni,address:o.address,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
     const seen=new Set()
     return source.filter(c=>{const key=String(c.phone||c.name||'').toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return `${c.name||''} ${c.phone||''}`.toLowerCase().includes(term)}).slice(0,5)
   },[db.clients,db.orders,form.phone,form.client])
-  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,address:c.address||f.address,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
+  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,dni:c.dni||f.dni,address:c.address||f.address,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
@@ -84,7 +85,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
     const final={...form,zone:[form.locality,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
-    await onSave({...db,orders})
+    const clients=upsertClientFromOrder(db.clients||[],final)
+    await onSave({...db,orders,clients})
     localStorage.removeItem(DRAFT_KEY)
     const nextBlank={...blank(),number:nextOrderNumber(orders)}
     setForm(nextBlank); setDraftSaved(false); clearEdit()
@@ -99,6 +101,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
         <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+        <Field label="DNI (opcional)"><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="Si el cliente te lo proporciona"/></Field>
         {matchingClients.length>0&&<div className="client-autofill"><small>Clientes encontrados</small>{matchingClients.map((c,i)=><button type="button" key={(c.phone||c.name)+i} onClick={()=>useClient(c)}><b>{c.name}</b><span>{c.phone||'Sin teléfono'} · {[c.locality,c.province].filter(Boolean).join(', ')||'Sin dirección'}</span></button>)}</div>}
         <Field label="Dirección"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle, número y entrecalles" required/></Field>
         <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario" required/></Field>

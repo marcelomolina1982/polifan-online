@@ -47,7 +47,7 @@ export default function CustomerOrder() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [cart, setCart] = useState({})
-  const [data, setData] = useState({ name: '', phone: '', address: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
+  const [data, setData] = useState({ name: '', phone: '', dni: '', address: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Envío', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
 
   useEffect(() => {
@@ -142,6 +142,7 @@ export default function CustomerOrder() {
       '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, '',
       `👤 *Cliente:* ${data.name.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
+      data.dni.trim() ? `🪪 *DNI:* ${data.dni.trim()}` : '',
       `📦 *Entrega:* ${data.method}`,
       `📍 *Dirección:* ${data.address.trim()}`,
       `🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`,
@@ -232,6 +233,7 @@ export default function CustomerOrder() {
         <div className="customer-grid">
           <label>Nombre y apellido<input value={data.name} onChange={event => update('name', event.target.value)} placeholder="Tu nombre" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
+          <label>DNI (opcional)<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="Solo si querés informarlo" /></label>
           <label>Forma de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Envío</option><option>Retiro por el local</option></select></label>
           <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>{fmtDate(deliveryEstimate.from)} al {fmtDate(deliveryEstimate.to)}</b><span>Se confirma después del pago. No se cuentan domingos.</span></div>
           <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
