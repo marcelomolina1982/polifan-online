@@ -11,7 +11,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   ).padStart(3,'0')
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
-    date:today(), client:'',phone:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
+    date:today(), client:'',phone:'',address:'',locality:'',province:'',postalCode:'',zone:'',carrier:'Logística',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
@@ -57,6 +57,11 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   async function submit(e){
     e.preventDefault()
     if(!form.client.trim()) return alert('Ingresá el nombre del cliente.')
+    if(!form.phone.trim()) return alert('Ingresá el teléfono del cliente.')
+    if(!form.address?.trim()) return alert('Ingresá la dirección del cliente.')
+    if(!form.locality?.trim()) return alert('Ingresá la localidad.')
+    if(!form.province?.trim()) return alert('Ingresá la provincia.')
+    if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
     if(!form.items.some(i=>i.figure && Number(i.qty)>0)) return alert('Agregá al menos una figura.')
     if(form.delivery && isSunday(form.delivery)) return alert('Los domingos no se cuentan como días de producción. Elegí otra fecha de entrega.')
     if(form.delivery && projectedPieces>=DAILY_PIECE_LIMIT){
@@ -67,7 +72,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       if(!window.confirm(message)) return
     }
     const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
-    const final={...form,number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
+    const final={...form,zone:[form.locality,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     await onSave({...db,orders})
     localStorage.removeItem(DRAFT_KEY)
@@ -84,7 +89,10 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
         <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
-        <Field label="Zona de envío"><input value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})}/></Field>
+        <Field label="Dirección"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle, número y entrecalles" required/></Field>
+        <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario" required/></Field>
+        <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Santa Fe" required/></Field>
+        <Field label="Código postal"><input value={form.postalCode||''} onChange={e=>setForm({...form,postalCode:e.target.value.replace(/[^0-9A-Za-z-]/g,'')})} placeholder="Ej.: 2000" autoComplete="postal-code" required/></Field>
         <Field label="Despachado por"><select value={form.carrier} onChange={e=>setForm({...form,carrier:e.target.value})}>
           {['Via Cargo','Andreani','Correo Argentino','Logística','Retiro en local'].map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Fecha de entrega"><input type="date" value={form.delivery} onChange={e=>setForm({...form,delivery:e.target.value})}/></Field>

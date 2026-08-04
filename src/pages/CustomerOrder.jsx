@@ -125,7 +125,7 @@ export default function CustomerOrder() {
     if (!data.name.trim()) return alert('Ingresá tu nombre.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
-    if (data.method === 'Envío' && (!data.address.trim() || !data.locality.trim() || !data.province.trim() || !data.postalCode.trim())) return alert('Completá dirección, localidad, provincia y código postal para cotizar el envío.')
+    if (!data.address.trim() || !data.locality.trim() || !data.province.trim() || !data.postalCode.trim()) return alert('Completá dirección, localidad, provincia y código postal.')
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const priceLines = [
@@ -140,8 +140,10 @@ export default function CustomerOrder() {
       `👤 *Cliente:* ${data.name.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       `📦 *Entrega:* ${data.method}`,
-      data.method === 'Envío' ? `📍 *Dirección:* ${data.address.trim()}, ${data.locality.trim()}, ${data.province.trim()}` : '📍 *Retiro por el local*',
-      data.method === 'Envío' ? `📮 *Código postal:* ${data.postalCode.trim()}` : '',
+      `📍 *Dirección:* ${data.address.trim()}`,
+      `🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`,
+      `📮 *Código postal:* ${data.postalCode.trim()}`,
+      data.method === 'Retiro por el local' ? '🏪 *Modalidad:* Retiro por el local' : '',
       `📅 *Entrega aproximada:* entre ${fmtDate(deliveryEstimate.from)} y ${fmtDate(deliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
@@ -154,9 +156,9 @@ export default function CustomerOrder() {
     const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,delivery:''},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:deliveryEstimate.from,estimated_to:deliveryEstimate.to,notes:data.notes.trim()})
     if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
     trackCatalogEvent('order_sent', {
-      locality: data.method === 'Envío' ? data.locality : '',
-      province: data.method === 'Envío' ? data.province : '',
-      postalCode: data.method === 'Envío' ? data.postalCode : '',
+      locality: data.locality,
+      province: data.province,
+      postalCode: data.postalCode,
       quantity: total,
       metadata: { method: data.method, estimatedTotal }
     })
@@ -224,12 +226,10 @@ export default function CustomerOrder() {
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
           <label>Forma de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Envío</option><option>Retiro por el local</option></select></label>
           <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>{fmtDate(deliveryEstimate.from)} al {fmtDate(deliveryEstimate.to)}</b><span>Se confirma después del pago. No se cuentan domingos.</span></div>
-          {data.method === 'Envío' && <>
-            <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
-            <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" required /></label>
-            <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" required /></label>
-            <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" required /></label>
-          </>}
+          <label>Dirección<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle, número y entrecalles" required /></label>
+          <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" required /></label>
+          <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" required /></label>
+          <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" required /></label>
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { emptyState } from '../lib/constants'
 import { today } from '../lib/format'
+import { APP_VERSION_LABEL, APP_UPDATED_AT } from '../version'
 
 export default function Settings({db,onSave}){
   const [newFigures,setNewFigures]=useState(()=>localStorage.getItem('polifan-new-figures-draft')||'')
@@ -110,6 +111,14 @@ export default function Settings({db,onSave}){
 
   return <>
     <Title title="Datos y copias" sub="Administrá el catálogo de figuras y descargá respaldos."/>
+    <div className="panel system-version-panel">
+      <h3>Información del sistema</h3>
+      <div className="customer-grid">
+        <div><small>Versión instalada</small><b>Versión {APP_VERSION_LABEL}</b></div>
+        <div><small>Última actualización</small><b>{APP_UPDATED_AT}</b></div>
+      </div>
+      <p>El número mostrado en toda la aplicación se obtiene de un único archivo central para evitar versiones antiguas o diferentes.</p>
+    </div>
     <div className="panel customer-settings-panel">
       <h3>Pedidos por WhatsApp</h3>
       <p>Configurá el número que recibirá las solicitudes. Usá código de país sin el signo +. Para Argentina: 54 + código de área + número, sin 0 ni 15.</p>

@@ -1,3 +1,10 @@
+# Versión 13.4.0
+
+- Datos de entrega unificados en pedidos manuales y solicitudes web.
+- Dirección, localidad, provincia y código postal obligatorios.
+- La etiqueta y el detalle de compra usan esos datos directamente.
+- Las solicitudes web conservan todos los datos al convertirse en pedidos.
+
 # Historial de cambios
 
 ## 13.0.0 — Limpieza del proyecto
