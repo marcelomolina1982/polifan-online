@@ -115,3 +115,10 @@
 - Alta y actualización automática de clientes desde pedidos.
 - DNI opcional en pedidos, catálogo y clientes.
 - Importación histórica de clientes sin duplicados.
+
+## 14.2.0 — 04/08/2026
+- Restyling completo del dashboard con jerarquía visual moderna.
+- Resumen de producción del día con barra de capacidad.
+- Nuevas tarjetas interactivas de pedidos, ventas, ganancia y stock.
+- Alertas accionables y agenda de próximas entregas.
+- Versión centralizada desde `version.json` para evitar números antiguos.
