@@ -3,6 +3,7 @@ import { Title, Field } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money, pricePerUnit, today } from '../lib/format'
 import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces, isSunday } from '../lib/production'
+import { packagingForPieces } from '../lib/packaging'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -49,6 +50,15 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const availablePieces=Math.max(0,DAILY_PIECE_LIMIT-alreadyScheduled)
   const sheets=sheetsForPieces(qty)
   const productionDays=daysForPieces(qty)
+  const packaging=packagingForPieces(qty)
+  const matchingClients=useMemo(()=>{
+    const term=String(form.phone||form.client||'').trim().toLowerCase()
+    if(term.length<3) return []
+    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,address:o.address,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
+    const seen=new Set()
+    return source.filter(c=>{const key=String(c.phone||c.name||'').toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return `${c.name||''} ${c.phone||''}`.toLowerCase().includes(term)}).slice(0,5)
+  },[db.clients,db.orders,form.phone,form.client])
+  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,address:c.address||f.address,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
@@ -89,6 +99,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
         <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+        {matchingClients.length>0&&<div className="client-autofill"><small>Clientes encontrados</small>{matchingClients.map((c,i)=><button type="button" key={(c.phone||c.name)+i} onClick={()=>useClient(c)}><b>{c.name}</b><span>{c.phone||'Sin teléfono'} · {[c.locality,c.province].filter(Boolean).join(', ')||'Sin dirección'}</span></button>)}</div>}
         <Field label="Dirección"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle, número y entrecalles" required/></Field>
         <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario" required/></Field>
         <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Santa Fe" required/></Field>
@@ -122,7 +133,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
       <div className="order-total production-totals">
         <div><small>Total de piezas</small><b>{qty}</b></div>
-        <div><small>Planchas necesarias</small><b>{sheets}</b><span>{PIECES_PER_SHEET} figuras por plancha</span></div>
+        <div><small>Caja sugerida</small><b className="packaging-value">{packaging.label}</b><span>Film negro + cinta</span></div>
         <div><small>Días necesarios</small><b>{productionDays}</b><span>Máximo {DAILY_PIECE_LIMIT} piezas por día</span></div>
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
         <div><small>Valor del pedido</small><b>{money(total)}</b></div>

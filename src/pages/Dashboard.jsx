@@ -30,6 +30,8 @@ export default function Dashboard({db,go}){
   const lowRows=stockData.filter(s=>s.total<=s.min)
   const low=lowRows.length
   const todayPieces=todayOrders.reduce((sum,o)=>sum+orderPieces(o),0)
+  const webPending=Number(db.webRequests?.filter?.(r=>r.status==='Pendiente de pago').length||0)
+  const packed=db.orders.filter(o=>o.status==='Embalado').length
   const unpaid=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status) && Number(o.paid||0)<Number(o.total||0)).length
   const alerts=[
     todayPieces>=DAILY_PIECE_LIMIT ? {tone:'danger',title:'Capacidad de hoy completa',text:`${todayPieces} piezas programadas para hoy.`} : todayPieces>=75 ? {tone:'warning',title:'Producción cerca del límite',text:`${todayPieces} de ${DAILY_PIECE_LIMIT} piezas para hoy.`} : null,
@@ -45,6 +47,7 @@ export default function Dashboard({db,go}){
     {alerts.length>0&&<div className="business-alerts">{alerts.map((a,i)=><div className={'business-alert '+a.tone} key={i}><b>{a.title}</b><span>{a.text}</span></div>)}</div>}
     <div className="cards dashboard-cards">
       <Kpi label="Pedidos activos" value={activeOrders.length}/>
+      <Kpi label="Solicitudes web" value={webPending}/>
       <Kpi label="Entregas para hoy" value={todayOrders.length}/>
       <Kpi label="Producción de hoy" value={`${todayPieces} / ${DAILY_PIECE_LIMIT}`}/>
       <Kpi label="Piezas pendientes" value={pendingPieces}/>
@@ -52,10 +55,11 @@ export default function Dashboard({db,go}){
       <Kpi label="Facturación del mes" value={money(revenue)}/>
       <Kpi label="Gastos del mes" value={money(monthlyExpenses)}/>
       <Kpi label="Ganancia libre" value={money(netProfit)}/>
+      <Kpi label="Listos / embalados" value={packed}/>
       <Kpi label="Stock para reponer" value={low}/>
     </div>
     <div className="panel">
-      <div className="panel-heading"><div><h3>Capacidad de corte por día</h3><small>Máximo recomendado: {DAILY_PIECE_LIMIT} piezas = 9 planchas.</small></div><button className="ghost" onClick={()=>go('new')}>Agregar pedido</button></div>
+      <div className="panel-heading"><div><h3>Capacidad de corte por día</h3><small>Máximo recomendado: {DAILY_PIECE_LIMIT} piezas = 9 planchas.</small></div><div className="row-actions"><button className="ghost" onClick={()=>go('calendar')}>Ver calendario</button><button className="ghost" onClick={()=>go('new')}>Agregar pedido</button></div></div>
       <div className="production-days">
         {productionByDate.map(([date,pieces])=>{const status=productionStatus(pieces); return <div className={'production-day '+status} key={date}>
           <div><b>{new Date(date+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'})}</b><small>{sheetsForPieces(pieces)} planchas</small></div>

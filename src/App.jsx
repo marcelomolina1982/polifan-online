@@ -16,6 +16,7 @@ import CatalogAdmin from './pages/CatalogAdmin'
 import CustomerOrder from './pages/CustomerOrder'
 import Analytics from './pages/Analytics'
 import WebRequests from './pages/WebRequests'
+import ProductionCalendar from './pages/ProductionCalendar'
 import { APP_VERSION_LABEL, APP_UPDATED_AT } from './version'
 
 export default function App(){
@@ -82,7 +83,7 @@ export default function App(){
 
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
-    ['PRODUCCIÓN', [['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario']]],
+    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario']]],
     ['VENTAS', [['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
@@ -109,6 +110,7 @@ export default function App(){
         {page==='dashboard' && <Dashboard db={db} go={setPage}/>} 
         {page==='new' && <OrderForm db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} 
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>} 
+        {page==='calendar' && <ProductionCalendar db={db} go={setPage}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 

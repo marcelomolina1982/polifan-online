@@ -102,6 +102,9 @@ export default function CustomerOrder() {
   const progressMax = regularQty < 6 ? 6 : 12
   const progressValue = Math.min(regularQty, progressMax)
   const categoryIcons = {'Carameleras':'🍬','Palabras con luces':'✨','Figuras con luces':'💡','Cartelería':'🪧'}
+  const topNames=useMemo(()=>{const totals={};orders.filter(o=>o.status!=='Cancelado').forEach(o=>(o.items||[]).forEach(i=>{if(i.figure)totals[i.figure]=(totals[i.figure]||0)+Number(i.qty||0)}));return Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([name])=>name)},[orders])
+  const featured=useMemo(()=>topNames.map(name=>products.find(p=>p.name===name)).filter(Boolean),[topNames,products])
+  const newest=useMemo(()=>products.slice(-6).reverse(),[products])
 
   function changeQty(id, delta) {
     const product = products.find(item => item.id === id)
@@ -186,6 +189,11 @@ export default function CustomerOrder() {
     </section>
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
+      {(featured.length>0||newest.length>0)&&<section className="customer-section showcase-section">
+        <div className="customer-section-title"><div><small className="section-kicker">INSPIRATE</small><h2>Diseños que están encantando</h2><p>Los más elegidos y las últimas novedades del catálogo.</p></div></div>
+        <div className="showcase-tabs"><span>🔥 Más elegidos</span><span>✨ Novedades</span></div>
+        <div className="showcase-row">{[...featured,...newest].filter((p,i,a)=>a.findIndex(x=>x.id===p.id)===i).slice(0,8).map(product=><button type="button" key={product.id} onClick={()=>{setCategory(product.category);setSearch(product.name);viewProduct(product)}}><img src={product.image} alt={product.name}/><b>{product.name}</b><small>{product.measure}</small></button>)}</div>
+      </section>}
       <section className="customer-section">
         <div className="customer-section-title"><div><small className="section-kicker">PASO 1</small><h2>Elegí tus diseños favoritos</h2><p>Podés combinar modelos y aprovechar las promociones por cantidad.</p></div><span className="cart-count">🛒 {total} piezas</span></div>
         <div className="catalog-search-main"><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar un diseño por nombre..." /><span>⌕</span></div>

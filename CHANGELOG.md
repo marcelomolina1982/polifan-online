@@ -102,3 +102,11 @@
   - Más de 48: combinación automática de cajas
 - Indicación de envolver con film negro.
 - Limpieza de archivos LEEME y documentación histórica duplicada.
+
+## 14.0.0 — 04/08/2026
+- Calendario visual de producción con capacidad de 90 piezas por día.
+- Catálogo premium con más elegidos y novedades.
+- Historial de clientes con datos completos, favoritos y distintivo de cliente frecuente.
+- Autocompletado de datos al crear pedidos usando teléfono o nombre.
+- Dashboard ampliado con solicitudes web, embalados y acceso al calendario.
+- Embalaje inteligente con recomendación automática de cajas y materiales.
