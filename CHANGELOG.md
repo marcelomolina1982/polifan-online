@@ -80,3 +80,9 @@
 - Se conservó el formato clásico de impresión del pedido con remito debajo.
 - Renovación visual del catálogo público: portada premium, señales de confianza, buscador destacado, tarjetas modernas, selección visible y mejor experiencia móvil.
 - Limpieza de documentos históricos innecesarios para facilitar la carga en GitHub.
+
+
+## 13.2.0
+- Impresión A4 reorganizada: pedido interno vertical (1/4), etiqueta para caja (1/4) y remito horizontal (1/2).
+- La etiqueta destaca el día de entrega y el nombre del cliente.
+- El botón Pedido JPG descarga la hoja completa.
