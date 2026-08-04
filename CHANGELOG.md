@@ -81,8 +81,17 @@
 - Renovación visual del catálogo público: portada premium, señales de confianza, buscador destacado, tarjetas modernas, selección visible y mejor experiencia móvil.
 - Limpieza de documentos históricos innecesarios para facilitar la carga en GitHub.
 
-
-## 13.2.0
-- Impresión A4 reorganizada: pedido interno vertical (1/4), etiqueta para caja (1/4) y remito horizontal (1/2).
-- La etiqueta destaca el día de entrega y el nombre del cliente.
-- El botón Pedido JPG descarga la hoja completa.
+## 13.3.0
+- Nueva impresión A4 completa: pedido interno + etiqueta de caja + detalle de compra.
+- Pedido interno más grande y etiqueta más compacta.
+- Resumen de hasta 16 modelos en dos columnas; el detalle completo continúa en una hoja adicional cuando es necesario.
+- Recomendación automática de embalaje:
+  - 1–6: 30×20×20 cm
+  - 7–12: 40×30×30 cm
+  - 13–20: Caja Vía Cargo, utilizable con cualquier expreso
+  - 21–24: 50×40×30 cm
+  - 25–36: 50×40×40 cm
+  - 37–48: 60×40×40 cm
+  - Más de 48: combinación automática de cajas
+- Indicación de envolver con film negro.
+- Limpieza de archivos LEEME y documentación histórica duplicada.

@@ -1,12 +1,13 @@
-# Polifan Online · Tu Vida En Tinta
+# Polifan Online — Tu Vida En Tinta
 
-Aplicación de gestión de pedidos, producción, inventario, catálogo público, solicitudes web, finanzas y estadísticas.
+Sistema de gestión de pedidos, catálogo, producción, inventario, finanzas y solicitudes web.
 
-## Versión
-13.1.0
+## Versión 13.3
 
-## Publicación
-Subir el contenido de esta carpeta al repositorio de GitHub conectado con Vercel.
+La impresión de cada pedido genera una hoja A4 con:
 
-## Supabase
-Los scripts SQL se conservan en la raíz del proyecto para instalar las tablas de estadísticas y solicitudes web cuando sea necesario.
+- Pedido interno amplio con resumen de figuras y caja sugerida.
+- Etiqueta para la caja con datos completos, QR, aviso de frágil y film negro.
+- Detalle de compra para el cliente con productos, cantidades, precios y totales.
+
+La caja sugerida se calcula automáticamente según la cantidad de piezas. Para pedidos grandes se combinan varias cajas.

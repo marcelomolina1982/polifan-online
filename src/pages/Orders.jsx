@@ -15,215 +15,146 @@ function deliveryParts(value){
   return {day,date:`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`,dayClass:classes[date.getDay()]}
 }
 
-function formatDelivery(value){
-  return deliveryParts(value).date
+function formatDelivery(value){return deliveryParts(value).date}
+function totalPieces(o){return (o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)}
+function orderAddress(o){return o.address||o.customer?.address||o.shippingAddress||'-'}
+function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zone||'-'}
+function orderProvince(o){return o.province||o.customer?.province||'-'}
+function orderPostalCode(o){return o.postalCode||o.customer?.postalCode||o.cp||'-'}
+function orderShipping(o){return Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0}
+
+const BOX_OPTIONS=[
+  {name:'Caja 30×20×20 cm',capacity:6},
+  {name:'Caja 40×30×30 cm',capacity:12},
+  {name:'Caja Vía Cargo',capacity:20,note:'apta para cualquier expreso'},
+  {name:'Caja 50×40×30 cm',capacity:24},
+  {name:'Caja 50×40×40 cm',capacity:36},
+  {name:'Caja 60×40×40 cm',capacity:48}
+]
+function singleBoxFor(qty){return BOX_OPTIONS.find(box=>qty<=box.capacity)||BOX_OPTIONS[BOX_OPTIONS.length-1]}
+function packagingFor(qty){
+  let remaining=Math.max(0,Number(qty)||0)
+  if(!remaining) return {summary:'Sin caja asignada',parts:[],film:true}
+  const parts=[]
+  while(remaining>48){parts.push({...BOX_OPTIONS[5],qty:1});remaining-=48}
+  if(remaining>0){const box=singleBoxFor(remaining);parts.push({...box,qty:1})}
+  const grouped=[]
+  parts.forEach(part=>{const found=grouped.find(x=>x.name===part.name);if(found) found.qty+=1;else grouped.push({...part})})
+  const summary=grouped.map(p=>`${p.qty>1?p.qty+' × ':''}${p.name}`).join(' + ')
+  return {summary,parts:grouped,film:true}
 }
 
-function compactItems(o,limit=6){
-  const all=(o.items||[]).filter(i=>i.figure && Number(i.qty||0)>0)
-  const shown=all.slice(0,limit)
-  const rows=shown.map(i=>`<tr><td>${esc(i.figure)}</td><td>x ${Number(i.qty||0)}</td></tr>`).join('')
-  const remaining=all.length-shown.length
-  return rows+(remaining>0?`<tr class="more-row"><td colspan="2">+ ${remaining} figuras más</td></tr>`:'')
+function itemSummaryHtml(o,limit=16){
+  const items=(o.items||[]).filter(i=>i.figure&&Number(i.qty||0)>0)
+  const shown=items.slice(0,limit)
+  const lines=shown.map(i=>`<div><span>${esc(i.figure)}</span><b>x ${Number(i.qty||0)}</b></div>`).join('')
+  const more=items.length-shown.length
+  return `<div class="summary-list">${lines}${more>0?`<div class="summary-more">+ ${more} modelo${more===1?'':'s'} más · Ver detalle abajo</div>`:''}</div>`
 }
 
-function orderTicket(o){
-  const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+function internalOrderHtml(o){
+  const pieces=totalPieces(o)
   const delivery=deliveryParts(o.delivery)
-  return `<article class="ticket internal-ticket">
-    <div class="internal-title">PEDIDO INTERNO</div>
-    <div class="brand">TU VIDA EN TINTA · POLIFAN</div>
-    <div class="delivery ${esc(delivery.dayClass)}">
-      <strong class="delivery-day">${esc(delivery.day)}</strong>
-      <span class="delivery-date">${esc(delivery.date)}</span>
+  const models=(o.items||[]).filter(i=>i.figure&&Number(i.qty||0)>0).length
+  const packaging=packagingFor(pieces)
+  return `<section class="internal-order">
+    <div class="internal-side ${esc(delivery.dayClass)}">PEDIDO INTERNO</div>
+    <div class="internal-body">
+      <div class="mini-brand"><img src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"><div><b>TU VIDA EN TINTA</b><small>POLIFAN</small></div></div>
+      <div class="internal-title">PEDIDO INTERNO</div>
+      <div class="internal-delivery ${esc(delivery.dayClass)}"><small>DÍA DE ENTREGA</small><strong>${esc(delivery.day)}</strong><span>${esc(delivery.date)}</span></div>
+      <div class="internal-client"><div><small>CLIENTE</small><b>${esc(o.client)}</b></div><div><small>PEDIDO</small><b>#${esc(o.number)}</b></div></div>
+      <div class="internal-kpis"><div><small>TOTAL DE PIEZAS</small><b>${pieces}</b><span>PIEZAS</span></div><div><small>MODELOS DISTINTOS</small><b>${models}</b><span>MODELOS</span></div><div class="box-kpi"><small>CAJA A UTILIZAR</small><b>${esc(packaging.summary)}</b><span>+ FILM NEGRO</span></div></div>
+      <div class="summary-title">RESUMEN DE FIGURAS</div>${itemSummaryHtml(o)}
+      <div class="internal-notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</div>
     </div>
-    <div class="internal-client"><small>CLIENTE</small><strong>${esc(o.client||'-')}</strong></div>
-    <div class="internal-data">
-      <div><b>Pedido</b><span>#${esc(o.number)}</span></div>
-      <div><b>Transporte</b><span>${esc(o.carrier||'-')}</span></div>
-      <div><b>Zona</b><span>${esc(o.zone||'-')}</span></div>
-      <div><b>Estado</b><span>${esc(o.status||'-')}</span></div>
-    </div>
-    <div class="pieces-highlight"><small>TOTAL DE PIEZAS</small><strong>${totalPieces}</strong></div>
-    <table class="compact-table"><thead><tr><th>RESUMEN DE FIGURAS</th><th></th></tr></thead><tbody>${compactItems(o,5)}</tbody></table>
-    <p class="notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</p>
-  </article>`
+  </section>`
+}
+
+function qrImageUrl(o){
+  const phone='5491159192358'
+  const text=`Hola, consulto por el pedido #${o.number} de ${o.client}.`
+  const target=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(target)}`
 }
 
 function boxLabelHtml(o){
-  const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+  const pieces=totalPieces(o)
   const delivery=deliveryParts(o.delivery)
+  const packaging=packagingFor(pieces)
   return `<section class="box-label">
-    <div class="box-day ${esc(delivery.dayClass)}">
-      <strong>${esc(delivery.day)}</strong>
-      <span>${esc(delivery.date)}</span>
+    <div class="label-head"><div class="label-day ${esc(delivery.dayClass)}">${esc(delivery.day)}</div><div class="label-date">${esc(delivery.date)}</div></div>
+    <div class="label-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>Pedido #${esc(o.number)}</small></div></div>
+    <div class="label-client">${esc(o.client)}</div>
+    <div class="label-data">
+      <div><b>Dirección</b><span>${esc(orderAddress(o))}</span></div>
+      <div><b>Localidad / Provincia</b><span>${esc(orderLocality(o))} · ${esc(orderProvince(o))}</span></div>
+      <div><b>Código postal</b><span>${esc(orderPostalCode(o))}</span></div>
+      <div><b>Teléfono</b><span>${esc(o.phone||'-')}</span></div>
+      <div><b>Transporte</b><span>${esc(o.carrier||'-')}</span></div>
+      <div><b>Embalaje</b><span>${esc(packaging.summary)}</span></div>
     </div>
-    <div class="box-main">
-      <div class="box-brand">TU VIDA EN TINTA <small>· POLIFAN ·</small></div>
-      <div class="box-client"><small>CLIENTE</small><strong>${esc(o.client||'-')}</strong></div>
-      <div class="box-summary">
-        <div class="box-pieces"><small>TOTAL</small><strong>${totalPieces}</strong><b>PIEZAS</b></div>
-        <div class="box-details">
-          <div><b>Pedido</b><span>#${esc(o.number)}</span></div>
-          <div><b>Transporte</b><span>${esc(o.carrier||'-')}</span></div>
-          <div><b>Destino</b><span>${esc(o.zone||'-')}</span></div>
-          <div class="fragile"><b>FRÁGIL</b><span>Manipular con cuidado</span></div>
-        </div>
-      </div>
-    </div>
+    <div class="label-bottom"><div class="label-pieces"><b>${pieces}</b><span>PIEZAS</span></div><div class="fragile"><b>FRÁGIL</b><span>Manipular con cuidado</span></div><div class="qr"><img src="${qrImageUrl(o)}" alt="QR"><small>Escaneá para consultar</small></div></div>
   </section>`
 }
 
-function remitoHtml(o){
-  const pieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
+function pricedRows(o,items){
+  const pieces=totalPieces(o)
+  const shipping=orderShipping(o)
+  const productTotal=Math.max(0,Number(o.total||0)-shipping)
+  const fallbackUnit=pieces?productTotal/pieces:0
+  return items.map(i=>{
+    const qty=Number(i.qty||0)
+    const unit=Number(i.unitPrice||i.price||fallbackUnit)||0
+    const subtotal=unit*qty
+    return `<tr><td>${esc(i.figure)}</td><td>${qty}</td><td>${money(unit)}</td><td>${money(subtotal)}</td></tr>`
+  }).join('')
+}
+
+function purchaseDetailHtml(o){
+  const all=(o.items||[]).filter(i=>i.figure&&Number(i.qty||0)>0)
+  const main=all.slice(0,17)
+  const extra=all.slice(17)
+  const pieces=totalPieces(o)
+  const shipping=orderShipping(o)
+  const subtotal=Math.max(0,Number(o.total||0)-shipping)
   const delivery=deliveryParts(o.delivery)
-  const rows=(o.items||[]).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty||0)}</td></tr>`).join('')
-  return `<section class="remito">
-    <div class="remito-head">
-      <div><b>TU VIDA EN TINTA</b><small>REMITO PARA EL CLIENTE</small></div>
-      <strong>PEDIDO #${esc(o.number)}</strong>
-      <div class="remito-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div>
-    </div>
-    <div class="remito-body">
-      <div class="remito-left">
-        <div class="remito-grid">
-          <div><b>Cliente</b><span>${esc(o.client||'-')}</span></div>
-          <div><b>Teléfono</b><span>${esc(o.phone||'-')}</span></div>
-          <div><b>Dirección / zona</b><span>${esc(o.zone||'-')}</span></div>
-          <div><b>Transporte</b><span>${esc(o.carrier||'-')}</span></div>
-        </div>
-        <div class="payment-box">
-          <div><b>SEÑA / PAGÓ</b><span>$ __________</span></div>
-          <div><b>SALDO</b><span>$ __________</span></div>
-          <div><b>TOTAL</b><strong>${money(o.total)}</strong></div>
-        </div>
-        <p class="remito-notes"><b>Observaciones:</b><br>${esc(o.notes||'-')}</p>
-      </div>
-      <div class="remito-right">
-        <table><thead><tr><th>Producto</th><th>Cantidad</th></tr></thead><tbody>${rows}</tbody></table>
-        <div class="remito-total"><span>Total de piezas: <b>${pieces}</b></span><span>Total: <b>${money(o.total)}</b></span></div>
-        <div class="remito-sign"><span>Firma: ____________________</span><span>Aclaración: ____________________</span><span>DNI: ____________________</span></div>
-      </div>
-    </div>
-    <footer>¡Gracias por elegir Tu Vida En Tinta! · WhatsApp 11-5919-2358 · @tuvidaentinta</footer>
+  const mainHtml=`<section class="purchase-detail ${all.length>14?'compact-rows':''}">
+    <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
+    <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
+    <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
+    <div class="purchase-bottom"><div class="payment-card"><h3>FORMA DE PAGO</h3><p><b>SEÑA / PAGÓ</b><span>${o.deposit?money(o.deposit):'$ __________'}</span></p><p><b>SALDO</b><span>${o.balance?money(o.balance):'$ __________'}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Subtotal</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${shipping?money(shipping):'A cotizar'}</b></p><p class="grand-total"><span>TOTAL</span><b>${money(o.total)}</b></p></div></div>
+    <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
   </section>`
+  if(!extra.length) return mainHtml
+  const continuation=`<section class="invoice-continuation"><div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>CONTINUACIÓN DEL DETALLE</small></div></div><div><h2>PEDIDO #${esc(o.number)}</h2><b>${esc(o.client)}</b></div></div><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,extra)}</tbody></table><div class="continuation-total">Total de piezas: <b>${pieces}</b> · Total del pedido: <b>${money(o.total)}</b></div></section>`
+  return mainHtml+continuation
 }
 
-function orderAndRemito(o){
-  return `<div class="combined-sheet">
-    <div class="top-print-row">
-      ${orderTicket(o)}
-      <div class="top-label-wrap"><div class="section-caption">✂ ETIQUETA PARA LA CAJA — RECORTAR Y PEGAR</div>${boxLabelHtml(o)}</div>
-    </div>
-    <div class="cut-line">✂ REMITO PARA EL CLIENTE</div>
-    ${remitoHtml(o)}
-  </div>`
-}
+function orderAndRemito(o){return `<div class="combined-sheet"><div class="top-print-row">${internalOrderHtml(o)}<div class="vertical-cut">✂</div>${boxLabelHtml(o)}</div><div class="horizontal-cut">✂</div>${purchaseDetailHtml(o)}</div>`}
 
-async function downloadHtmlAsJpg(bodyHtml,css,filename,width=900){
+async function downloadHtmlAsJpg(bodyHtml,css,filename,width=1100){
   const frame=document.createElement('iframe')
   frame.setAttribute('aria-hidden','true')
-  frame.style.position='fixed'
-  frame.style.left='-10000px'
-  frame.style.top='0'
-  frame.style.width=width+'px'
-  frame.style.height='1400px'
-  frame.style.border='0'
-  frame.style.background='#fff'
+  frame.style.position='fixed';frame.style.left='-10000px';frame.style.top='0';frame.style.width=width+'px';frame.style.height='1700px';frame.style.border='0';frame.style.background='#fff'
   document.body.appendChild(frame)
   const doc=frame.contentDocument
-  doc.open()
-  doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff!important}body{padding:20px}</style></head><body>${bodyHtml}</body></html>`)
-  doc.close()
-  await new Promise(resolve=>setTimeout(resolve,180))
+  doc.open();doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff!important}body{padding:12px}</style></head><body>${bodyHtml}</body></html>`);doc.close()
+  await new Promise(resolve=>setTimeout(resolve,600))
   try{
-    const target=doc.body
-    frame.style.height=Math.max(600,target.scrollHeight+40)+'px'
+    const target=doc.body;frame.style.height=Math.max(800,target.scrollHeight+40)+'px'
     const canvas=await html2canvas(target,{backgroundColor:'#ffffff',scale:2,useCORS:true,logging:false,width:target.scrollWidth,height:target.scrollHeight})
-    const link=document.createElement('a')
-    link.download=filename
-    link.href=canvas.toDataURL('image/jpeg',0.95)
-    link.click()
-  }catch(error){
-    console.error(error)
-    alert('No se pudo generar el JPG. Intentá nuevamente.')
-  }finally{
-    frame.remove()
-  }
+    const link=document.createElement('a');link.download=filename;link.href=canvas.toDataURL('image/jpeg',0.95);link.click()
+  }catch(error){console.error(error);alert('No se pudo generar el JPG. Intentá nuevamente.')}finally{frame.remove()}
 }
 
-function labelHtml(o){
-  const totalPieces=(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)
-  return `<div class="label"><div class="brand">TU VIDA EN TINTA · POLIFAN</div><div class="number">PEDIDO #${esc(o.number)}</div><div class="client">${esc(o.client)}</div><div class="details"><div><b>Entrega</b>${formatDelivery(o.delivery)}</div><div><b>Total de piezas</b>${totalPieces}</div></div></div>`
-}
+function labelHtml(o){return boxLabelHtml(o)}
+function labelStyles(){return printStyles(1)+'.box-label{width:100mm;height:95mm;margin:0 auto}'}
 
-function labelStyles(){
-  return `*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;width:100mm}.label{border:2px solid #111;width:100mm;height:60mm;padding:5mm;display:flex;flex-direction:column;justify-content:space-between;background:#fff}.brand{text-align:center;font-size:12px;font-weight:800}.number{text-align:center;font-size:25px;font-weight:900;background:#111;color:#fff;padding:3px}.client{text-align:center;font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px}.details div{border-top:1px solid #999;padding-top:3px}.details b{display:block;font-size:9px;text-transform:uppercase}`
-}
+function printStyles(){return `
+@page{size:A4 portrait;margin:5mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#121212;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-grid{display:block}.combined-sheet{width:200mm;min-height:287mm;margin:0 auto;break-after:page;page-break-after:always}.combined-sheet:last-child{break-after:auto}.top-print-row{height:137mm;display:grid;grid-template-columns:123mm 2mm 75mm;gap:0}.vertical-cut{border-left:1px dashed #777;display:flex;align-items:flex-start;justify-content:center;font-size:11px;padding-top:2mm}.horizontal-cut{height:4mm;border-top:1px dashed #777;text-align:left;font-size:11px;line-height:3mm}.internal-order,.box-label,.purchase-detail,.invoice-continuation{border:1px solid #b8c1d1;border-radius:3mm;background:#fff;overflow:hidden}.internal-order{display:grid;grid-template-columns:9mm 1fr;height:137mm}.internal-side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.5px}.internal-body{padding:3mm 4mm;display:flex;flex-direction:column;min-width:0}.mini-brand,.label-brand,.invoice-brand{display:flex;align-items:center;gap:2mm}.mini-brand img,.label-brand img,.invoice-brand img{width:15mm;height:15mm;object-fit:contain}.mini-brand b,.label-brand b,.invoice-brand b{display:block;font-size:13px}.mini-brand small,.label-brand small,.invoice-brand small{display:block;font-size:8px;font-weight:700}.internal-title{position:absolute;margin-left:78mm;margin-top:1mm;background:#111;color:#fff;padding:1mm 3mm;border-radius:2mm;font-size:9px;font-weight:900}.internal-delivery{text-align:center;border-radius:2mm;padding:2mm;margin:2mm 0}.internal-delivery small{display:block;font-size:8px;font-weight:900}.internal-delivery strong{display:block;font-size:29px;line-height:1}.internal-delivery span{font-size:15px;font-weight:900}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.internal-client{display:grid;grid-template-columns:1fr 33mm;border-bottom:1px solid #bbb;padding-bottom:2mm}.internal-client small,.internal-kpis small{display:block;font-size:7px;font-weight:900}.internal-client b{font-size:16px}.internal-client>div:last-child{text-align:center;border-left:1px solid #bbb}.internal-kpis{display:grid;grid-template-columns:28mm 29mm 1fr;gap:2mm;margin:2mm 0}.internal-kpis>div{border-right:1px solid #ccc;text-align:center}.internal-kpis>div:last-child{border:0}.internal-kpis b{display:block;font-size:24px;line-height:1}.internal-kpis span{display:inline-block;background:#1d5fbf;color:#fff;padding:.5mm 2mm;border-radius:1mm;font-size:7px;font-weight:900}.internal-kpis .box-kpi b{font-size:10px;line-height:1.15;margin:2mm 0}.internal-kpis .box-kpi span{background:#111}.summary-title{text-align:center;font-size:8px;font-weight:900;background:#111;color:#fff;border-radius:2mm;padding:.7mm}.summary-list{display:grid;grid-template-columns:1fr 1fr;column-gap:5mm;row-gap:.2mm;font-size:8px;border:1px solid #aaa;border-radius:2mm;padding:1.5mm;margin-top:1mm;min-height:31mm}.summary-list>div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb}.summary-more{grid-column:1/-1;font-weight:900;justify-content:center!important;border:0!important}.internal-notes{margin-top:auto;border:1px solid #ccd5e3;background:#f4f7fb;border-radius:2mm;padding:1.5mm;font-size:8px;min-height:10mm}.box-label{height:137mm;padding:4mm;display:flex;flex-direction:column}.label-head{border:1px solid #aaa;border-radius:3mm;overflow:hidden;text-align:center}.label-day{font-size:25px;font-weight:900;padding:2mm}.label-date{font-size:14px;font-weight:900;padding:1mm}.label-brand{margin:3mm 0 1mm}.label-client{font-size:23px;font-weight:900;border-bottom:1px solid #aaa;padding-bottom:2mm}.label-data{display:grid;grid-template-columns:1fr;gap:1mm;margin-top:2mm;font-size:9px}.label-data div{display:grid;grid-template-columns:25mm 1fr;border-bottom:1px dotted #bbb;padding:.8mm}.label-data b{font-size:7px;text-transform:uppercase}.label-bottom{display:grid;grid-template-columns:20mm 1fr 22mm;gap:2mm;align-items:center;margin-top:auto}.label-pieces{text-align:center;border:1px solid #aaa;border-radius:2mm;padding:1mm}.label-pieces b{display:block;font-size:23px;color:#e72d62}.label-pieces span{font-size:8px;font-weight:900}.fragile{border:1px solid #e72d62;color:#e72d62;border-radius:2mm;padding:2mm;text-align:center}.fragile b{display:block;font-size:14px}.fragile span{font-size:8px;color:#222}.qr{text-align:center}.qr img{width:20mm;height:20mm}.qr small{display:block;font-size:6px}.purchase-detail{height:146mm;padding:3mm 4mm;display:flex;flex-direction:column}.purchase-head{display:grid;grid-template-columns:1fr 1fr 42mm;align-items:center;border-bottom:2px solid #1d5fbf;padding-bottom:2mm}.purchase-head h2{margin:0;color:#1d5fbf;font-size:16px}.purchase-head>div:nth-child(2){text-align:center}.invoice-date{border:1px solid #b9c6d8;background:#f4f7fb;border-radius:2mm;padding:2mm;text-align:center}.invoice-date small{display:block;font-size:7px}.invoice-date b{display:block;font-size:11px}.invoice-date span{font-size:10px;font-weight:900;color:#1d5fbf}.purchase-grid{display:grid;grid-template-columns:52mm 1fr;gap:4mm;margin-top:2mm;min-height:83mm}.customer-card{background:#f4f7fb;border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.customer-card h3,.payment-card h3{font-size:8px;color:#1d5fbf;text-align:center;margin:0 0 1mm}.customer-card p{margin:1.2mm 0}.invoice-table{width:100%;border-collapse:collapse;font-size:8px}.invoice-table th{background:#1d5fbf;color:#fff}.invoice-table th,.invoice-table td{border:1px solid #aeb8c8;padding:1mm}.invoice-table th:nth-child(2),.invoice-table td:nth-child(2){width:13%;text-align:center}.invoice-table th:nth-child(3),.invoice-table td:nth-child(3),.invoice-table th:nth-child(4),.invoice-table td:nth-child(4){width:22%;text-align:right}.compact-rows .invoice-table{font-size:7px}.compact-rows .invoice-table th,.compact-rows .invoice-table td{padding:.65mm}.continued-note{text-align:center;font-size:7px;font-weight:900;padding:1mm;background:#fff3cd}.purchase-bottom{display:grid;grid-template-columns:50mm 1fr 57mm;gap:4mm;margin-top:auto}.payment-card,.observations,.totals{border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.payment-card p,.totals p{display:flex;justify-content:space-between;margin:1.5mm 0}.observations p{margin:2mm 0}.grand-total{background:#1d5fbf;color:#fff;padding:2mm;border-radius:1mm;font-size:12px}.invoice-footer{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#fff0f5,#eef7ff);padding:2mm 3mm;margin-top:2mm;font-size:8px;border-radius:2mm}.invoice-footer span:first-child{font-weight:900;font-size:10px}.invoice-continuation{padding:6mm;break-before:page;page-break-before:always;min-height:270mm}.invoice-continuation .purchase-head{grid-template-columns:1fr 1fr}.invoice-continuation .invoice-table{margin-top:8mm;font-size:10px}.continuation-total{text-align:right;font-size:13px;margin-top:5mm}.cut-page{break-after:page}.cut-page table{width:100%;border-collapse:collapse}.cut-page th,.cut-page td{border:1px solid #111;padding:4px}@media print{body{display:block}}
+`}
 
-function printStyles(perPage=1){
-  return `
-    @page{size:A4 portrait;margin:6mm}
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,sans-serif}
-    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .print-grid{display:block}
-    .combined-sheet{width:198mm;height:285mm;break-after:page;page-break-after:always;overflow:hidden}
-    .combined-sheet:last-child{break-after:auto;page-break-after:auto}
-    .top-print-row{height:132mm;display:grid;grid-template-columns:52mm 1fr;gap:7mm;align-items:stretch}
-    .ticket{border:1.2px solid #111;background:#fff;overflow:hidden}
-    .internal-ticket{height:132mm;padding:2.3mm;font-size:7.6px;display:flex;flex-direction:column}
-    .internal-title{text-align:center;background:#111;color:#fff;border-radius:2px;padding:2px;font-size:8px;font-weight:900;letter-spacing:.4px}
-    .brand{text-align:center;font-size:9px;font-weight:900;margin:2mm 0 1.5mm}
-    .delivery{text-align:center;border:1.2px solid #111;border-radius:2px;padding:2mm 1mm;margin-bottom:1.5mm}
-    .delivery-day{display:block;font-size:20px;line-height:1;font-weight:900}
-    .delivery-date{display:block;font-size:11px;line-height:1.1;font-weight:800;margin-top:1mm}
-    .day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}
-    .internal-client{border-bottom:1px solid #bbb;padding:1mm 0 1.5mm}
-    .internal-client small{display:block;font-size:6.5px;font-weight:800;color:#555}
-    .internal-client strong{display:block;font-size:14px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .internal-data{margin-top:1mm}
-    .internal-data div{display:grid;grid-template-columns:15mm 1fr;gap:1mm;padding:.7mm 0;border-bottom:1px solid #ddd}
-    .internal-data b{font-size:6.5px}.internal-data span{font-size:7.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pieces-highlight{text-align:center;border:1.2px solid #111;border-radius:2px;padding:1mm;margin:1.5mm 0}
-    .pieces-highlight small{display:block;font-size:6.5px;font-weight:800}.pieces-highlight strong{display:block;font-size:22px;line-height:.95;font-weight:900}
-    table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #777;padding:1.1mm;text-align:left}
-    .compact-table{font-size:6.8px;margin:0}
-    .compact-table th{background:#111;color:#fff;font-size:6.4px;padding:.8mm}
-    .compact-table th:last-child,.compact-table td:last-child{width:12mm;text-align:right;font-weight:800}
-    .compact-table .more-row td{text-align:center!important;font-weight:800;background:#f4f4f4}
-    .notes{font-size:6.8px;margin:1.2mm 0 0;min-height:8mm;overflow:hidden}
-    .top-label-wrap{height:132mm;display:flex;flex-direction:column}
-    .section-caption{text-align:center;font-size:8px;font-weight:900;color:#175fb8;margin-bottom:2mm}
-    .box-label{flex:1;border:1.5px dashed #555;border-radius:4mm;padding:4mm;display:grid;grid-template-columns:35mm 1fr;background:#fff}
-    .box-day{border-radius:3mm 0 0 3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2mm;writing-mode:vertical-rl;transform:rotate(180deg)}
-    .box-day strong{font-size:27px;line-height:1;font-weight:900;letter-spacing:1px}.box-day span{font-size:13px;font-weight:800;margin-top:3mm}
-    .box-main{padding:2mm 4mm;display:flex;flex-direction:column}
-    .box-brand{text-align:center;font-size:22px;font-weight:900;border-bottom:1px solid #999;padding-bottom:2mm}.box-brand small{display:block;font-size:9px;letter-spacing:2px}
-    .box-client{margin:4mm 0 3mm}.box-client small{display:block;font-size:9px;font-weight:800;color:#555}.box-client strong{display:block;font-size:28px;line-height:1;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .box-summary{display:grid;grid-template-columns:1fr 1.2fr;gap:5mm;flex:1}
-    .box-pieces{border:1px solid #aaa;border-radius:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center}.box-pieces small{font-size:10px;font-weight:800}.box-pieces strong{font-size:48px;line-height:.9;color:#155fb8}.box-pieces b{font-size:16px}
-    .box-details{display:flex;flex-direction:column;justify-content:space-around}.box-details div{border-bottom:1px dashed #999;padding:2mm 0}.box-details b{display:block;font-size:8px;text-transform:uppercase}.box-details span{display:block;font-size:13px;font-weight:800}
-    .box-details .fragile{border:1px solid #e33;border-radius:2mm;padding:2mm;color:#d7193f}.box-details .fragile b{font-size:16px}.box-details .fragile span{color:#111;font-size:10px}
-    .cut-line{border-top:1.2px dashed #555;margin:4mm 0 2.5mm;padding-top:1mm;text-align:center;font-size:8px;font-weight:900;color:#175fb8;height:6mm}
-    .remito{height:141mm;border:1.2px solid #111;border-radius:2mm;padding:3mm;font-size:7.5px;display:flex;flex-direction:column;overflow:hidden}
-    .remito-head{height:18mm;display:grid;grid-template-columns:1fr 1fr 45mm;align-items:center;border-bottom:2px solid #155fb8;padding-bottom:2mm;margin-bottom:2mm}
-    .remito-head>div:first-child b{display:block;font-size:15px}.remito-head>div:first-child small{font-size:8px;font-weight:900;color:#155fb8}
-    .remito-head>strong{text-align:center;font-size:15px}
-    .remito-date{text-align:center;border:1px solid #9ab8dc;border-radius:2mm;padding:1mm}.remito-date small{display:block;font-size:6.5px}.remito-date b{display:block;font-size:11px;color:#155fb8}.remito-date span{display:block;font-weight:900}
-    .remito-body{display:grid;grid-template-columns:60mm 1fr;gap:4mm;flex:1;min-height:0}
-    .remito-left{display:flex;flex-direction:column;min-height:0}.remito-grid div{display:grid;grid-template-columns:24mm 1fr;border-bottom:1px solid #bbb;padding:1.2mm}.remito-grid b{font-size:7px}.remito-grid span{font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .payment-box{margin-top:auto;border:1px solid #aaa}.payment-box div{display:grid;grid-template-columns:28mm 1fr;padding:1.5mm;border-bottom:1px solid #bbb}.payment-box div:last-child{border-bottom:0}.payment-box strong{font-size:11px;color:#155fb8}
-    .remito-notes{border:1px dashed #aaa;min-height:20mm;margin:2mm 0 0;padding:2mm}
-    .remito-right{display:flex;flex-direction:column;min-height:0}.remito-right table{font-size:7px}.remito-right th{background:#155fb8;color:#fff}.remito-right th:last-child,.remito-right td:last-child{width:22mm;text-align:center}.remito-right td{padding:.7mm 1mm}
-    .remito-total{display:flex;justify-content:flex-end;gap:12mm;border:1px solid #777;border-top:0;padding:1.5mm 3mm;font-size:10px}.remito-total b{font-size:14px;color:#155fb8}
-    .remito-sign{margin-top:auto;border:1px solid #aaa;border-radius:2mm;padding:2mm;display:grid;grid-template-columns:1fr 1fr;gap:2mm}.remito-sign span:last-child{grid-column:1/-1}
-    .remito footer{text-align:center;background:#f2f6fc;border-radius:2mm;margin-top:2mm;padding:2mm;font-size:7.5px;font-style:italic}
-    .cut-page{break-after:page;font-size:12px}.cut-page header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.cut-page h1{font-size:20px;margin:0 0 4px}.cut-section{break-inside:avoid;margin-bottom:14px}.cut-section h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.cut-section p{font-size:10px;margin:5px 0;color:#444}.cut-section table{margin-top:0}.cut-section tfoot th{background:#f3f3f3}.cut-note{text-align:center;font-size:10px;margin-top:12px}
-    @media print{body{display:block}}
-  `
-}
 
 export default function Orders({db,onSave,onEdit}){
   const [q,setQ]=useState('')
@@ -300,8 +231,8 @@ export default function Orders({db,onSave,onEdit}){
   }
 
   function downloadOrderJpg(o){
-    const css=printStyles(1)+'.combined-sheet{break-after:auto!important;page-break-after:auto!important}'
-    downloadHtmlAsJpg(`<div class="print-grid">${orderAndRemito(o)}</div>`,css,`pedido-completo-${o.number}.jpg`,1000)
+    const css=printStyles()
+    downloadHtmlAsJpg(`<div class="print-grid">${orderAndRemito(o)}</div>`,css,`pedido-completo-${o.number}.jpg`,1100)
   }
 
   function printOrders(orders,perPage=2,includeCutList=false){
@@ -362,7 +293,7 @@ export default function Orders({db,onSave,onEdit}){
     </div>
 
     <div className="panel bulk-toolbar">
-      <div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>Cada pedido se imprime en una hoja A4 con su remito debajo.</small></div>
+      <div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>Cada pedido se imprime en una hoja A4: pedido interno, etiqueta para la caja y detalle de compra.</small></div>
       <div className="bulk-actions">
         <button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button>
         <button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button>
