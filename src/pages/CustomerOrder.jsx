@@ -150,7 +150,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `📅 *Entrega aproximada:* hasta ${fmtDate(deliveryEstimate.deliveryDate || deliveryEstimate.to)}`, 
+      `📅 *Fecha aproximada:* del ${fmtDate(deliveryEstimate.deliveryDate)} al ${fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       priceLines ? `\n💰 *Cálculo estimado:*\n${priceLines}\n*Total estimado: ${money(estimatedTotal)}*` : '',
@@ -159,7 +159,7 @@ export default function CustomerOrder() {
     ].filter(Boolean).join('\n')
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
-    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,delivery:''},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:deliveryEstimate.from,estimated_to:deliveryEstimate.to,notes:data.notes.trim()})
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,delivery:'',estimatedDeliveryStart:deliveryEstimate.deliveryDate,estimatedDeliveryEnd:deliveryEstimate.deliveryTo||deliveryEstimate.to},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:deliveryEstimate.from,estimated_to:deliveryEstimate.deliveryTo||deliveryEstimate.to,notes:data.notes.trim()})
     if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
     trackCatalogEvent('order_sent', {
       locality: data.locality,
@@ -227,7 +227,7 @@ export default function CustomerOrder() {
           <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>ENTREGA APROXIMADA</small><b>Hasta el {fmtDate(deliveryEstimate.deliveryDate || deliveryEstimate.to)}</b><span>Calculada desde el próximo día de producción disponible. No se cuentan domingos.</span></div>
+          <div className="delivery-estimate-box"><small>FECHA APROXIMADA</small><b>Del {fmtDate(deliveryEstimate.deliveryDate)} al {fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}</b><span>El rango comienza 72 horas después del último día necesario de corte. No se asigna producción los domingos.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>

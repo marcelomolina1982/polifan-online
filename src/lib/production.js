@@ -22,18 +22,31 @@ export function nextOpenProductionDate(date,closedDates=[]){
   do{d=nextProductionDay(d)}while(isProductionClosed(localISO(d),closedDates))
   return d
 }
-function deliveryAfter48Hours(lastProductionDate){
-  const due=dateFromISO(lastProductionDate)
-  due.setDate(due.getDate()+2)
-  if(due.getDay()===0) due.setDate(due.getDate()+1)
-  return localISO(due)
+function moveSundayToMonday(date){
+  const d=new Date(date)
+  if(d.getDay()===0) d.setDate(d.getDate()+1)
+  return d
+}
+function deliveryWindowAfter72Hours(lastProductionDate){
+  // 72 horas calendario después de terminar el corte.
+  const start=dateFromISO(lastProductionDate)
+  start.setDate(start.getDate()+3)
+  const normalizedStart=moveSundayToMonday(start)
+
+  // Margen aproximado de tres días: por ejemplo, martes a jueves.
+  const end=new Date(normalizedStart)
+  end.setDate(end.getDate()+2)
+  const normalizedEnd=moveSundayToMonday(end)
+
+  return {start:localISO(normalizedStart),end:localISO(normalizedEnd)}
 }
 /**
  * Calcula el último día necesario de producción para una solicitud nueva.
  * - Comienza después del último día cerrado, o desde hoy si todavía no se cerró ninguno.
  * - Nunca usa domingos ni fechas cerradas.
  * - Respeta las piezas ya programadas y el límite diario.
- * - La entrega estimada queda hasta 48 horas después del último día de corte.
+ * - La entrega estimada comienza 72 horas después del último día de corte.
+ * - Se muestra un rango de tres días (por ejemplo, martes a jueves).
  */
 export function estimateDeliveryRange(orders,newPieces,shipping=false,closedDates=[]){
   const closed=closedDates||[]
@@ -66,12 +79,15 @@ export function estimateDeliveryRange(orders,newPieces,shipping=false,closedDate
   }
 
   if(Number(newPieces||0)<=0) lastProductionDate=localISO(cursor)
-  const due=deliveryAfter48Hours(lastProductionDate)
+  const deliveryWindow=deliveryWindowAfter72Hours(lastProductionDate)
   return {
+    // `from` se mantiene como fecha de producción para no alterar la agenda interna.
     from:lastProductionDate,
-    to:due,
+    // `to` conserva el final del rango para las solicitudes ya existentes.
+    to:deliveryWindow.end,
     productionDate:lastProductionDate,
-    deliveryDate:due,
+    deliveryDate:deliveryWindow.start,
+    deliveryTo:deliveryWindow.end,
     lastClosed,
     pending:(orders||[]).filter(o=>!['Entregado','Cancelado'].includes(o.status)).reduce((s,o)=>s+orderPieces(o),0)
   }

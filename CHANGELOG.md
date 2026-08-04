@@ -1,3 +1,12 @@
+# Cambios
+
+## 14.5
+- Corrección del cálculo de fecha aproximada.
+- El rango comienza 72 horas después del último día necesario de corte.
+- Se muestra como "del martes al jueves" en vez de una única fecha.
+- Los domingos se desplazan al lunes.
+- Se conserva por separado la fecha interna de producción para no alterar la agenda.
+
 # Versión 14.4
 
 - Cierre manual de producción por fecha.
