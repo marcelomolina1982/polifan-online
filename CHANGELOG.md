@@ -73,3 +73,10 @@
 - Impresión múltiple y etiquetas.
 - Control de capacidad diaria.
 - Catálogo, buscador y mejoras generales de interfaz.
+
+## 13.1.0
+- Mensaje de WhatsApp al cliente más completo según estado, cantidad, total y fecha de salida.
+- Se quitaron los botones Imprimir etiqueta y Etiqueta JPG de la lista de pedidos.
+- Se conservó el formato clásico de impresión del pedido con remito debajo.
+- Renovación visual del catálogo público: portada premium, señales de confianza, buscador destacado, tarjetas modernas, selección visible y mejor experiencia móvil.
+- Limpieza de documentos históricos innecesarios para facilitar la carga en GitHub.

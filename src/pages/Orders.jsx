@@ -134,8 +134,32 @@ export default function Orders({db,onSave,onEdit}){
 
   function openWhatsApp(o){
     const number=String(o.phone||'').replace(/\D/g,'')
-    const text=`Hola ${o.client}, te escribimos de Tu Vida En Tinta por tu pedido N° ${o.number}. Estado actual: ${o.status}.`
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank')
+    if(!number) return alert('Este pedido no tiene un teléfono cargado.')
+    const pieces=(o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)
+    const delivery=o.delivery?formatDelivery(o.delivery):'a confirmar'
+    const status=String(o.status||'Ingresado')
+    const statusMessages={
+      'Ingresado':'ya fue registrado y está esperando su turno de producción',
+      'En producción':'ya está en producción',
+      'Listo':'ya está listo',
+      'Despachado':'ya fue despachado',
+      'Entregado':'figura como entregado'
+    }
+    const text=[
+      `Hola ${o.client} 😊`,
+      '',
+      `Te escribimos de *Tu Vida En Tinta* por tu pedido *#${o.number}*.`,
+      `📦 Cantidad de piezas: *${pieces}*`,
+      `💰 Total: *${money(o.total)}*`,
+      `📌 Estado: *${status}*`,
+      `📅 Fecha de salida: *${delivery}*`,
+      '',
+      `Tu pedido ${statusMessages[status]||'se encuentra actualizado en nuestro sistema'}.`,
+      'Ante cualquier consulta, podés responder este mensaje.',
+      '',
+      '¡Gracias por elegirnos! 💜'
+    ].join('\n')
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank','noopener,noreferrer')
   }
 
 
@@ -238,8 +262,6 @@ export default function Orders({db,onSave,onEdit}){
           <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir pedido</button>
           <button className="ghost" onClick={()=>downloadOrderJpg(o)}>Pedido JPG</button>
           {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
-          <button className="ghost" onClick={()=>printLabel(o)}>Imprimir etiqueta</button>
-          <button className="ghost" onClick={()=>downloadLabelJpg(o)}>Etiqueta JPG</button>
           <button className="ghost" onClick={()=>duplicateOrder(o)}>Duplicar</button>
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
           <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>

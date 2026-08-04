@@ -77,7 +77,7 @@ export default function CustomerOrder() {
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
     return products.filter(product => {
-      const categoryMatch = category === 'Todos' || product.category === category
+      const categoryMatch = !category || category === 'Todos' || product.category === category
       const textMatch = !term || `${product.name} ${product.measure} ${product.category}`.toLocaleLowerCase('es').includes(term)
       return categoryMatch && textMatch
     })
@@ -165,9 +165,16 @@ export default function CustomerOrder() {
   }
 
   return <div className="customer-page">
-    <div className="customer-top">
-      <img src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta" />
-      <div><small>PEDIDOS DE POLIFAN</small><h1>{config.businessName}</h1><p>Elegí tus productos y enviá la solicitud por WhatsApp. El envío y el pago se coordinan después.</p></div>
+    <header className="customer-hero">
+      <div className="customer-hero-brand">
+        <img src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta" />
+        <div><small>CATÁLOGO OFICIAL DE POLIFAN</small><h1>{config.businessName}</h1><p>Elegí, combiná y armá tu pedido en pocos pasos.</p></div>
+      </div>
+      <div className="customer-hero-badge"><span>✨</span><div><b>Hecho especialmente para vos</b><small>Producción a pedido · Envíos a todo el país</small></div></div>
+    </header>
+
+    <div className="customer-trust-strip">
+      <span>🔒 Compra coordinada por WhatsApp</span><span>🎨 Diseños personalizables</span><span>📦 Envíos a todo el país</span><span>💜 Atención personalizada</span>
     </div>
 
     <section className="customer-promos" aria-label="Precios y promociones">
@@ -178,13 +185,13 @@ export default function CustomerOrder() {
 
     {loading ? <div className="customer-loading">Cargando catálogo…</div> : <>
       <section className="customer-section">
-        <div className="customer-section-title"><div><h2>1. Elegí los productos</h2><p>Fotos, nombres y medidas tomados de tu catálogo.</p></div><span className="cart-count">{total} piezas</span></div>
+        <div className="customer-section-title"><div><small className="section-kicker">PASO 1</small><h2>Elegí tus diseños favoritos</h2><p>Podés combinar modelos y aprovechar las promociones por cantidad.</p></div><span className="cart-count">🛒 {total} piezas</span></div>
+        <div className="catalog-search-main"><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar un diseño por nombre..." /><span>⌕</span></div>
         {!category && !search ? <div className="category-home">
           {catalogCategories.filter(item=>item!=='Todos').map(item => <button type="button" key={item} onClick={() => setCategory(item)}><span>{categoryIcons[item]||'▦'}</span><b>{item}</b><small>{products.filter(p=>p.category===item).length} diseños</small></button>)}
         </div> : <>
           <div className="catalog-toolbar">
             <button type="button" className="back-categories" onClick={()=>{setCategory('');setSearch('')}}>← Categorías</button>
-            <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="🔍 Buscar por nombre..." />
           </div>
           <div className="customer-categories">
             {catalogCategories.map(item => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
@@ -192,7 +199,8 @@ export default function CustomerOrder() {
 
           {category === 'Cartelería' ? <div className="catalog-empty"><b>Cartelería personalizada</b><p>Describí lo que necesitás en observaciones y envialo por WhatsApp.</p></div> :
             <div className="customer-catalog">
-              {visible.map(product => <article className="customer-product" key={product.id}>
+              {visible.map(product => <article className={`customer-product ${(cart[product.id]||0)>0?'selected':''}`} key={product.id}>
+                {(cart[product.id]||0)>0&&<span className="product-selected-badge">✓ {cart[product.id]} en tu pedido</span>}
                 <img className="customer-product-image" src={product.image} alt={product.name} loading="lazy" onClick={() => viewProduct(product)} />
                 <div className="customer-product-info" onClick={() => viewProduct(product)}><b>{product.name}</b><small>{product.measure}</small>{product.fixedPrice ? <span>{money(product.fixedPrice)}</span> : null}</div>
                 <div className="qty-control"><button type="button" aria-label={`Quitar ${product.name}`} onClick={() => changeQty(product.id, -1)}>−</button><span>{cart[product.id] || 0}</span><button type="button" aria-label={`Agregar ${product.name}`} onClick={() => changeQty(product.id, 1)}>＋</button></div>
@@ -210,7 +218,7 @@ export default function CustomerOrder() {
       </section>}
 
       <section className="customer-section">
-        <h2>2. Tus datos</h2>
+        <small className="section-kicker">PASO 2</small><h2>Completá tus datos</h2>
         <div className="customer-grid">
           <label>Nombre y apellido<input value={data.name} onChange={event => update('name', event.target.value)} placeholder="Tu nombre" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
@@ -225,7 +233,7 @@ export default function CustomerOrder() {
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
-        <button type="button" className="whatsapp-button" onClick={send}>Enviar pedido por WhatsApp</button>
+        <button type="button" className="whatsapp-button" onClick={send}><span>Enviar solicitud por WhatsApp</span><small>Te confirmamos envío, disponibilidad y pago</small></button>
       </section>
 
       <section className="customer-section customer-feedback">
