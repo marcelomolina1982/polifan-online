@@ -25,17 +25,6 @@ function lightPrice(qty) {
   return qty * 5000
 }
 
-function regularRateLabel(qty) {
-  if (qty <= 5) return '$6.000 c/u'
-  if (qty <= 11) return 'promo de 6 + adicionales a $25.000 ÷ 6 c/u'
-  return 'promo de 12 + adicionales a $40.000 ÷ 12 c/u'
-}
-
-function lightRateLabel(qty) {
-  if (qty <= 11) return '$7.000 c/u'
-  if (qty <= 23) return '$6.000 c/u'
-  return '$5.000 c/u'
-}
 
 export default function CustomerOrder() {
   const params = new URLSearchParams(window.location.search)
@@ -145,15 +134,14 @@ export default function CustomerOrder() {
     const finalDeliveryEstimate=estimateDeliveryRange(latestOrders,total,data.method !== 'Retiro en el local',latestClosedDates)
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
-    const priceLines = [
-      regularQty ? `Figuras regulares (${regularQty}, ${regularRateLabel(regularQty)}): ${money(regularTotal)}` : '',
-      lightQty ? `Figuras con luces (${lightQty}, ${lightRateLabel(lightQty)}): ${money(lightTotal)}` : '',
-      fixedTotal ? `Productos con precio fijo: ${money(fixedTotal)}` : ''
-    ].filter(Boolean).join('\n')
-
-    const requestCode='WEB-'+Date.now().toString().slice(-6)
+    const now = new Date()
+    const receivedDate = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const receivedTime = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    const compactDate = [String(now.getFullYear()).slice(-2), String(now.getMonth()+1).padStart(2,'0'), String(now.getDate()).padStart(2,'0')].join('')
+    const compactTime = [String(now.getHours()).padStart(2,'0'), String(now.getMinutes()).padStart(2,'0'), String(now.getSeconds()).padStart(2,'0')].join('')
+    const requestCode=`WEB-${compactDate}-${compactTime}`
     const message = [
-      '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, '',
+      '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, `🕘 *Recibida:* ${receivedDate} · ${receivedTime}`, '',
       `👤 *Cliente:* ${data.firstName.trim()} ${data.lastName.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       data.dni.trim() ? `🪪 *DNI:* ${data.dni.trim()}` : '',
@@ -169,9 +157,9 @@ export default function CustomerOrder() {
       `📅 *Fecha aproximada:* del ${fmtDate(finalDeliveryEstimate.deliveryDate)} al ${fmtDate(finalDeliveryEstimate.deliveryTo || finalDeliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
-      priceLines ? `\n💰 *Cálculo estimado:*\n${priceLines}\n*Total estimado: ${money(estimatedTotal)}*` : '',
+      estimatedTotal ? `💰 *Total estimado:* ${money(estimatedTotal)}` : '',
       '', `📝 *Observaciones:* ${data.notes.trim() || 'Sin observaciones'}`,
-      '', 'El total es estimado y no incluye envío. Quedo a la espera de la confirmación, la cotización del envío y los datos para realizar el pago.'
+      '', 'El total es estimado y no incluye envío.', '', 'Muchas gracias por elegir *TU VIDA EN TINTA* 💜', 'En breve revisaremos la solicitud, calcularemos el costo del envío y te enviaremos el importe final junto con los datos para realizar el pago.', 'La producción comenzará una vez confirmado el pago.'
     ].filter(Boolean).join('\n')
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))

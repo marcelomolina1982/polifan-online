@@ -1,3 +1,12 @@
+# Historial de cambios
+
+## 14.8
+- Recalcula planificación online justo antes de enviar WhatsApp.
+- Mensaje simplificado, con fecha y hora de recepción.
+- Solicitudes aprobadas desaparecen de pendientes.
+- Botón para eliminar solicitudes y vista de historial.
+- Actualización forzada de la PWA para evitar código antiguo.
+
 ## 14.7 - Datos de envío completos
 - Nombre y apellido separados en pedidos, catálogo y clientes.
 - Se agregó Partido / Departamento.
@@ -35,7 +44,6 @@
 - La etiqueta y el detalle de compra usan esos datos directamente.
 - Las solicitudes web conservan todos los datos al convertirse en pedidos.
 
-# Historial de cambios
 
 ## 13.0.0 — Limpieza del proyecto
 

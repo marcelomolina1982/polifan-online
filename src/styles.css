@@ -193,3 +193,5 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 /* Producción cerrada v14.4 */
 .production-closure-note{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 0 16px;padding:14px 16px;border-radius:14px;background:#f4efff;border:1px solid #d9cbff;color:#39206d}.production-closure-note span{font-size:13px;color:#665781}.calendar-day.closed{background:#f1f1f4;border-color:#9b9ba7;opacity:.9}.calendar-day.closed b{color:#5c5c66;font-size:12px}.calendar-day.closed i em{background:repeating-linear-gradient(45deg,#7b7b86,#7b7b86 6px,#aaaab2 6px,#aaaab2 12px)}
 @media(max-width:700px){.production-closure-note{align-items:flex-start;flex-direction:column}.panel-heading{align-items:flex-start;gap:10px;flex-direction:column}}
+
+.request-tabs{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}.request-tabs button{border:1px solid #d9dbe7;background:#fff;color:#4a4d62;border-radius:999px;padding:9px 15px;font-weight:800;cursor:pointer}.request-tabs button.active{background:#24243c;color:#fff;border-color:#24243c}.request-actions{display:flex;gap:7px;flex-wrap:wrap}.request-actions button{white-space:nowrap}

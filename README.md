@@ -1,5 +1,6 @@
 # Polifan Online — Tu Vida En Tinta
 
+**Versión actual: 14.8**
 Sistema de gestión de pedidos, catálogo, producción, inventario, finanzas y solicitudes web.
 
 ## Versión 13.3
