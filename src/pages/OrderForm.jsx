@@ -169,7 +169,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
         <div><small>Valor del pedido</small><b>{money(total)}</b></div>
       </div>
-      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);clearEdit();setForm(blank());setDraftSaved(false)}}>Cancelar</button>}</div>
+      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
     </form>
   </>
 }

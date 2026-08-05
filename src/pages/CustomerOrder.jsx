@@ -155,7 +155,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `🛠️ *Producción disponible desde:* ${fmtProductionDate(finalDeliveryEstimate.productionDate)}`, 
+      `🛠️ *Producción disponible:* Desde ${fmtProductionDate(finalDeliveryEstimate.productionDate).toLowerCase()} en adelante`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       estimatedTotal ? `💰 *Total estimado:* ${money(estimatedTotal)}` : '',
@@ -233,7 +233,7 @@ export default function CustomerOrder() {
           <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>🛠️ PRODUCCIÓN DISPONIBLE DESDE</small><b>{fmtProductionDate(deliveryEstimate.productionDate)}</b><span>La fecha definitiva de entrega se confirmará junto con la cotización del envío y la confirmación del pago.</span></div>
+          <div className="delivery-estimate-box"><small>🛠️ PRODUCCIÓN DISPONIBLE</small><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>La fecha definitiva de entrega se confirmará junto con la cotización del envío y la confirmación del pago.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>

@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 15.0.0 — 05/08/2026
+- Al abrir **Nuevo pedido**, el formulario se reinicia y conserva únicamente el próximo número correlativo.
+- Al guardar o cancelar una edición, se sale correctamente del modo edición y se evita arrastrar datos del pedido anterior.
+- El catálogo ahora muestra: **Desde [fecha] en adelante**.
+
+
 ## 14.9 — Estabilidad de fechas y producción
 
 - Zona horaria única: America/Argentina/Buenos_Aires (UTC-3).
