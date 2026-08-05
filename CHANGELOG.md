@@ -1,4 +1,17 @@
+## 14.7 - Datos de envío completos
+- Nombre y apellido separados en pedidos, catálogo y clientes.
+- Se agregó Partido / Departamento.
+- Domicilio, localidad, partido, provincia y código postal alimentan impresión, etiqueta, comprobante y agenda de clientes.
+- Compatibilidad con pedidos anteriores que guardaban el nombre completo.
+
 # Cambios
+
+## 14.6 — Planificación online unificada
+- El catálogo, WhatsApp y solicitudes web usan el mismo motor de planificación.
+- La producción se vuelve a consultar al abrir el catálogo, al regresar a la pestaña, cada 30 segundos y antes de enviar.
+- Los cierres manuales y la ocupación de 90 piezas se aplican en tiempo real.
+- Se eliminan cachés antiguas de la PWA y se desactiva la caché del HTML, service worker y versión.
+- La fecha aproximada se muestra como rango de tres días, comenzando 72 horas después del último día de corte.
 
 ## 14.5
 - Corrección del cálculo de fecha aproximada.

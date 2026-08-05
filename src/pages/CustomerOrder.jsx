@@ -48,28 +48,36 @@ export default function CustomerOrder() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
   const [cart, setCart] = useState({})
-  const [data, setData] = useState({ name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
+  const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const { data: row } = await supabase.from('app_state').select('data').eq('id', 'main').maybeSingle()
-        const state = row?.data || {}
-        setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
-        setOrders(state.orders || [])
-        setClosedProductionDates(state.productionClosedDates || [])
-        setConfig({
-          whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
-          businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
-        })
-      } catch {
-        // El catálogo puede funcionar igualmente con los productos incluidos.
-      } finally {
-        setLoading(false)
-      }
+  async function refreshPlanning(showLoading=false) {
+    if(showLoading) setLoading(true)
+    try {
+      const { data: row, error } = await supabase.from('app_state').select('data,updated_at').eq('id', 'main').maybeSingle()
+      if(error) throw error
+      const state = row?.data || {}
+      setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+      setOrders(state.orders || [])
+      setClosedProductionDates(state.productionClosedDates || [])
+      setConfig({
+        whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
+        businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
+      })
+      return state
+    } catch {
+      return null
+    } finally {
+      if(showLoading) setLoading(false)
     }
-    load()
+  }
+
+  useEffect(() => {
+    refreshPlanning(true)
+    const onVisible=()=>{ if(document.visibilityState==='visible') refreshPlanning(false) }
+    document.addEventListener('visibilitychange',onVisible)
+    const timer=window.setInterval(()=>refreshPlanning(false),30000)
+    return ()=>{document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer)}
   }, [urlPhone])
 
   useEffect(() => {
@@ -124,11 +132,17 @@ export default function CustomerOrder() {
   }
   async function send() {
     if (!config.whatsapp) return alert('El comercio todavía no configuró su número de WhatsApp.')
-    if (!data.name.trim()) return alert('Ingresá tu nombre.')
+    if (!data.firstName.trim()) return alert('Ingresá tu nombre.')
+    if (!data.lastName.trim()) return alert('Ingresá tu apellido.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
-    if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, código postal y correo electrónico.')
-    if(data.method==='Vía Cargo / Correo Argentino' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, provincia, código postal y correo electrónico.')
+    if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
+    if(data.method==='Vía Cargo / Correo Argentino' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
+
+    const latestState=await refreshPlanning(false)
+    const latestOrders=latestState?.orders || orders
+    const latestClosedDates=latestState?.productionClosedDates || closedProductionDates
+    const finalDeliveryEstimate=estimateDeliveryRange(latestOrders,total,data.method !== 'Retiro en el local',latestClosedDates)
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const priceLines = [
@@ -140,17 +154,19 @@ export default function CustomerOrder() {
     const requestCode='WEB-'+Date.now().toString().slice(-6)
     const message = [
       '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, '',
-      `👤 *Cliente:* ${data.name.trim()}`,
+      `👤 *Cliente:* ${data.firstName.trim()} ${data.lastName.trim()}`,
       `📱 *WhatsApp:* ${data.phone.trim()}`,
       data.dni.trim() ? `🪪 *DNI:* ${data.dni.trim()}` : '',
       data.email.trim() ? `✉️ *Email:* ${data.email.trim()}` : '',
       `📦 *Tipo de entrega:* ${data.method}`,
       data.method!=='Retiro en el local'?`📍 *Domicilio:* ${data.address.trim()}`:'',
       data.method==='Logística'?`↔️ *Entre calles:* ${data.betweenStreets.trim()}`:'',
-      data.method!=='Retiro en el local'?`🏙️ *Localidad / Provincia:* ${data.locality.trim()}, ${data.province.trim()}`:'',
+      data.method!=='Retiro en el local'?`🏙️ *Localidad:* ${data.locality.trim()}`:'',
+      data.method!=='Retiro en el local'?`🗺️ *Partido / Departamento:* ${data.district.trim()}`:'',
+      data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `📅 *Fecha aproximada:* del ${fmtDate(deliveryEstimate.deliveryDate)} al ${fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}`, 
+      `📅 *Fecha aproximada:* del ${fmtDate(finalDeliveryEstimate.deliveryDate)} al ${fmtDate(finalDeliveryEstimate.deliveryTo || finalDeliveryEstimate.to)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       priceLines ? `\n💰 *Cálculo estimado:*\n${priceLines}\n*Total estimado: ${money(estimatedTotal)}*` : '',
@@ -159,7 +175,7 @@ export default function CustomerOrder() {
     ].filter(Boolean).join('\n')
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
-    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,delivery:'',estimatedDeliveryStart:deliveryEstimate.deliveryDate,estimatedDeliveryEnd:deliveryEstimate.deliveryTo||deliveryEstimate.to},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:deliveryEstimate.from,estimated_to:deliveryEstimate.deliveryTo||deliveryEstimate.to,notes:data.notes.trim()})
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:finalDeliveryEstimate.deliveryDate,estimatedDeliveryEnd:finalDeliveryEstimate.deliveryTo||finalDeliveryEstimate.to},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:finalDeliveryEstimate.from,estimated_to:finalDeliveryEstimate.deliveryTo||finalDeliveryEstimate.to,notes:data.notes.trim()})
     if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
     trackCatalogEvent('order_sent', {
       locality: data.locality,
@@ -222,15 +238,17 @@ export default function CustomerOrder() {
       <section className="customer-section">
         <small className="section-kicker">PASO 2</small><h2>Completá tus datos</h2>
         <div className="customer-grid">
-          <label>Nombre y apellido<input value={data.name} onChange={event => update('name', event.target.value)} placeholder="Tu nombre" /></label>
+          <label>Nombre<input value={data.firstName} onChange={event => {update('firstName', event.target.value);update('name',[event.target.value,data.lastName].filter(Boolean).join(' '))}} placeholder="Tu nombre" autoComplete="given-name" /></label>
+          <label>Apellido<input value={data.lastName} onChange={event => {update('lastName', event.target.value);update('name',[data.firstName,event.target.value].filter(Boolean).join(' '))}} placeholder="Tu apellido" autoComplete="family-name" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
           <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>FECHA APROXIMADA</small><b>Del {fmtDate(deliveryEstimate.deliveryDate)} al {fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}</b><span>El rango comienza 72 horas después del último día necesario de corte. No se asigna producción los domingos.</span></div>
+          <div className="delivery-estimate-box"><small>FECHA APROXIMADA</small><b>Del {fmtDate(deliveryEstimate.deliveryDate)} al {fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}</b><span>Fecha calculada con la producción online actual. Se actualiza automáticamente según cierres y capacidad disponible.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
+          <label>Partido / Departamento<input value={data.district} onChange={event => update('district', event.target.value)} placeholder="Ej.: La Matanza" /></label>
           <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" /></label>
           <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" /></label></>}
           {data.method==='Vía Cargo / Correo Argentino'&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}

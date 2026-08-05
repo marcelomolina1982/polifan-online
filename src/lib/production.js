@@ -22,47 +22,49 @@ export function nextOpenProductionDate(date,closedDates=[]){
   do{d=nextProductionDay(d)}while(isProductionClosed(localISO(d),closedDates))
   return d
 }
+function normalizeOpenDate(date,closedDates=[]){
+  let d=new Date(date)
+  if(d.getDay()===0) d=nextProductionDay(d)
+  while(isProductionClosed(localISO(d),closedDates)) d=nextOpenProductionDate(d,closedDates)
+  return d
+}
+function firstPlanningDate(closedDates=[]){
+  const today=dateFromISO(localISO(new Date()))
+  const lastClosed=latestClosedProductionDate(closedDates)
+  if(!lastClosed) return normalizeOpenDate(today,closedDates)
+  const afterClosed=nextOpenProductionDate(dateFromISO(lastClosed),closedDates)
+  return normalizeOpenDate(afterClosed>today?afterClosed:today,closedDates)
+}
 function moveSundayToMonday(date){
   const d=new Date(date)
   if(d.getDay()===0) d.setDate(d.getDate()+1)
   return d
 }
 function deliveryWindowAfter72Hours(lastProductionDate){
-  // 72 horas calendario después de terminar el corte.
   const start=dateFromISO(lastProductionDate)
   start.setDate(start.getDate()+3)
   const normalizedStart=moveSundayToMonday(start)
-
-  // Margen aproximado de tres días: por ejemplo, martes a jueves.
   const end=new Date(normalizedStart)
   end.setDate(end.getDate()+2)
   const normalizedEnd=moveSundayToMonday(end)
-
   return {start:localISO(normalizedStart),end:localISO(normalizedEnd)}
 }
 /**
- * Calcula el último día necesario de producción para una solicitud nueva.
- * - Comienza después del último día cerrado, o desde hoy si todavía no se cerró ninguno.
- * - Nunca usa domingos ni fechas cerradas.
- * - Respeta las piezas ya programadas y el límite diario.
- * - La entrega estimada comienza 72 horas después del último día de corte.
- * - Se muestra un rango de tres días (por ejemplo, martes a jueves).
+ * Motor único de planificación usado por el catálogo, WhatsApp y solicitudes web.
+ * - Parte del primer día abierto posterior al último cierre manual (nunca antes de hoy).
+ * - Usa el espacio libre real de cada fecha hasta 90 piezas.
+ * - Omite domingos y fechas cerradas.
+ * - La entrega aproximada comienza 72 horas calendario después del último día de corte.
+ * - Muestra una ventana de tres días: por ejemplo, martes a jueves.
  */
 export function estimateDeliveryRange(orders,newPieces,shipping=false,closedDates=[]){
-  const closed=closedDates||[]
+  const closed=[...new Set(closedDates||[])].filter(Boolean).sort()
   const lastClosed=latestClosedProductionDate(closed)
-  const today=localISO(new Date())
-  let cursor
-  if(lastClosed){
-    cursor=nextOpenProductionDate(dateFromISO(lastClosed),closed)
-  }else{
-    cursor=dateFromISO(today)
-    if(cursor.getDay()===0 || isProductionClosed(localISO(cursor),closed)) cursor=nextOpenProductionDate(cursor,closed)
-  }
-
+  let cursor=firstPlanningDate(closed)
   let remaining=Math.max(0,Number(newPieces)||0)
   let lastProductionDate=localISO(cursor)
   let safety=0
+
   while(remaining>0 && safety<730){
     safety++
     const date=localISO(cursor)
@@ -70,20 +72,16 @@ export function estimateDeliveryRange(orders,newPieces,shipping=false,closedDate
       const used=piecesScheduledForDate(orders,date)
       const available=Math.max(0,DAILY_PIECE_LIMIT-used)
       if(available>0){
-        const assigned=Math.min(available,remaining)
-        remaining-=assigned
+        remaining-=Math.min(available,remaining)
         lastProductionDate=date
       }
     }
     if(remaining>0) cursor=nextOpenProductionDate(cursor,closed)
   }
 
-  if(Number(newPieces||0)<=0) lastProductionDate=localISO(cursor)
   const deliveryWindow=deliveryWindowAfter72Hours(lastProductionDate)
   return {
-    // `from` se mantiene como fecha de producción para no alterar la agenda interna.
     from:lastProductionDate,
-    // `to` conserva el final del rango para las solicitudes ya existentes.
     to:deliveryWindow.end,
     productionDate:lastProductionDate,
     deliveryDate:deliveryWindow.start,

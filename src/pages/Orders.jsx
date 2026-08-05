@@ -20,6 +20,7 @@ function totalPieces(o){return (o.items||[]).reduce((sum,item)=>sum+Number(item.
 function orderAddress(o){return o.address||o.customer?.address||o.shippingAddress||'-'}
 function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zone||'-'}
 function orderProvince(o){return o.province||o.customer?.province||'-'}
+function orderDistrict(o){return o.district||o.customer?.district||o.party||'-'}
 function orderPostalCode(o){return o.postalCode||o.customer?.postalCode||o.cp||'-'}
 function orderShipping(o){return Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0}
 function orderEmail(o){return o.email||o.customer?.email||'-'}
@@ -66,8 +67,8 @@ function itemSummaryHtml(o){
 function internalShippingHtml(o){
   const type=deliveryType(o)
   if(type==='Retiro en el local') return `<b>RETIRO EN EL LOCAL</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span>`
-  if(type==='Vía Cargo / Correo Argentino') return `<b>VÍA CARGO / CORREO ARGENTINO</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>DNI:</strong> ${esc(o.dni||'-')}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>CP / Localidad:</strong> ${esc(orderPostalCode(o))} · ${esc(orderLocality(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span><span><strong>Modalidad:</strong> ${esc(o.agencyDelivery||'A confirmar')}</span>`
-  return `<b>LOGÍSTICA</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>Entre calles:</strong> ${esc(orderBetweenStreets(o))}</span><span><strong>Localidad / CP:</strong> ${esc(orderLocality(o))} · ${esc(orderPostalCode(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span>`
+  if(type==='Vía Cargo / Correo Argentino') return `<b>VÍA CARGO / CORREO ARGENTINO</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>DNI:</strong> ${esc(o.dni||'-')}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>CP / Localidad:</strong> ${esc(orderPostalCode(o))} · ${esc(orderLocality(o))}</span><span><strong>Partido:</strong> ${esc(orderDistrict(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span><span><strong>Modalidad:</strong> ${esc(o.agencyDelivery||'A confirmar')}</span>`
+  return `<b>LOGÍSTICA</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>Entre calles:</strong> ${esc(orderBetweenStreets(o))}</span><span><strong>Localidad:</strong> ${esc(orderLocality(o))}</span><span><strong>Partido:</strong> ${esc(orderDistrict(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>CP:</strong> ${esc(orderPostalCode(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span>`
 }
 
 function internalOrderHtml(o){
@@ -106,7 +107,7 @@ function boxLabelHtml(o){
     <div class="label-data">
       <div><b>Dirección</b><span>${esc(orderAddress(o))}</span></div>
       ${orderBetweenStreets(o)!=='-'?`<div><b>Entre calles</b><span>${esc(orderBetweenStreets(o))}</span></div>`:''}
-      <div><b>Localidad / Provincia</b><span>${esc(orderLocality(o))} · ${esc(orderProvince(o))}</span></div>
+      <div><b>Localidad</b><span>${esc(orderLocality(o))}</span></div><div><b>Partido / Departamento</b><span>${esc(orderDistrict(o))}</span></div><div><b>Provincia</b><span>${esc(orderProvince(o))}</span></div>
       <div><b>Código postal</b><span>${esc(orderPostalCode(o))}</span></div>
       <div><b>Teléfono</b><span>${esc(o.phone||'-')}</span></div>
       <div><b>Email</b><span>${esc(orderEmail(o))}</span></div>
@@ -140,7 +141,7 @@ function purchaseDetailHtml(o){
   const delivery=deliveryParts(o.delivery)
   const mainHtml=`<section class="purchase-detail ${all.length>14?'compact-rows':''}">
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
-    <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
+    <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
     <div class="purchase-bottom"><div class="payment-card"><h3>FORMA DE PAGO</h3><p><b>SEÑA / PAGÓ</b><span>${o.deposit?money(o.deposit):'$ __________'}</span></p><p><b>SALDO</b><span>${o.balance?money(o.balance):'$ __________'}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Subtotal</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${shipping?money(shipping):'A cotizar'}</b></p><p class="grand-total"><span>TOTAL</span><b>${money(o.total)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>

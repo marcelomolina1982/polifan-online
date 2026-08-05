@@ -8,13 +8,16 @@ function text(value){
 
 export function clientFromOrder(order={}){
   return {
-    name:text(order.client||order.name),
+    firstName:text(order.firstName),
+    lastName:text(order.lastName),
+    name:text(order.client||order.name||[order.firstName,order.lastName].filter(Boolean).join(' ')),
     phone:text(order.phone),
     dni:text(order.dni),
     email:text(order.email),
     address:text(order.address),
     betweenStreets:text(order.betweenStreets),
     locality:text(order.locality||order.zone),
+    district:text(order.district),
     province:text(order.province),
     postalCode:text(order.postalCode),
     notes:text(order.clientNotes),

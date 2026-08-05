@@ -13,7 +13,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   ).padStart(3,'0')
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
-    date:today(), client:'',phone:'',dni:'',email:'',address:'',betweenStreets:'',locality:'',province:'',postalCode:'',zone:'',deliveryType:'Logística',carrier:'Logística',agencyDelivery:'Envío a domicilio',delivery:'',priority:'Normal',
+    date:today(), firstName:'',lastName:'',client:'',phone:'',dni:'',email:'',address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',zone:'',deliveryType:'Logística',carrier:'Logística',agencyDelivery:'Envío a domicilio',delivery:'',priority:'Normal',
     status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
@@ -34,7 +34,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         const legacy=String(copy.carrier||'').toLocaleLowerCase('es')
         copy.deliveryType=legacy.includes('retiro')?'Retiro en el local':(legacy.includes('via cargo')||legacy.includes('vía cargo')||legacy.includes('correo argentino'))?'Vía Cargo / Correo Argentino':'Logística'
       }
-      setForm({...blank(),...copy})
+      setForm({...blank(),...copy,firstName:copy.firstName||String(copy.client||'').trim().split(/\s+/)[0]||'',lastName:copy.lastName||String(copy.client||'').trim().split(/\s+/).slice(1).join(' ')})
       setDraftSaved(false)
     }
   },[editing])
@@ -58,13 +58,13 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const productionDays=daysForPieces(qty)
   const packaging=packagingForPieces(qty)
   const matchingClients=useMemo(()=>{
-    const term=String(form.phone||form.client||'').trim().toLowerCase()
+    const term=String(form.phone||form.firstName||form.lastName||form.client||'').trim().toLowerCase()
     if(term.length<3) return []
-    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,phone:o.phone,dni:o.dni,email:o.email,address:o.address,betweenStreets:o.betweenStreets,locality:o.locality,province:o.province,postalCode:o.postalCode}))]
+    const source=[...(db.clients||[]),...(db.orders||[]).map(o=>({name:o.client,firstName:o.firstName,lastName:o.lastName,phone:o.phone,dni:o.dni,email:o.email,address:o.address,betweenStreets:o.betweenStreets,locality:o.locality,district:o.district,province:o.province,postalCode:o.postalCode}))]
     const seen=new Set()
     return source.filter(c=>{const key=String(c.phone||c.name||'').toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return `${c.name||''} ${c.phone||''}`.toLowerCase().includes(term)}).slice(0,5)
   },[db.clients,db.orders,form.phone,form.client])
-  function useClient(c){setForm(f=>({...f,client:c.name||f.client,phone:c.phone||f.phone,dni:c.dni||f.dni,email:c.email||f.email,address:c.address||f.address,betweenStreets:c.betweenStreets||f.betweenStreets,locality:c.locality||f.locality,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
+  function useClient(c){const full=c.name||[c.firstName,c.lastName].filter(Boolean).join(' ');setForm(f=>({...f,firstName:c.firstName||String(full||'').trim().split(/\s+/)[0]||f.firstName,lastName:c.lastName||String(full||'').trim().split(/\s+/).slice(1).join(' ')||f.lastName,client:full||f.client,phone:c.phone||f.phone,dni:c.dni||f.dni,email:c.email||f.email,address:c.address||f.address,betweenStreets:c.betweenStreets||f.betweenStreets,locality:c.locality||f.locality,district:c.district||f.district,province:c.province||f.province,postalCode:c.postalCode||f.postalCode}))}
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
@@ -72,13 +72,16 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   async function submit(e){
     e.preventDefault()
-    if(!form.client.trim()) return alert('Ingresá el nombre y apellido del cliente.')
+    if(!form.firstName?.trim()) return alert('Ingresá el nombre del cliente.')
+    if(!form.lastName?.trim()) return alert('Ingresá el apellido del cliente.')
     if(!form.phone.trim()) return alert('Ingresá el teléfono del cliente.')
     const deliveryType=form.deliveryType||form.carrier||'Logística'
     if(deliveryType==='Logística'){
       if(!form.address?.trim()) return alert('Ingresá el domicilio.')
       if(!form.betweenStreets?.trim()) return alert('Ingresá las entre calles.')
       if(!form.locality?.trim()) return alert('Ingresá la localidad.')
+      if(!form.district?.trim()) return alert('Ingresá el partido o departamento.')
+      if(!form.province?.trim()) return alert('Ingresá la provincia.')
       if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
       if(!form.email?.trim()) return alert('Ingresá el correo electrónico.')
     }
@@ -86,6 +89,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       if(!form.dni?.trim()) return alert('Ingresá el DNI.')
       if(!form.address?.trim()) return alert('Ingresá el domicilio.')
       if(!form.locality?.trim()) return alert('Ingresá la localidad.')
+      if(!form.district?.trim()) return alert('Ingresá el partido o departamento.')
       if(!form.province?.trim()) return alert('Ingresá la provincia.')
       if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
       if(!form.email?.trim()) return alert('Ingresá el correo electrónico.')
@@ -100,7 +104,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       if(!window.confirm(message)) return
     }
     const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
-    const final={...form,zone:[form.locality,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
+    const fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim()
+    const final={...form,client:fullName,zone:[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     const clients=upsertClientFromOrder(db.clients||[],final)
     await onSave({...db,orders,clients})
@@ -116,7 +121,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       <div className="form-grid">
         <Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
         <Field label="Nº de pedido (automático)"><input value={form.number} readOnly title="Se asigna automáticamente al guardar el pedido"/></Field>
-        <Field label="Cliente"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/></Field>
+        <Field label="Nombre"><input value={form.firstName||''} onChange={e=>setForm({...form,firstName:e.target.value,client:[e.target.value,form.lastName].filter(Boolean).join(' ')})} autoComplete="given-name"/></Field>
+        <Field label="Apellido"><input value={form.lastName||''} onChange={e=>setForm({...form,lastName:e.target.value,client:[form.firstName,e.target.value].filter(Boolean).join(' ')})} autoComplete="family-name"/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
         <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>setForm({...form,deliveryType:e.target.value,carrier:e.target.value})}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></Field>
         <Field label={(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="DNI del cliente"/></Field>
@@ -126,7 +132,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
           <Field label="Domicilio"><input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Calle y número"/></Field>
           {(form.deliveryType||'Logística')==='Logística'&&<Field label="Entre calles"><input value={form.betweenStreets||''} onChange={e=>setForm({...form,betweenStreets:e.target.value})} placeholder="Entre calle... y calle..."/></Field>}
           <Field label="Localidad"><input value={form.locality||''} onChange={e=>setForm({...form,locality:e.target.value})} placeholder="Ej.: Rosario"/></Field>
-          <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Santa Fe"/></Field>
+          <Field label="Partido / Departamento"><input value={form.district||''} onChange={e=>setForm({...form,district:e.target.value})} placeholder="Ej.: La Matanza"/></Field>
+          <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Buenos Aires"/></Field>
           <Field label="Código postal"><input value={form.postalCode||''} onChange={e=>setForm({...form,postalCode:e.target.value.replace(/[^0-9A-Za-z-]/g,'')})} placeholder="Ej.: 2000" autoComplete="postal-code"/></Field>
         </>}
         {(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'&&<Field label="Modalidad del expreso"><select value={form.agencyDelivery||'Envío a domicilio'} onChange={e=>setForm({...form,agencyDelivery:e.target.value})}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></Field>}
