@@ -15,7 +15,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
     date:today(), firstName:'',lastName:'',client:'',phone:'',dni:'',email:'',address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',zone:'',deliveryType:'Logística',carrier:'Logística',agencyDelivery:'Envío a domicilio',delivery:'',priority:'Normal',
-    status:'Ingresado',paid:'Sí',shippingCost:'',shippingPaid:'Pendiente de pago',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
+    status:'Ingresado',priority:'Normal',paid:'Sí',shippingCost:'',shippingPaid:'Pendiente de pago',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
     try{
@@ -143,6 +143,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         {['Vía Cargo','Correo Argentino'].includes(form.deliveryType||'Logística')&&<Field label="Modalidad del envío"><select value={form.agencyDelivery||'Envío a domicilio'} onChange={e=>setForm({...form,agencyDelivery:e.target.value})}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></Field>}
         <Field label="Fecha de entrega"><input type="date" value={form.delivery} onChange={e=>setForm({...form,delivery:e.target.value})}/></Field>
         <Field label="Prioridad"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option></select></Field>
+        <Field label="Prioridad"><select value={form.priority||'Normal'} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option><option>Prioridad máxima</option></select></Field>
         <Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Costo de envío"><input type="number" min="0" step="1" value={form.shippingCost||''} onChange={e=>setForm({...form,shippingCost:e.target.value})} placeholder="Ej.: 12500"/></Field>
         <Field label="Estado del envío"><select value={form.shippingPaid||'Pendiente de pago'} onChange={e=>setForm({...form,shippingPaid:e.target.value})}><option>Pagado</option><option>Pendiente de pago</option></select></Field>
