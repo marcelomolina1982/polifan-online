@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Title, Kpi } from '../components/UI'
 import { money } from '../lib/format'
 import { PACKAGING_COST, estimatedOrderProfit, orderPieces } from '../lib/finance'
+import { argentinaNow } from '../lib/production'
 
 function sameMonth(dateValue,month,year){
   if(!dateValue) return false
@@ -10,9 +11,9 @@ function sameMonth(dateValue,month,year){
 }
 
 export default function Monthly({db}){
-  const now=new Date()
-  const [month,setMonth]=useState(now.getMonth()+1)
-  const [year,setYear]=useState(now.getFullYear())
+  const [currentYear,currentMonth]=argentinaNow().date.split('-')
+  const [month,setMonth]=useState(Number(currentMonth))
+  const [year,setYear]=useState(Number(currentYear))
 
   const orders=(db.orders||[]).filter(o=>sameMonth(o.date||o.createdAt,month,year))
   const valid=orders.filter(o=>o.status!=='Cancelado')

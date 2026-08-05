@@ -3,6 +3,7 @@ import {supabase} from '../supabase'
 import {Title} from '../components/UI'
 import {money} from '../lib/format'
 import {upsertClientFromOrder} from '../lib/clients'
+import { todayArgentinaISO } from '../lib/production'
 
 const isPending = row => row.status === 'Pendiente de pago'
 
@@ -24,7 +25,7 @@ export default function WebRequests({db,onSave}){
   if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return
   const next=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
   const c=r.customer||{}
-  const order={id:crypto.randomUUID(),number:next,date:new Date().toISOString().slice(0,10),delivery:r.estimated_from||'',firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
+  const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:r.estimated_from||'',firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
   const orders=[...db.orders,order]
   const clients=upsertClientFromOrder(db.clients||[],order)
   await onSave({...db,orders,clients})

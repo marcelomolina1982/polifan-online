@@ -116,6 +116,7 @@ export default function Settings({db,onSave}){
       <div className="customer-grid">
         <div><small>Versión instalada</small><b>Versión {APP_VERSION_LABEL}</b></div>
         <div><small>Última actualización</small><b>{APP_UPDATED_AT}</b></div>
+        <div><small>Zona horaria</small><b>Argentina · UTC-3</b></div>
       </div>
       <p>El número mostrado en toda la aplicación se obtiene de un único archivo central para evitar versiones antiguas o diferentes.</p>
     </div>

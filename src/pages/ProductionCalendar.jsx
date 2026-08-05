@@ -1,16 +1,16 @@
 import React, {useMemo,useState} from 'react'
 import {Title,Badge} from '../components/UI'
-import {DAILY_PIECE_LIMIT,orderPieces,productionStatus} from '../lib/production'
+import {DAILY_PIECE_LIMIT,orderPieces,productionStatus,todayArgentinaISO,localISO} from '../lib/production'
 import {packagingForPieces} from '../lib/packaging'
 
-const iso=d=>{const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10)}
+const iso=d=>localISO(d)
 const add=(date,days)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+days);return iso(d)}
 const label=date=>new Date(date+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'})
 
 export default function ProductionCalendar({db,onSave,go}){
-  const [selected,setSelected]=useState(iso(new Date()))
+  const [selected,setSelected]=useState(todayArgentinaISO())
   const closedDates=db.productionClosedDates||[]
-  const days=useMemo(()=>Array.from({length:42},(_,i)=>add(iso(new Date()),i)).filter(d=>new Date(d+'T12:00:00').getDay()!==0),[])
+  const days=useMemo(()=>Array.from({length:42},(_,i)=>add(todayArgentinaISO(),i)).filter(d=>new Date(d+'T12:00:00').getDay()!==0),[])
   const byDate=useMemo(()=>db.orders.filter(o=>o.delivery&&o.status!=='Cancelado').reduce((acc,o)=>{(acc[o.delivery]??=[]).push(o);return acc},{}),[db.orders])
   const orders=byDate[selected]||[]
   const selectedClosed=closedDates.includes(selected)

@@ -1,3 +1,5 @@
+import { todayArgentinaISO } from './production'
+
 export function pricePerUnit(qty){
   if(qty <= 5) return 6000
   if(qty <= 11) return 25000/6
@@ -17,5 +19,5 @@ export function money(n){
 }
 
 export function today(){
-  return new Date().toISOString().slice(0,10)
+  return todayArgentinaISO()
 }

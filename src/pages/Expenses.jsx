@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from 'react'
 import { Title, Field, Kpi } from '../components/UI'
 import { money } from '../lib/format'
+import { todayArgentinaISO } from '../lib/production'
 
 const expenseCategories=['Placas de polifan','Cajas','Pegamento','Vinilo / DTF','Bolsas y embalaje','Transporte','Servicios','Herramientas','Otros']
 const incomeCategories=['Seña de pedido','Saldo de pedido','Pedido completo','Venta en local','Otro ingreso']
 
-function localISO(){
-  const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10)
-}
+const localISO=()=>todayArgentinaISO()
 const blankExpense=()=>({date:localISO(),category:'Placas de polifan',description:'',amount:'',notes:''})
 const blankIncome=()=>({date:localISO(),category:'Seña de pedido',description:'',amount:'',notes:''})
 

@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 14.9 — Estabilidad de fechas y producción
+
+- Zona horaria única: America/Argentina/Buenos_Aires (UTC-3).
+- Un solo motor de planificación para catálogo y WhatsApp.
+- El catálogo muestra “Producción disponible desde…” en lugar de un rango de entrega.
+- La fecha se recalcula al abrir, al volver a la pestaña, cada 30 segundos y antes de enviar.
+- Formato argentino de fecha y códigos WEB generados con hora argentina.
+- Se eliminó un campo Provincia duplicado del formulario público.
+
 ## 14.8
 - Recalcula planificación online justo antes de enviar WhatsApp.
 - Mensaje simplificado, con fecha y hora de recepción.

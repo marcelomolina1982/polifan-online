@@ -2,11 +2,7 @@ import React from 'react'
 import { Title, Badge } from '../components/UI'
 import { money } from '../lib/format'
 import { stockRows } from '../lib/inventory'
-import { DAILY_PIECE_LIMIT, orderPieces, productionStatus, sheetsForPieces } from '../lib/production'
-
-const localISO=()=>{
-  const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10)
-}
+import { DAILY_PIECE_LIMIT, orderPieces, productionStatus, sheetsForPieces, todayArgentinaISO, argentinaNow } from '../lib/production'
 
 const pct=(value,total)=>Math.max(0,Math.min(100,total?Math.round((value/total)*100):0))
 const dateLabel=(date,opts={})=>new Date(date+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'short',...opts})
@@ -19,13 +15,14 @@ function StatCard({icon,label,value,detail,tone='purple',onClick}){
 }
 
 export default function Dashboard({db,go}){
-  const today=localISO()
+  const today=todayArgentinaISO()
   const activeOrders=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status))
   const todayOrders=db.orders.filter(o=>o.delivery===today && o.status!=='Cancelado')
   const pendingPieces=activeOrders.reduce((sum,o)=>sum+orderPieces(o),0)
   const todayRevenue=db.orders.filter(o=>(o.date||'')===today && o.status!=='Cancelado').reduce((a,o)=>a+Number(o.total||0),0)
-  const month = new Date().getMonth()+1
-  const year = new Date().getFullYear()
+  const [yearText,monthText]=argentinaNow().date.split('-')
+  const month = Number(monthText)
+  const year = Number(yearText)
   const monthly = db.orders.filter(o=>{
     const raw=(o.date||o.createdAt||'').slice(0,10)
     if(!raw) return false

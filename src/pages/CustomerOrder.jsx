@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { catalogCategories, catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
 import { trackCatalogEvent } from '../lib/analytics'
-import { estimateDeliveryRange } from '../lib/production'
+import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate } from '../lib/production'
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
@@ -94,8 +94,8 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
-  const deliveryEstimate = estimateDeliveryRange(orders,total,data.method !== 'Retiro en el local',closedProductionDates)
-  const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+  const deliveryEstimate = estimateProductionAvailability(orders,total,closedProductionDates)
+  const fmtProductionDate = value => formatArgentinaLongDate(value,{includeYear:false,capitalize:true})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
   const progressMax = regularQty < 6 ? 6 : 12
@@ -131,14 +131,15 @@ export default function CustomerOrder() {
     const latestState=await refreshPlanning(false)
     const latestOrders=latestState?.orders || orders
     const latestClosedDates=latestState?.productionClosedDates || closedProductionDates
-    const finalDeliveryEstimate=estimateDeliveryRange(latestOrders,total,data.method !== 'Retiro en el local',latestClosedDates)
+    const finalDeliveryEstimate=estimateProductionAvailability(latestOrders,total,latestClosedDates)
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
-    const now = new Date()
-    const receivedDate = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    const receivedTime = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-    const compactDate = [String(now.getFullYear()).slice(-2), String(now.getMonth()+1).padStart(2,'0'), String(now.getDate()).padStart(2,'0')].join('')
-    const compactTime = [String(now.getHours()).padStart(2,'0'), String(now.getMinutes()).padStart(2,'0'), String(now.getSeconds()).padStart(2,'0')].join('')
+    const arNow = argentinaNow()
+    const [year,month,day]=arNow.date.split('-')
+    const receivedDate = `${day}/${month}/${year}`
+    const receivedTime = arNow.time
+    const compactDate = arNow.compactDate
+    const compactTime = arNow.compactTime
     const requestCode=`WEB-${compactDate}-${compactTime}`
     const message = [
       '🛒 *NUEVA SOLICITUD DE PEDIDO*', `🧾 *Código:* ${requestCode}`, `🕘 *Recibida:* ${receivedDate} · ${receivedTime}`, '',
@@ -154,7 +155,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `📅 *Fecha aproximada:* del ${fmtDate(finalDeliveryEstimate.deliveryDate)} al ${fmtDate(finalDeliveryEstimate.deliveryTo || finalDeliveryEstimate.to)}`, 
+      `🛠️ *Producción disponible desde:* ${fmtProductionDate(finalDeliveryEstimate.productionDate)}`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       estimatedTotal ? `💰 *Total estimado:* ${money(estimatedTotal)}` : '',
@@ -163,7 +164,7 @@ export default function CustomerOrder() {
     ].filter(Boolean).join('\n')
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
-    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:finalDeliveryEstimate.deliveryDate,estimatedDeliveryEnd:finalDeliveryEstimate.deliveryTo||finalDeliveryEstimate.to},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:finalDeliveryEstimate.from,estimated_to:finalDeliveryEstimate.deliveryTo||finalDeliveryEstimate.to,notes:data.notes.trim()})
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:finalDeliveryEstimate.productionDate,estimatedDeliveryEnd:finalDeliveryEstimate.productionDate},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:finalDeliveryEstimate.productionDate,estimated_to:finalDeliveryEstimate.productionDate,notes:data.notes.trim()})
     if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
     trackCatalogEvent('order_sent', {
       locality: data.locality,
@@ -232,7 +233,7 @@ export default function CustomerOrder() {
           <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>FECHA APROXIMADA</small><b>Del {fmtDate(deliveryEstimate.deliveryDate)} al {fmtDate(deliveryEstimate.deliveryTo || deliveryEstimate.to)}</b><span>Fecha calculada con la producción online actual. Se actualiza automáticamente según cierres y capacidad disponible.</span></div>
+          <div className="delivery-estimate-box"><small>🛠️ PRODUCCIÓN DISPONIBLE DESDE</small><b>{fmtProductionDate(deliveryEstimate.productionDate)}</b><span>La fecha definitiva de entrega se confirmará junto con la cotización del envío y la confirmación del pago.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
