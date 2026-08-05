@@ -3,6 +3,7 @@ import html2canvas from 'html2canvas'
 import { Title } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money } from '../lib/format'
+import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
 
 const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]))
 
@@ -29,7 +30,9 @@ function deliveryType(o){
   const raw=String(o.deliveryType||o.carrier||'Logística')
   const key=raw.toLocaleLowerCase('es')
   if(key.includes('retiro')) return 'Retiro en el local'
-  if(key.includes('via cargo')||key.includes('vía cargo')||key.includes('correo argentino')) return 'Vía Cargo / Correo Argentino'
+  if(key.includes('correo argentino')) return 'Correo Argentino'
+  if(key.includes('via cargo')||key.includes('vía cargo')) return 'Vía Cargo'
+  if(key.includes('otro')) return 'Otro expreso'
   return 'Logística'
 }
 
@@ -67,7 +70,7 @@ function itemSummaryHtml(o){
 function internalShippingHtml(o){
   const type=deliveryType(o)
   if(type==='Retiro en el local') return `<b>RETIRO EN EL LOCAL</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span>`
-  if(type==='Vía Cargo / Correo Argentino') return `<b>VÍA CARGO / CORREO ARGENTINO</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>DNI:</strong> ${esc(o.dni||'-')}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>CP / Localidad:</strong> ${esc(orderPostalCode(o))} · ${esc(orderLocality(o))}</span><span><strong>Partido:</strong> ${esc(orderDistrict(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span><span><strong>Modalidad:</strong> ${esc(o.agencyDelivery||'A confirmar')}</span>`
+  if(type==='Vía Cargo'||type==='Correo Argentino') return `<b>${esc(type.toUpperCase())}</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>DNI:</strong> ${esc(o.dni||'-')}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>CP / Localidad:</strong> ${esc(orderPostalCode(o))} · ${esc(orderLocality(o))}</span><span><strong>Partido:</strong> ${esc(orderDistrict(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span><span><strong>Modalidad:</strong> ${esc(o.agencyDelivery||'A confirmar')}</span>`
   return `<b>LOGÍSTICA</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Domicilio:</strong> ${esc(orderAddress(o))}</span><span><strong>Entre calles:</strong> ${esc(orderBetweenStreets(o))}</span><span><strong>Localidad:</strong> ${esc(orderLocality(o))}</span><span><strong>Partido:</strong> ${esc(orderDistrict(o))}</span><span><strong>Provincia:</strong> ${esc(orderProvince(o))}</span><span><strong>CP:</strong> ${esc(orderPostalCode(o))}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span><span><strong>Email:</strong> ${esc(orderEmail(o))}</span>`
 }
 
@@ -84,7 +87,7 @@ function internalOrderHtml(o){
       <div class="internal-delivery ${esc(delivery.dayClass)}"><small>DÍA DE ENTREGA</small><strong>${esc(delivery.day)}</strong><span>${esc(delivery.date)}</span></div>
       <div class="internal-client"><div><small>CLIENTE</small><b>${esc(o.client)}</b></div><div><small>PEDIDO</small><b>#${esc(o.number)}</b></div></div>
       <div class="internal-kpis"><div><small>TOTAL DE PIEZAS</small><b>${pieces}</b><span>PIEZAS</span></div><div><small>MODELOS DISTINTOS</small><b>${models}</b><span>MODELOS</span></div><div class="box-kpi"><small>CAJA A UTILIZAR</small><b>${esc(packaging.summary)}</b><span>+ FILM NEGRO</span></div></div>
-      <div class="internal-shipping">${internalShippingHtml(o)}</div>
+      <div class="internal-shipping">${internalShippingHtml(o)}<span><strong>Costo envío:</strong> ${orderShipping(o)?money(orderShipping(o)):'$0'}</span><span><strong>Estado envío:</strong> ${esc(o.shippingPaid||'Pendiente de pago')}</span></div>
       <div class="summary-title">LISTADO COMPLETO DE FIGURAS</div>${itemSummaryHtml(o)}
       <div class="internal-foot"><div class="internal-notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</div><div class="internal-qr"><img src="${qrImageUrl(o)}" alt="QR"><small>Controlar piezas desde el celular</small></div></div>
     </div>
@@ -121,7 +124,7 @@ function boxLabelHtml(o){
 function pricedRows(o,items){
   const pieces=totalPieces(o)
   const shipping=orderShipping(o)
-  const productTotal=Math.max(0,Number(o.total||0)-shipping)
+  const productTotal=Math.max(0,Number(o.total||0))
   const fallbackUnit=pieces?productTotal/pieces:0
   return items.map(i=>{
     const qty=Number(i.qty||0)
@@ -137,17 +140,17 @@ function purchaseDetailHtml(o){
   const extra=all.slice(17)
   const pieces=totalPieces(o)
   const shipping=orderShipping(o)
-  const subtotal=Math.max(0,Number(o.total||0)-shipping)
+  const subtotal=Math.max(0,Number(o.total||0))
   const delivery=deliveryParts(o.delivery)
   const mainHtml=`<section class="purchase-detail ${all.length>14?'compact-rows':''}">
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
     <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
-    <div class="purchase-bottom"><div class="payment-card"><h3>FORMA DE PAGO</h3><p><b>SEÑA / PAGÓ</b><span>${o.deposit?money(o.deposit):'$ __________'}</span></p><p><b>SALDO</b><span>${o.balance?money(o.balance):'$ __________'}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Subtotal</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${shipping?money(shipping):'A cotizar'}</b></p><p class="grand-total"><span>TOTAL</span><b>${money(o.total)}</b></p></div></div>
+    <div class="purchase-bottom"><div class="payment-card"><h3>ENVÍO</h3><p><b>COSTO</b><span>${shipping?money(shipping):'$0'}</span></p><p><b>ESTADO</b><span>${esc(o.shippingPaid||'Pendiente de pago')}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${money(shipping)}</b></p><p class="grand-total"><span>TOTAL FINAL</span><b>${money(subtotal+shipping)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
   </section>`
   if(!extra.length) return mainHtml
-  const continuation=`<section class="invoice-continuation"><div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>CONTINUACIÓN DEL DETALLE</small></div></div><div><h2>PEDIDO #${esc(o.number)}</h2><b>${esc(o.client)}</b></div></div><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,extra)}</tbody></table><div class="continuation-total">Total de piezas: <b>${pieces}</b> · Total del pedido: <b>${money(o.total)}</b></div></section>`
+  const continuation=`<section class="invoice-continuation"><div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>CONTINUACIÓN DEL DETALLE</small></div></div><div><h2>PEDIDO #${esc(o.number)}</h2><b>${esc(o.client)}</b></div></div><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,extra)}</tbody></table><div class="continuation-total">Total de piezas: <b>${pieces}</b> · Total final: <b>${money(Number(o.total||0)+shipping)}</b></div></section>`
   return mainHtml+continuation
 }
 
@@ -336,7 +339,7 @@ export default function Orders({db,onSave,onEdit}){
         <td>{money(o.total)}</td><td className="row-actions">
           <button className="ghost" onClick={()=>printOrders([o],1,false)}>Imprimir pedido</button>
           <button className="ghost" onClick={()=>downloadOrderJpg(o)}>Pedido JPG</button>
-          {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
+          {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante JPG</button>
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
           <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
         </td></tr>)}</tbody>

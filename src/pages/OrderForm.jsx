@@ -5,6 +5,7 @@ import { money, pricePerUnit, today } from '../lib/format'
 import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForDate, sheetsForPieces, isSunday } from '../lib/production'
 import { packagingForPieces } from '../lib/packaging'
 import { upsertClientFromOrder } from '../lib/clients'
+import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -14,7 +15,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const blank=()=>({
     id:crypto.randomUUID(), number:nextOrderNumber(),
     date:today(), firstName:'',lastName:'',client:'',phone:'',dni:'',email:'',address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',zone:'',deliveryType:'Logística',carrier:'Logística',agencyDelivery:'Envío a domicilio',delivery:'',priority:'Normal',
-    status:'Ingresado',paid:'No',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
+    status:'Ingresado',paid:'Sí',shippingCost:'',shippingPaid:'Pendiente de pago',shippingPackaging:'No',notes:'',items:[{figure:'',qty:1}]
   })
   const [form,setForm]=useState(()=>{
     try{
@@ -32,7 +33,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       const copy=JSON.parse(JSON.stringify(editing))
       if(!copy.deliveryType){
         const legacy=String(copy.carrier||'').toLocaleLowerCase('es')
-        copy.deliveryType=legacy.includes('retiro')?'Retiro en el local':(legacy.includes('via cargo')||legacy.includes('vía cargo')||legacy.includes('correo argentino'))?'Vía Cargo / Correo Argentino':'Logística'
+        copy.deliveryType=legacy.includes('retiro')?'Retiro en el local':legacy.includes('correo argentino')?'Correo Argentino':(legacy.includes('via cargo')||legacy.includes('vía cargo'))?'Vía Cargo':legacy.includes('otro')?'Otro expreso':'Logística'
       }
       setForm({...blank(),...copy,firstName:copy.firstName||String(copy.client||'').trim().split(/\s+/)[0]||'',lastName:copy.lastName||String(copy.client||'').trim().split(/\s+/).slice(1).join(' ')})
       setDraftSaved(false)
@@ -85,7 +86,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       if(!form.postalCode?.trim()) return alert('Ingresá el código postal.')
       if(!form.email?.trim()) return alert('Ingresá el correo electrónico.')
     }
-    if(deliveryType==='Vía Cargo / Correo Argentino'){
+    if(deliveryType==='Vía Cargo'||deliveryType==='Correo Argentino'){
       if(!form.dni?.trim()) return alert('Ingresá el DNI.')
       if(!form.address?.trim()) return alert('Ingresá el domicilio.')
       if(!form.locality?.trim()) return alert('Ingresá la localidad.')
@@ -109,6 +110,9 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     const clients=upsertClientFromOrder(db.clients||[],final)
     await onSave({...db,orders,clients})
+    if(!editing){
+      try{ await downloadOrderReceiptJpg(final) }catch(err){ console.error('No se pudo generar el comprobante JPG',err) }
+    }
     localStorage.removeItem(DRAFT_KEY)
     const nextBlank={...blank(),number:nextOrderNumber(orders)}
     setForm(nextBlank); setDraftSaved(false); clearEdit()
@@ -124,8 +128,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nombre"><input value={form.firstName||''} onChange={e=>setForm({...form,firstName:e.target.value,client:[e.target.value,form.lastName].filter(Boolean).join(' ')})} autoComplete="given-name"/></Field>
         <Field label="Apellido"><input value={form.lastName||''} onChange={e=>setForm({...form,lastName:e.target.value,client:[form.firstName,e.target.value].filter(Boolean).join(' ')})} autoComplete="family-name"/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
-        <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>setForm({...form,deliveryType:e.target.value,carrier:e.target.value})}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></Field>
-        <Field label={(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="DNI del cliente"/></Field>
+        <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>setForm({...form,deliveryType:e.target.value,carrier:e.target.value})}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></Field>
+        <Field label={['Vía Cargo','Correo Argentino'].includes(form.deliveryType||'Logística')?'DNI *':'DNI (opcional)'}><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="DNI del cliente"/></Field>
         <Field label="Correo electrónico"><input type="email" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})} placeholder="cliente@email.com"/></Field>
         {matchingClients.length>0&&<div className="client-autofill"><small>Clientes encontrados</small>{matchingClients.map((c,i)=><button type="button" key={(c.phone||c.name)+i} onClick={()=>useClient(c)}><b>{c.name}</b><span>{c.phone||'Sin teléfono'} · {[c.locality,c.province].filter(Boolean).join(', ')||'Sin dirección'}</span></button>)}</div>}
         {(form.deliveryType||'Logística')!=='Retiro en el local'&&<>
@@ -136,11 +140,12 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
           <Field label="Provincia"><input value={form.province||''} onChange={e=>setForm({...form,province:e.target.value})} placeholder="Ej.: Buenos Aires"/></Field>
           <Field label="Código postal"><input value={form.postalCode||''} onChange={e=>setForm({...form,postalCode:e.target.value.replace(/[^0-9A-Za-z-]/g,'')})} placeholder="Ej.: 2000" autoComplete="postal-code"/></Field>
         </>}
-        {(form.deliveryType||'Logística')==='Vía Cargo / Correo Argentino'&&<Field label="Modalidad del expreso"><select value={form.agencyDelivery||'Envío a domicilio'} onChange={e=>setForm({...form,agencyDelivery:e.target.value})}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></Field>}
+        {['Vía Cargo','Correo Argentino'].includes(form.deliveryType||'Logística')&&<Field label="Modalidad del envío"><select value={form.agencyDelivery||'Envío a domicilio'} onChange={e=>setForm({...form,agencyDelivery:e.target.value})}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></Field>}
         <Field label="Fecha de entrega"><input type="date" value={form.delivery} onChange={e=>setForm({...form,delivery:e.target.value})}/></Field>
         <Field label="Prioridad"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option></select></Field>
         <Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></Field>
-        <Field label="Pagado"><select value={form.paid} onChange={e=>setForm({...form,paid:e.target.value})}><option>No</option><option>Sí</option></select></Field>
+        <Field label="Costo de envío"><input type="number" min="0" step="1" value={form.shippingCost||''} onChange={e=>setForm({...form,shippingCost:e.target.value})} placeholder="Ej.: 12500"/></Field>
+        <Field label="Estado del envío"><select value={form.shippingPaid||'Pendiente de pago'} onChange={e=>setForm({...form,shippingPaid:e.target.value})}><option>Pagado</option><option>Pendiente de pago</option></select></Field>
         <Field label="¿Lleva embalaje de envío?"><select value={form.shippingPackaging||'No'} onChange={e=>setForm({...form,shippingPackaging:e.target.value})}><option>No</option><option>Sí</option></select></Field>
       </div>
 
@@ -167,7 +172,9 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <div><small>Caja sugerida</small><b className="packaging-value">{packaging.label}</b><span>Film negro + cinta</span></div>
         <div><small>Días necesarios</small><b>{productionDays}</b><span>Máximo {DAILY_PIECE_LIMIT} piezas por día</span></div>
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
-        <div><small>Valor del pedido</small><b>{money(total)}</b></div>
+        <div><small>Valor de productos</small><b>{money(total)}</b></div>
+        <div><small>Costo de envío</small><b>{money(Number(form.shippingCost||0))}</b><span>{form.shippingPaid||'Pendiente de pago'}</span></div>
+        <div><small>Total final</small><b>{money(total+Number(form.shippingCost||0))}</b></div>
       </div>
       <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
     </form>

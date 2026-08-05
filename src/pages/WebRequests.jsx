@@ -4,6 +4,7 @@ import {Title} from '../components/UI'
 import {money} from '../lib/format'
 import {upsertClientFromOrder} from '../lib/clients'
 import { todayArgentinaISO } from '../lib/production'
+import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
 
 const isPending = row => row.status === 'Pendiente de pago'
 
@@ -24,11 +25,16 @@ export default function WebRequests({db,onSave}){
  async function confirmRow(r){
   if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return
   const next=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
+  const shippingInput=window.prompt('Costo de envío ya presupuestado (solo números):','0')
+  if(shippingInput===null)return
+  const shippingCost=Math.max(0,Number(String(shippingInput).replace(/[^0-9.,]/g,'').replace(',','.'))||0)
+  const shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'
   const c=r.customer||{}
-  const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:r.estimated_from||'',firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
+  const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:r.estimated_from||'',firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
   const orders=[...db.orders,order]
   const clients=upsertClientFromOrder(db.clients||[],order)
   await onSave({...db,orders,clients})
+  try{ await downloadOrderReceiptJpg(order) }catch(err){ console.error('No se pudo generar el comprobante JPG',err) }
   const {error}=await supabase.from('web_requests').update({status:'Pago confirmado'}).eq('id',r.id)
   if(error){alert('El pedido se creó, pero no se pudo actualizar la solicitud: '+error.message);return}
   setRows(current=>current.map(item=>item.id===r.id?{...item,status:'Pago confirmado'}:item))

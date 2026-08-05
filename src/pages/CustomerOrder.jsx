@@ -126,7 +126,7 @@ export default function CustomerOrder() {
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
     if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
-    if(data.method==='Vía Cargo / Correo Argentino' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
+    if(['Vía Cargo','Correo Argentino'].includes(data.method) && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
 
     const latestState=await refreshPlanning(false)
     const latestOrders=latestState?.orders || orders
@@ -154,7 +154,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`🗺️ *Partido / Departamento:* ${data.district.trim()}`:'',
       data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
-      data.method==='Vía Cargo / Correo Argentino'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
+      ['Vía Cargo','Correo Argentino'].includes(data.method)?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
       `🛠️ *Producción disponible:* Desde ${fmtProductionDate(finalDeliveryEstimate.productionDate).toLowerCase()} en adelante`, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
@@ -230,8 +230,8 @@ export default function CustomerOrder() {
           <label>Nombre<input value={data.firstName} onChange={event => {update('firstName', event.target.value);update('name',[event.target.value,data.lastName].filter(Boolean).join(' '))}} placeholder="Tu nombre" autoComplete="given-name" /></label>
           <label>Apellido<input value={data.lastName} onChange={event => {update('lastName', event.target.value);update('name',[data.firstName,event.target.value].filter(Boolean).join(' '))}} placeholder="Tu apellido" autoComplete="family-name" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
-          <label>{data.method==='Vía Cargo / Correo Argentino'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
-          <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo / Correo Argentino</option></select></label>
+          <label>{['Vía Cargo','Correo Argentino'].includes(data.method)?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
+          <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
           <div className="delivery-estimate-box"><small>🛠️ PRODUCCIÓN DISPONIBLE</small><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>La fecha definitiva de entrega se confirmará junto con la cotización del envío y la confirmación del pago.</span></div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
@@ -240,7 +240,7 @@ export default function CustomerOrder() {
           <label>Partido / Departamento<input value={data.district} onChange={event => update('district', event.target.value)} placeholder="Ej.: La Matanza" /></label>
           <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" /></label>
           <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" /></label></>}
-          {data.method==='Vía Cargo / Correo Argentino'&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
+          {['Vía Cargo','Correo Argentino'].includes(data.method)&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
