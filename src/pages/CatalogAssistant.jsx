@@ -6,6 +6,7 @@ const DEFAULTS={
  assistantName:'Mía',
  assistantSubtitle:'Asistente de Tu Vida en Tinta',
  assistantImage:'/mia-assistant-cutout.png',
+ avatarStyleVersion:2,
  launcherAvatarPosition:'above',
  themeColor:'#6f3dc4',
  welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',
@@ -28,7 +29,7 @@ const TABS=[['general','General'],['personality','Personalidad'],['responses','R
 
 export default function CatalogAssistant({db,onSave}){
  const [tab,setTab]=useState('general')
- const [values,setValues]=useState(()=>{const saved=db.chatbotSettings||{};return {...DEFAULTS,...saved,assistantImage:saved.assistantImage||DEFAULTS.assistantImage}})
+ const [values,setValues]=useState(()=>{const saved=db.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {...DEFAULTS,...saved,avatarStyleVersion:2,assistantImage:migrateAvatar?DEFAULTS.assistantImage:(saved.assistantImage||DEFAULTS.assistantImage)}})
  const [saving,setSaving]=useState(false)
  const previewColor=values.themeColor||DEFAULTS.themeColor
  const actions=useMemo(()=>[
