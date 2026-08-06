@@ -6,6 +6,7 @@ import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate }
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
+const PLANNING_CACHE_KEY = 'tvet_catalog_planning_cache_v1'
 
 function regularPrice(qty) {
   if (qty <= 0) return 0
@@ -62,6 +63,8 @@ export default function CustomerOrder() {
             whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
             businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
           })
+          const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
+          try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
           return {...state,__updatedAt:row.updated_at||''}
         }catch(error){
@@ -71,6 +74,20 @@ export default function CustomerOrder() {
       }
       throw lastError || new Error('No se pudo actualizar la planificación.')
     } catch(error) {
+      let cached=null
+      try{cached=JSON.parse(window.localStorage.getItem(PLANNING_CACHE_KEY)||'null')}catch{}
+      const cachedState=cached?.state
+      if(Array.isArray(cachedState?.productionClosedDates)&&Array.isArray(cachedState?.orders)){
+        setProducts(normalizeCatalogProducts(cachedState.customerCatalog?.length ? cachedState.customerCatalog : catalogProducts).filter(product => product.active !== false))
+        setOrders(cachedState.orders)
+        setClosedProductionDates(cachedState.productionClosedDates)
+        setConfig({
+          whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),
+          businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'
+        })
+        setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
+        return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
+      }
       setPlanningSync(previous=>({...previous,status:'error',error:error?.message||'No se pudo actualizar la planificación.'}))
       if(strict) throw error
       return null
@@ -113,7 +130,7 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
-  const deliveryEstimate = planningSync.status==='ready' ? estimateProductionAvailability(orders,total,closedProductionDates) : null
+  const deliveryEstimate = ['ready','stale'].includes(planningSync.status) ? estimateProductionAvailability(orders,total,closedProductionDates) : null
   const fmtProductionDate = value => formatArgentinaLongDate(value,{includeYear:false,capitalize:true})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
@@ -149,20 +166,15 @@ export default function CustomerOrder() {
     if(['Vía Cargo','Correo Argentino'].includes(data.method) && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
 
     setSending(true)
-    let latestState
-    try{
-      latestState=await refreshPlanning(false,{retries:3,strict:true})
-    }catch(error){
-      setSending(false)
-      return alert('No pudimos actualizar el calendario de producción. La solicitud no fue enviada para evitar informar una fecha incorrecta. Revisá tu conexión e intentá nuevamente. '+(error?.message||''))
-    }
-    const latestOrders=latestState.orders
-    const latestClosedDates=latestState.productionClosedDates
-    const finalDeliveryEstimate=estimateProductionAvailability(latestOrders,total,latestClosedDates)
-    if(!finalDeliveryEstimate?.productionDate){
-      setSending(false)
-      return alert('No se pudo calcular una fecha de producción válida. La solicitud no fue enviada.')
-    }
+    const latestState=await refreshPlanning(false,{retries:2})
+    const latestOrders=Array.isArray(latestState?.orders)?latestState.orders:orders
+    const latestClosedDates=Array.isArray(latestState?.productionClosedDates)?latestState.productionClosedDates:closedProductionDates
+    const canEstimate=Array.isArray(latestOrders)&&Array.isArray(latestClosedDates)&&(planningSync.status!=='error'||latestState)
+    const finalDeliveryEstimate=canEstimate?estimateProductionAvailability(latestOrders,total,latestClosedDates):null
+    const productionDate=finalDeliveryEstimate?.productionDate||null
+    const productionText=productionDate
+      ? `🛠️ *Producción disponible:* Desde ${fmtProductionDate(productionDate).toLowerCase()} en adelante`
+      : '🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const arNow = argentinaNow()
@@ -186,7 +198,7 @@ export default function CustomerOrder() {
       data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
       ['Vía Cargo','Correo Argentino'].includes(data.method)?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
-      `🛠️ *Producción disponible:* Desde ${fmtProductionDate(finalDeliveryEstimate.productionDate).toLowerCase()} en adelante`, 
+      productionText, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
       estimatedTotal ? `💰 *Total estimado:* ${money(estimatedTotal)}` : '',
@@ -195,7 +207,7 @@ export default function CustomerOrder() {
     ].filter(Boolean).join('\n')
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
-    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:finalDeliveryEstimate.productionDate,estimatedDeliveryEnd:finalDeliveryEstimate.productionDate},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:finalDeliveryEstimate.productionDate,estimated_to:finalDeliveryEstimate.productionDate,notes:data.notes.trim()})
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:productionDate,estimatedDeliveryEnd:productionDate,productionDateStatus:productionDate?'estimada':'pendiente de confirmar'},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:productionDate,estimated_to:productionDate,notes:data.notes.trim()})
     if(requestError){ setSending(false); return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message) }
     trackCatalogEvent('order_sent', {
       locality: data.locality,
@@ -265,7 +277,7 @@ export default function CustomerOrder() {
           <label>{['Vía Cargo','Correo Argentino'].includes(data.method)?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='error'?<><b>No se pudo actualizar el calendario</b><span>Por seguridad no se enviará la solicitud hasta recuperar la planificación. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Estamos verificando los días cerrados y la capacidad disponible.</span></>}</div>
+          <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='stale'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante (estimado)</b><span>No pudimos actualizar ahora; usamos la última planificación guardada. Tu solicitud se enviará normalmente y confirmaremos la fecha. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Actualizar</button></span></>:planningSync.status==='error'?<><b>Fecha de producción a confirmar</b><span>No pudimos consultar el calendario en este momento. Tu solicitud se enviará normalmente y nuestro equipo confirmará la fecha. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Podés continuar completando el pedido. Si la consulta demora, la fecha se confirmará después.</span></>}</div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
@@ -276,7 +288,7 @@ export default function CustomerOrder() {
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
-        <button type="button" className="whatsapp-button" onClick={send} disabled={planningSync.status!=='ready'||sending}><span>{sending?'Verificando y enviando…':planningSync.status==='error'?'Calendario no disponible':'Enviar solicitud por WhatsApp'}</span><small>{planningSync.status==='ready'?'Te confirmamos envío, disponibilidad y pago':'La solicitud se habilita cuando el calendario está actualizado'}</small></button>
+        <button type="button" className="whatsapp-button" onClick={send} disabled={sending}><span>{sending?'Guardando y enviando…':'Enviar solicitud por WhatsApp'}</span><small>{planningSync.status==='ready'?'Te confirmamos envío, disponibilidad y pago':'La fecha de producción se confirmará al revisar tu solicitud'}</small></button>
       </section>
 
       <section className="customer-section customer-feedback">

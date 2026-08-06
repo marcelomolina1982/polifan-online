@@ -1,0 +1,8 @@
+POLIFAN ONLINE v18.1.0
+
+Corrección urgente del catálogo público:
+- Un fallo al consultar el calendario ya no bloquea el envío de la solicitud.
+- Si existe una planificación guardada en el teléfono, se muestra como estimada.
+- Si no existe, se informa "Fecha de producción a confirmar".
+- La solicitud se guarda con fecha pendiente y puede convertirse en pedido normalmente.
+- Al confirmar la solicitud en la app, la fecha se recalcula con el calendario vigente.
