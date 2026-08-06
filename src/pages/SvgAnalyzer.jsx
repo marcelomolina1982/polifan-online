@@ -239,6 +239,28 @@ export default function SvgAnalyzer({db,onSave}){
   const [picker,setPicker]=useState(null)
   const [catalogSearch,setCatalogSearch]=useState('')
   const total=useMemo(()=>groups.reduce((s,g)=>s+g.items.length,0),[groups])
+  const analysisAudit=useMemo(()=>{
+    const byProduct=new Map()
+    groups.forEach(g=>{
+      const key=g.productId||String(g.productName||g.name||'').trim().toLocaleLowerCase('es')
+      if(!key)return
+      const entry=byProduct.get(key)||{productId:g.productId||'',name:g.productName||g.name||'Modelo sin nombre',roles:new Set(),count:0}
+      entry.roles.add(g.role||'simple');entry.count+=g.items.length;byProduct.set(key,entry)
+    })
+    const componentIssues=[]
+    byProduct.forEach(entry=>{
+      const known=library.filter(x=>entry.productId?x.productId===entry.productId:String(x.productName||x.modelName||'').trim().toLocaleLowerCase('es')===String(entry.name).trim().toLocaleLowerCase('es'))
+      const expected=new Set(known.map(x=>x.role||'simple'))
+      if(entry.roles.has('tapa')||entry.roles.has('base')||expected.has('tapa')||expected.has('base')){
+        if(!entry.roles.has('tapa'))componentIssues.push(`${entry.name}: falta la tapa`)
+        if(!entry.roles.has('base'))componentIssues.push(`${entry.name}: falta la base`)
+      }
+    })
+    const linkedIds=new Set([...byProduct.values()].map(x=>x.productId).filter(Boolean))
+    const linkedNames=new Set([...byProduct.values()].map(x=>String(x.name).trim().toLocaleLowerCase('es')))
+    const missingCatalog=products.filter(p=>!linkedIds.has(p.id)&&!linkedNames.has(String(p.name).trim().toLocaleLowerCase('es')))
+    return {componentIssues,missingCatalog,detectedModels:byProduct.size}
+  },[groups,products,library])
 
   async function analyze(files){
     const list=[...files||[]].filter(f=>/\.svg$/i.test(f.name)||f.type==='image/svg+xml')
@@ -309,6 +331,12 @@ export default function SvgAnalyzer({db,onSave}){
     <div className="notice"><b>La medida sale del SVG original</b><span>El catálogo se usa únicamente para ponerle nombre al modelo. Las piezas detectadas se guardan con su ancho y alto reales, sin escalar ni deformar.</span></div>
     <div className="notice"><b>Una figura por modelo</b><span>Las repeticiones se agrupan y no se guardan varias veces. Para formar una figura completa, escribí el mismo nombre en su tapa y su base y elegí el tipo correspondiente.</span></div>
     {message&&<div className="panel svg-analysis-summary"><b>{message}</b>{groups.length>0&&<span>{total} piezas · {groups.length} grupos · {groups.filter(g=>g.matchConfidence).length} coincidencias con la biblioteca</span>}</div>}
+    {groups.length>0&&<div className="panel svg-audit-panel">
+      <div><h3>Control contra el catálogo</h3><p>La app revisa qué modelos aparecen en el SVG y si cada diseño vinculado tiene su tapa y su base.</p></div>
+      <div className="svg-audit-cards"><span><b>{analysisAudit.detectedModels}</b> modelos vinculados</span><span className={analysisAudit.componentIssues.length?'warn':'ok'}><b>{analysisAudit.componentIssues.length}</b> componentes faltantes</span><span><b>{analysisAudit.missingCatalog.length}</b> modelos del catálogo no aparecen</span></div>
+      {analysisAudit.componentIssues.length>0?<div className="svg-missing-components"><b>Faltan componentes:</b>{analysisAudit.componentIssues.map(x=><span key={x}>⚠ {x}</span>)}</div>:<div className="svg-complete-message">✓ No falta ninguna tapa o base entre los modelos vinculados.</div>}
+      <details><summary>Ver figuras del catálogo que no aparecen en este SVG ({analysisAudit.missingCatalog.length})</summary><div className="svg-missing-catalog">{analysisAudit.missingCatalog.map(p=><span key={p.id}>{p.name}</span>)}{!analysisAudit.missingCatalog.length&&<span>Están todas las figuras del catálogo.</span>}</div></details>
+    </div>}
     {groups.length>0&&<div className="toolbar"><button className="primary" onClick={saveSelected}>Guardar figuras con tapa y base</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:true})))}>Seleccionar todos</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:false})))}>Quitar selección</button></div>}
     <div className="svg-analysis-grid">
       {groups.map((group,index)=>{

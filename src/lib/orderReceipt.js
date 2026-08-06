@@ -52,14 +52,7 @@ export function receiptHtml(o){
      </div>
      <div>
        <h3>DATOS DE ENTREGA</h3>
-       <p><b>Tipo de entrega:</b> ${esc(typeOf(o))}</p>
-       <p><b>Modalidad:</b> ${esc(o.agencyDelivery||'-')}</p>
-       <p><b>Domicilio:</b> ${esc(o.address||'-')}</p>
-       <p><b>Entre calles:</b> ${esc(o.betweenStreets||'-')}</p>
-       <p><b>Localidad:</b> ${esc(o.locality||'-')}</p>
-       <p><b>Partido / Departamento:</b> ${esc(o.district||'-')}</p>
-       <p><b>Provincia:</b> ${esc(o.province||'-')}</p>
-       <p><b>Código postal:</b> ${esc(o.postalCode||'-')}</p>
+       ${typeOf(o)==='Retiro en el local'?`<p><b>Tipo de entrega:</b> Retiro en el local</p><p><b>Costo de retiro:</b> Gratis</p><p>Te avisaremos cuando el pedido esté listo para retirar.</p>`:`<p><b>Tipo de entrega:</b> ${esc(typeOf(o))}</p><p><b>Modalidad:</b> ${esc(o.agencyDelivery||'-')}</p><p><b>Domicilio:</b> ${esc(o.address||'-')}</p><p><b>Entre calles:</b> ${esc(o.betweenStreets||'-')}</p><p><b>Localidad:</b> ${esc(o.locality||'-')}</p><p><b>Partido / Departamento:</b> ${esc(o.district||'-')}</p><p><b>Provincia:</b> ${esc(o.province||'-')}</p><p><b>Código postal:</b> ${esc(o.postalCode||'-')}</p>`}
      </div>
    </section>
 

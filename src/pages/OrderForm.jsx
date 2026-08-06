@@ -106,7 +106,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     }
     const automaticNumber=editing ? form.number : nextOrderNumber(db.orders)
     const fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim()
-    const final={...form,client:fullName,zone:[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
+    const final={...form,...(deliveryType==='Retiro en el local'?{address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',agencyDelivery:'',shippingCost:0,shippingPaid:'No corresponde',shippingPackaging:'No'}:{}),client:fullName,zone:deliveryType==='Retiro en el local'?'Retiro en el local':[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:pricePerUnit(qty),productionSheets:sheets,productionDays,updatedAt:new Date().toISOString()}
     const orders=editing ? db.orders.map(o=>o.id===final.id?final:o) : [...db.orders,{...final,createdAt:new Date().toISOString()}]
     const clients=upsertClientFromOrder(db.clients||[],final)
     await onSave({...db,orders,clients})
@@ -128,7 +128,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Nombre"><input value={form.firstName||''} onChange={e=>setForm({...form,firstName:e.target.value,client:[e.target.value,form.lastName].filter(Boolean).join(' ')})} autoComplete="given-name"/></Field>
         <Field label="Apellido"><input value={form.lastName||''} onChange={e=>setForm({...form,lastName:e.target.value,client:[form.firstName,e.target.value].filter(Boolean).join(' ')})} autoComplete="family-name"/></Field>
         <Field label="Teléfono"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
-        <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>setForm({...form,deliveryType:e.target.value,carrier:e.target.value})}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></Field>
+        <Field label="Tipo de entrega"><select value={form.deliveryType||'Logística'} onChange={e=>{const type=e.target.value;setForm({...form,deliveryType:type,carrier:type,...(type==='Retiro en el local'?{agencyDelivery:'',shippingCost:'',shippingPaid:'No corresponde',shippingPackaging:'No'}:{})})}}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></Field>
         <Field label={['Vía Cargo','Correo Argentino'].includes(form.deliveryType||'Logística')?'DNI *':'DNI (opcional)'}><input inputMode="numeric" value={form.dni||''} onChange={e=>setForm({...form,dni:e.target.value.replace(/\D/g,'')})} placeholder="DNI del cliente"/></Field>
         <Field label="Correo electrónico"><input type="email" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})} placeholder="cliente@email.com"/></Field>
         {matchingClients.length>0&&<div className="client-autofill"><small>Clientes encontrados</small>{matchingClients.map((c,i)=><button type="button" key={(c.phone||c.name)+i} onClick={()=>useClient(c)}><b>{c.name}</b><span>{c.phone||'Sin teléfono'} · {[c.locality,c.province].filter(Boolean).join(', ')||'Sin dirección'}</span></button>)}</div>}
@@ -145,9 +145,11 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <Field label="Prioridad"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option></select></Field>
         <Field label="Prioridad"><select value={form.priority||'Normal'} onChange={e=>setForm({...form,priority:e.target.value})}><option>Normal</option><option>Urgente</option><option>Prioridad máxima</option></select></Field>
         <Field label="Estado"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></Field>
-        <Field label="Costo de envío"><input type="number" min="0" step="1" value={form.shippingCost||''} onChange={e=>setForm({...form,shippingCost:e.target.value})} placeholder="Ej.: 12500"/></Field>
-        <Field label="Estado del envío"><select value={form.shippingPaid||'Pendiente de pago'} onChange={e=>setForm({...form,shippingPaid:e.target.value})}><option>Pagado</option><option>Pendiente de pago</option></select></Field>
-        <Field label="¿Lleva embalaje de envío?"><select value={form.shippingPackaging||'No'} onChange={e=>setForm({...form,shippingPackaging:e.target.value})}><option>No</option><option>Sí</option></select></Field>
+        {(form.deliveryType||'Logística')!=='Retiro en el local'&&<>
+          <Field label="Costo de envío"><input type="number" min="0" step="1" value={form.shippingCost||''} onChange={e=>setForm({...form,shippingCost:e.target.value})} placeholder="Ej.: 12500"/></Field>
+          <Field label="Estado del envío"><select value={form.shippingPaid||'Pendiente de pago'} onChange={e=>setForm({...form,shippingPaid:e.target.value})}><option>Pagado</option><option>Pendiente de pago</option></select></Field>
+          <Field label="¿Lleva embalaje de envío?"><select value={form.shippingPackaging||'No'} onChange={e=>setForm({...form,shippingPackaging:e.target.value})}><option>No</option><option>Sí</option></select></Field>
+        </>}
       </div>
 
       <h3>Figuras</h3>
@@ -174,8 +176,10 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
         <div><small>Días necesarios</small><b>{productionDays}</b><span>Máximo {DAILY_PIECE_LIMIT} piezas por día</span></div>
         <div><small>Precio unitario</small><b>{money(pricePerUnit(qty))}</b></div>
         <div><small>Valor de productos</small><b>{money(total)}</b></div>
-        <div><small>Costo de envío</small><b>{money(Number(form.shippingCost||0))}</b><span>{form.shippingPaid||'Pendiente de pago'}</span></div>
-        <div><small>Total final</small><b>{money(total+Number(form.shippingCost||0))}</b></div>
+        {(form.deliveryType||'Logística')==='Retiro en el local'?<div><small>Retiro en el local</small><b>GRATIS</b><span>Sin envío a domicilio</span></div>:<>
+          <div><small>Costo de envío</small><b>{money(Number(form.shippingCost||0))}</b><span>{form.shippingPaid||'Pendiente de pago'}</span></div>
+          <div><small>Total final</small><b>{money(total+Number(form.shippingCost||0))}</b></div>
+        </>}
       </div>
       <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
     </form>

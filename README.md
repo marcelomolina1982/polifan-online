@@ -1,13 +1,6 @@
-# Polifan Online v17.0
+# Polifan Online v18.3.0
 
-Versión compacta de Tu Vida en Tinta.
-
-Incluye gestión de pedidos, catálogo, inventario, piezas para cortar, calendario de producción, biblioteca y análisis SVG, diseño de placas, corte simple/doble, estadísticas y centro de atención.
-
-## Instalación
-
-1. Subir todos los archivos al repositorio.
-2. Configurar las variables de Supabase ya utilizadas por el proyecto.
-3. Ejecutar `npm install` y `npm run build`, o desplegar en Vercel.
-
-Los archivos SQL de la raíz se conservan para preparar las tablas auxiliares de Supabase cuando sean necesarias.
+Mejoras principales:
+- El analizador SVG informa modelos del catálogo ausentes y tapas o bases faltantes.
+- El detalle de compra aprovecha mejor el espacio y admite hasta 24 modelos antes de crear una continuación.
+- Los pedidos con retiro en el local no muestran ni solicitan envío a domicilio ni costo de envío.

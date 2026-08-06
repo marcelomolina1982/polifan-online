@@ -25,11 +25,15 @@ export default function WebRequests({db,onSave}){
  async function confirmRow(r){
   if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return
   const next=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
-  const shippingInput=window.prompt('Costo de envío ya presupuestado (solo números):','0')
-  if(shippingInput===null)return
-  const shippingCost=Math.max(0,Number(String(shippingInput).replace(/[^0-9.,]/g,'').replace(',','.'))||0)
-  const shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'
   const c=r.customer||{}
+  const isPickup=(c.method||'Logística')==='Retiro en el local'
+  let shippingCost=0,shippingPaid='No corresponde'
+  if(!isPickup){
+    const shippingInput=window.prompt('Costo de envío ya presupuestado (solo números):','0')
+    if(shippingInput===null)return
+    shippingCost=Math.max(0,Number(String(shippingInput).replace(/[^0-9.,]/g,'').replace(',','.'))||0)
+    shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'
+  }
   const recalculatedEstimate=!r.estimated_from?estimateProductionAvailability(db.orders||[],Number(r.quantity||0),db.productionClosedDates||[]):null
   const resolvedDelivery=r.estimated_from||recalculatedEstimate?.productionDate||''
   const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:resolvedDelivery,firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
