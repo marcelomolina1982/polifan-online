@@ -1,0 +1,5 @@
+Polifan Online v18.4.2
+- Agregar tapa/base escanea el SVG y permite elegir una sola pieza detectada.
+- Nunca guarda la placa SVG completa como componente.
+- Si tapa y base difieren, la pieza menor se ajusta a las medidas exactas de la mayor.
+- Conserva las medidas originales en metadatos y registra el ajuste automático.

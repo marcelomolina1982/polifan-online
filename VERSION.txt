@@ -1,2 +1,1 @@
-18.4.1
-Biblioteca SVG completa con tapa y base
+18.4.2
