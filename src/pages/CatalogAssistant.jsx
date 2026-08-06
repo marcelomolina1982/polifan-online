@@ -5,7 +5,7 @@ const DEFAULTS={
  enabled:true,
  assistantName:'Mía',
  assistantSubtitle:'Asistente de Tu Vida en Tinta',
- assistantImage:'/mia-assistant-avatar.webp',
+ assistantImage:'/mia-assistant-cutout.png',
  launcherAvatarPosition:'above',
  themeColor:'#6f3dc4',
  welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',

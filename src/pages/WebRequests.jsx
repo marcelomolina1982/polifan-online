@@ -3,66 +3,60 @@ import {supabase} from '../supabase'
 import {Title} from '../components/UI'
 import {money} from '../lib/format'
 import {upsertClientFromOrder} from '../lib/clients'
-import { estimateProductionAvailability, todayArgentinaISO } from '../lib/production'
-import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
+import {estimateProductionAvailability,todayArgentinaISO} from '../lib/production'
+import {downloadOrderReceiptJpg} from '../lib/orderReceipt'
+import {catalogProducts,normalizeCatalogProducts} from '../lib/catalog'
+import {stockRows} from '../lib/inventory'
 
-const isPending = row => row.status === 'Pendiente de pago'
+const isPending=row=>row.status==='Pendiente de pago'
+const norm=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+
+function regularPrice(qty){if(qty<=0)return 0;if(qty<=5)return qty*6000;if(qty<=11)return 25000+(qty-6)*(25000/6);return 40000+(qty-12)*(40000/12)}
+function lightPrice(qty){if(qty<=0)return 0;if(qty<=11)return qty*7000;if(qty<=23)return qty*6000;return qty*5000}
 
 export default function WebRequests({db,onSave}){
  const [rows,setRows]=useState([])
  const [loading,setLoading]=useState(true)
  const [view,setView]=useState('pending')
+ const [detail,setDetail]=useState(null)
+ const [editing,setEditing]=useState(false)
+ const [draftItems,setDraftItems]=useState([])
+ const products=useMemo(()=>normalizeCatalogProducts(db.customerCatalog?.length?db.customerCatalog:catalogProducts),[db.customerCatalog])
+ const inventory=useMemo(()=>stockRows(db),[db])
 
- async function load(){
-  setLoading(true)
-  const {data,error}=await supabase.from('web_requests').select('*').order('created_at',{ascending:false})
-  if(error) alert('No se pudieron cargar las solicitudes: '+error.message)
-  else setRows(data||[])
-  setLoading(false)
- }
+ async function load(){setLoading(true);const {data,error}=await supabase.from('web_requests').select('*').order('created_at',{ascending:false});if(error)alert('No se pudieron cargar las solicitudes: '+error.message);else setRows(data||[]);setLoading(false)}
  useEffect(()=>{load()},[])
 
- async function confirmRow(r){
-  if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return
-  const next=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0')
-  const c=r.customer||{}
-  const isPickup=(c.method||'Logística')==='Retiro en el local'
-  let shippingCost=0,shippingPaid='No corresponde'
-  if(!isPickup){
-    const shippingInput=window.prompt('Costo de envío ya presupuestado (solo números):','0')
-    if(shippingInput===null)return
-    shippingCost=Math.max(0,Number(String(shippingInput).replace(/[^0-9.,]/g,'').replace(',','.'))||0)
-    shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'
-  }
-  const recalculatedEstimate=!r.estimated_from?estimateProductionAvailability(db.orders||[],Number(r.quantity||0),db.productionClosedDates||[]):null
-  const resolvedDelivery=r.estimated_from||recalculatedEstimate?.productionDate||''
-  const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:resolvedDelivery,firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
-  const orders=[...db.orders,order]
-  const clients=upsertClientFromOrder(db.clients||[],order)
-  await onSave({...db,orders,clients})
-  try{ await downloadOrderReceiptJpg(order) }catch(err){ console.error('No se pudo generar el comprobante JPG',err) }
-  const {error}=await supabase.from('web_requests').update({status:'Pago confirmado'}).eq('id',r.id)
-  if(error){alert('El pedido se creó, pero no se pudo actualizar la solicitud: '+error.message);return}
-  setRows(current=>current.map(item=>item.id===r.id?{...item,status:'Pago confirmado'}:item))
-  alert(`Pedido #${next} creado.`)
- }
+ function openDetail(row){setDetail(row);setDraftItems((row.items||[]).map(item=>({...item,qty:Number(item.qty||0)})));setEditing(false)}
+ function productFor(item){return products.find(p=>p.id===item.productId)||products.find(p=>norm(p.name)===norm(item.name))||null}
+ function stockFor(item){const name=productFor(item)?.name||item.name;return inventory.find(r=>norm(r.figure)===norm(name))||{cut:0,ordered:0,inCut:0,free:0,projected:0}}
+ function svgFor(item){const product=productFor(item);const components=(db.svgLibrary||[]).filter(x=>(product?.id&&x.productId===product.id)||norm(x.productName||x.modelName)===norm(product?.name||item.name));const roles=new Set(components.map(x=>x.role||'simple'));const simple=roles.has('simple');const complete=simple||(roles.has('tapa')&&roles.has('base'));return {components,roles,complete,simple}}
+ function totalFor(items){let regular=0,lights=0,fixed=0;items.forEach(item=>{const p=productFor(item)||{};const q=Number(item.qty||0);if(p.fixedPrice)fixed+=Number(p.fixedPrice)*q;else if(p.category==='Figuras con luces'||p.category==='Palabras con luces')lights+=q;else regular+=q});return regularPrice(regular)+lightPrice(lights)+fixed}
 
- async function removeRow(r){
-  if(!window.confirm(`¿Eliminar la solicitud ${r.code}? Esta acción la quitará de pendientes.`))return
-  const {error}=await supabase.from('web_requests').update({status:'Eliminada'}).eq('id',r.id)
-  if(error){alert('No se pudo eliminar la solicitud: '+error.message);return}
-  setRows(current=>current.map(item=>item.id===r.id?{...item,status:'Eliminada'}:item))
- }
+ async function saveDraft(){if(!detail)return;const items=draftItems.filter(i=>Number(i.qty)>0).map(i=>({...i,qty:Number(i.qty)}));if(!items.length)return alert('La solicitud debe conservar al menos un producto.');const quantity=items.reduce((sum,i)=>sum+Number(i.qty||0),0);const estimated_total=totalFor(items);const {error}=await supabase.from('web_requests').update({items,quantity,estimated_total}).eq('id',detail.id);if(error)return alert('No se pudo editar la solicitud: '+error.message);const updated={...detail,items,quantity,estimated_total};setRows(current=>current.map(r=>r.id===detail.id?updated:r));setDetail(updated);setDraftItems(items);setEditing(false)}
 
- const visible=useMemo(()=>view==='pending'?rows.filter(isPending):rows.filter(row=>!isPending(row)),[rows,view])
- const pendingCount=rows.filter(isPending).length
+ async function confirmRow(r){if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return;const next=String(Math.max(0,...db.orders.map(x=>Number(x.number)||0))+1).padStart(3,'0');const c=r.customer||{};const isPickup=(c.method||'Logística')==='Retiro en el local';let shippingCost=0,shippingPaid='No corresponde';if(!isPickup){const shippingInput=window.prompt('Costo de envío ya presupuestado (solo números):','0');if(shippingInput===null)return;shippingCost=Math.max(0,Number(String(shippingInput).replace(/[^0-9.,]/g,'').replace(',','.'))||0);shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'}const recalculatedEstimate=!r.estimated_from?estimateProductionAvailability(db.orders||[],Number(r.quantity||0),db.productionClosedDates||[]):null;const resolvedDelivery=r.estimated_from||recalculatedEstimate?.productionDate||'';const order={id:crypto.randomUUID(),number:next,date:todayArgentinaISO(),delivery:resolvedDelivery,firstName:c.firstName||String(c.name||'').trim().split(/\s+/)[0]||'',lastName:c.lastName||String(c.name||'').trim().split(/\s+/).slice(1).join(' '),client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:c.method==='Retiro en el local'?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};const orders=[...db.orders,order];const clients=upsertClientFromOrder(db.clients||[],order);await onSave({...db,orders,clients});try{await downloadOrderReceiptJpg(order)}catch(err){console.error('No se pudo generar el comprobante JPG',err)}const {error}=await supabase.from('web_requests').update({status:'Pago confirmado'}).eq('id',r.id);if(error){alert('El pedido se creó, pero no se pudo actualizar la solicitud: '+error.message);return}setRows(current=>current.map(item=>item.id===r.id?{...item,status:'Pago confirmado'}:item));setDetail(null);alert(`Pedido #${next} creado.`)}
+ async function removeRow(r){if(!window.confirm(`¿Eliminar la solicitud ${r.code}? Esta acción la quitará de pendientes.`))return;const {error}=await supabase.from('web_requests').update({status:'Eliminada'}).eq('id',r.id);if(error){alert('No se pudo eliminar la solicitud: '+error.message);return}setRows(current=>current.map(item=>item.id===r.id?{...item,status:'Eliminada'}:item));setDetail(null)}
+ function contact(row){const c=row.customer||{};const phone=String(c.phone||'').replace(/\D/g,'');if(!phone)return alert('La solicitud no tiene un WhatsApp válido.');const text=encodeURIComponent(`Hola ${c.firstName||c.name||''}, estamos revisando tu solicitud ${row.code}. Queríamos consultarte algunos detalles antes de confirmarla.`);window.open(`https://wa.me/54${phone.replace(/^54/,'')}?text=${text}`,'_blank','noopener,noreferrer')}
+ function printRequest(row){const c=row.customer||{};const items=(row.items||[]).map(i=>`<tr><td>${i.name||''}</td><td>${i.measure||''}</td><td>${Number(i.qty||0)}</td></tr>`).join('');const w=window.open('','_blank');if(!w)return alert('El navegador bloqueó la ventana de impresión.');w.document.write(`<!doctype html><html><head><title>${row.code}</title><style>body{font-family:Arial;padding:24px;color:#222}h1{margin:0 0 8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin:18px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:8px;text-align:left}th{background:#f3eefb}.total{font-size:20px;font-weight:bold;text-align:right;margin-top:15px}@media print{button{display:none}}</style></head><body><h1>Solicitud ${row.code}</h1><div>${row.created_at?new Date(row.created_at).toLocaleString('es-AR'):''}</div><div class="grid"><div><b>Cliente:</b> ${c.name||''}</div><div><b>WhatsApp:</b> ${c.phone||''}</div><div><b>Entrega:</b> ${c.method||''}</div><div><b>Localidad:</b> ${c.locality||''}, ${c.province||''}</div></div><h2>Productos solicitados</h2><table><thead><tr><th>Producto</th><th>Medida</th><th>Cantidad</th></tr></thead><tbody>${items}</tbody></table><div class="total">${row.quantity||0} piezas · ${money(row.estimated_total)}</div><p><b>Observaciones:</b> ${row.notes||'Sin observaciones'}</p><button onclick="print()">Imprimir</button></body></html>`);w.document.close();w.focus()}
 
+ const visible=useMemo(()=>view==='pending'?rows.filter(isPending):rows.filter(row=>!isPending(row)),[rows,view]);const pendingCount=rows.filter(isPending).length
  return <>
-  <Title title="Solicitudes web" sub="Las aprobadas y eliminadas salen automáticamente de la lista de pendientes."/>
-  <div className="request-tabs">
-   <button className={view==='pending'?'active':''} onClick={()=>setView('pending')}>Pendientes ({pendingCount})</button>
-   <button className={view==='history'?'active':''} onClick={()=>setView('history')}>Historial</button>
-  </div>
-  <div className="panel table-wrap"><table><thead><tr><th>Código</th><th>Cliente</th><th>Piezas</th><th>Entrega estimada</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visible.map(r=><tr key={r.id}><td><b>{r.code}</b><small className="block">{r.created_at?new Date(r.created_at).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}):''}</small></td><td>{r.customer?.name}<small className="block">{r.customer?.phone}</small></td><td>{r.quantity}</td><td>{r.customer?.estimatedDeliveryStart||r.estimated_from?<>{r.customer?.estimatedDeliveryStart||r.estimated_from} a {r.customer?.estimatedDeliveryEnd||r.estimated_to||r.customer?.estimatedDeliveryStart||r.estimated_from}</>:<b>Fecha a confirmar</b>}</td><td>{money(r.estimated_total)}</td><td>{r.status}</td><td><div className="request-actions">{isPending(r)&&<button className="primary" onClick={()=>confirmRow(r)}>Confirmar pago y crear pedido</button>}{isPending(r)&&<button className="danger" onClick={()=>removeRow(r)}>Eliminar</button>}</div></td></tr>)}</tbody></table>{loading&&<p>Cargando…</p>}{!loading&&!visible.length&&<p>{view==='pending'?'No hay solicitudes pendientes.':'Todavía no hay solicitudes en el historial.'}</p>}</div>
+  <Title title="Solicitudes web" sub="Revisá el detalle completo de cada compra antes de confirmar el pago y crear el pedido."/>
+  <div className="request-tabs"><button className={view==='pending'?'active':''} onClick={()=>setView('pending')}>Pendientes ({pendingCount})</button><button className={view==='history'?'active':''} onClick={()=>setView('history')}>Historial</button></div>
+  <div className="panel table-wrap"><table><thead><tr><th>Código</th><th>Cliente</th><th>Piezas</th><th>Entrega estimada</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visible.map(r=><tr key={r.id}><td><b>{r.code}</b><small className="block">{r.created_at?new Date(r.created_at).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}):''}</small></td><td>{r.customer?.name}<small className="block">{r.customer?.phone}</small></td><td>{r.quantity}</td><td>{r.customer?.estimatedDeliveryStart||r.estimated_from?<>{r.customer?.estimatedDeliveryStart||r.estimated_from} a {r.customer?.estimatedDeliveryEnd||r.estimated_to||r.customer?.estimatedDeliveryStart||r.estimated_from}</>:<b>Fecha a confirmar</b>}</td><td>{money(r.estimated_total)}</td><td>{r.status}</td><td><div className="request-actions"><button className="ghost" onClick={()=>openDetail(r)}>👁️ Ver detalle</button>{isPending(r)&&<button className="primary" onClick={()=>confirmRow(r)}>Confirmar</button>}</div></td></tr>)}</tbody></table>{loading&&<p>Cargando…</p>}{!loading&&!visible.length&&<p>{view==='pending'?'No hay solicitudes pendientes.':'Todavía no hay solicitudes en el historial.'}</p>}</div>
+  {detail&&<RequestDetail row={detail} items={draftItems} setItems={setDraftItems} editing={editing} setEditing={setEditing} products={products} productFor={productFor} stockFor={stockFor} svgFor={svgFor} onClose={()=>setDetail(null)} onSave={saveDraft} onConfirm={()=>confirmRow(detail)} onRemove={()=>removeRow(detail)} onContact={()=>contact(detail)} onPrint={()=>printRequest(detail)}/>} 
  </>
+}
+
+function RequestDetail({row,items,setItems,editing,setEditing,productFor,stockFor,svgFor,onClose,onSave,onConfirm,onRemove,onContact,onPrint}){
+ const c=row.customer||{};const checks=items.map(item=>({item,product:productFor(item),stock:stockFor(item),svg:svgFor(item)}));const ready=checks.every(x=>x.product&&x.svg.complete);const unique=items.length;const total=items.reduce((s,i)=>s+Number(i.qty||0),0)
+ return <div className="web-request-modal-backdrop" role="dialog" aria-modal="true"><div className="web-request-modal panel"><div className="panel-heading"><div><h2>{row.code}</h2><small>{row.created_at?new Date(row.created_at).toLocaleString('es-AR',{dateStyle:'full',timeStyle:'short'}):''}</small></div><button className="ghost" onClick={onClose}>Cerrar</button></div>
+  <div className={`request-readiness ${ready?'ready':'review'}`}><b>{ready?'🟢 Solicitud lista para revisar y producir':'🟡 Solicitud que requiere revisión'}</b><span>{ready?'Todos los productos existen en el catálogo y tienen SVG completo.':'Revisá los productos sin catálogo o con componentes SVG faltantes.'}</span></div>
+  <div className="web-request-customer-grid"><div><b>Cliente</b><span>{c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')}</span></div><div><b>WhatsApp</b><span>{c.phone||'—'}</span></div><div><b>DNI</b><span>{c.dni||'—'}</span></div><div><b>Email</b><span>{c.email||'—'}</span></div><div><b>Entrega</b><span>{c.method||'—'} {c.agencyDelivery?`· ${c.agencyDelivery}`:''}</span></div><div><b>Destino</b><span>{c.method==='Retiro en el local'?'Retiro en el local':[c.address,c.locality,c.province,c.postalCode].filter(Boolean).join(' · ')||'—'}</span></div></div>
+  <div className="request-summary-cards"><span><b>{unique}</b> modelos</span><span><b>{total}</b> piezas</span><span><b>{money(row.estimated_total)}</b> total estimado</span></div>
+  <div className="web-request-product-grid">{checks.map(({item,product,stock,svg},index)=><article className="web-request-product" key={`${item.productId||item.name}-${index}`}>{product?.image?<img src={product.image} alt={item.name}/>:<div className="request-product-placeholder">Sin imagen</div>}<div className="web-request-product-info"><h3>{item.name}</h3><small>{item.measure||product?.measure||'Medida no informada'}</small>{editing?<label>Cantidad<input type="number" min="0" value={item.qty} onChange={e=>setItems(current=>current.map((x,i)=>i===index?{...x,qty:Math.max(0,Number(e.target.value)||0)}:x))}/></label>:<b>Cantidad: {item.qty}</b>}<div className="request-product-flags"><span className={product?'ok':'bad'}>{product?'✓ Catálogo':'Falta catálogo'}</span><span className={svg.complete?'ok':'bad'}>{svg.simple?'✓ SVG simple':svg.complete?'✓ Tapa y base':'Falta SVG completo'}</span></div><div className="request-stock-line"><span>Stock cortado: <b>{stock.cut}</b></span><span>Este pedido: <b>{item.qty}</b></span><span className={stock.cut-Number(item.qty||0)<0?'bad-text':'ok-text'}>Después: <b>{stock.cut-Number(item.qty||0)}</b></span></div></div></article>)}</div>
+  <div className="notice"><b>Observaciones</b><span>{row.notes||'Sin observaciones'}</span></div>
+  <div className="web-request-modal-actions"><button className="ghost" onClick={onPrint}>🖨️ Imprimir solicitud</button><button className="ghost" onClick={onContact}>💬 Consultar cliente</button>{editing?<><button className="ghost" onClick={()=>setEditing(false)}>Cancelar edición</button><button className="primary" onClick={onSave}>Guardar cambios</button></>:isPending(row)&&<button className="ghost" onClick={()=>setEditing(true)}>✏️ Editar productos</button>}{isPending(row)&&<button className="danger" onClick={onRemove}>Rechazar / eliminar</button>}{isPending(row)&&<button className="primary" onClick={onConfirm}>Confirmar pago y crear pedido</button>}</div>
+ </div></div>
 }

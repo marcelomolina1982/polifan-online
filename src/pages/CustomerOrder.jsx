@@ -43,7 +43,7 @@ export default function CustomerOrder() {
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
   const [chatOpen,setChatOpen]=useState(false)
-  const [chatbotSettings,setChatbotSettings]=useState({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'/mia-assistant-avatar.webp',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'})
+  const [chatbotSettings,setChatbotSettings]=useState({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'/mia-assistant-cutout.png',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'})
   const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'}])
 
   useEffect(()=>{setChatMessages(current=>current.length<=1?[{from:'bot',text:chatbotSettings.welcome||`¡Hola! Soy ${chatbotSettings.assistantName||'tu asistente'}. Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.`}]:current)},[chatbotSettings.welcome,chatbotSettings.assistantName])
@@ -68,7 +68,7 @@ export default function CustomerOrder() {
             whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
             businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
           })
-          setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(state.chatbotSettings||{}),assistantImage:state.chatbotSettings?.assistantImage||'/mia-assistant-avatar.webp'})
+          setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(state.chatbotSettings||{}),assistantImage:state.chatbotSettings?.assistantImage||'/mia-assistant-cutout.png'})
           const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
@@ -91,7 +91,7 @@ export default function CustomerOrder() {
           whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),
           businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'
         })
-        setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(cachedState.chatbotSettings||{}),assistantImage:cachedState.chatbotSettings?.assistantImage||'/mia-assistant-avatar.webp'})
+        setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(cachedState.chatbotSettings||{}),assistantImage:cachedState.chatbotSettings?.assistantImage||'/mia-assistant-cutout.png'})
         setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
         return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
       }
