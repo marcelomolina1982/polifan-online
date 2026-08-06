@@ -1,0 +1,18 @@
+POLIFAN ONLINE 18.5.0
+
+Nuevo módulo independiente: Asistente del Catálogo.
+
+Ubicación:
+VENTAS > Asistente del catálogo
+
+Permite configurar:
+- Nombre del asistente.
+- Descripción.
+- Avatar PNG/JPG/WebP.
+- Color principal.
+- Mensaje de bienvenida.
+- Estilo de respuesta.
+- Respuestas de catálogo, precios, envíos, compra y derivación.
+- Funciones visibles en el chatbot.
+
+El asistente no confirma pagos, fechas ni costos de envío automáticamente.
