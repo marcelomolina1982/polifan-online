@@ -1,7 +1,7 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "17.0.3",
+  "version": "18.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

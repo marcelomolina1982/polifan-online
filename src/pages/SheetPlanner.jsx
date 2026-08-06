@@ -14,6 +14,7 @@ const loadImage=src=>new Promise((resolve,reject)=>{const im=new Image();im.onlo
 function modelSlug(value){return String(value||'modelo').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'modelo'}
 function componentModelId(item){return item.modelId||(item.productId?`producto:${item.productId}`:`modelo:${modelSlug(item.modelName||item.productName||String(item.name||'').replace(/\s*[·-]\s*(tapa|base|figura|capa.*)$/i,''))}`)}
 function componentModelName(item){return item.modelName||item.productName||String(item.name||'Modelo').replace(/\s*[·-]\s*(tapa|base|figura|capa.*)$/i,'')}
+function normalizedName(value){return modelSlug(String(value||'').replace(/\b(tapa|base|figura|capa)\b/gi,''))}
 
 function parseSvg(text){
   const doc=new DOMParser().parseFromString(text,'image/svg+xml'),svg=doc.documentElement
@@ -92,6 +93,7 @@ export default function SheetPlanner({db,onSave}){
   const [items,setItems]=useState([]),[result,setResult]=useState({sheets:[],rejected:[],total:0,used:0,sheetArea:0}),[active,setActive]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[minFill,setMinFill]=useState(85),[useFillers,setUseFillers]=useState(true),[autoSummary,setAutoSummary]=useState(null),[sheetMultipliers,setSheetMultipliers]=useState({}),[modelSearch,setModelSearch]=useState(''),[modelQty,setModelQty]=useState(1)
   const library=db.svgLibrary||[],products=normalizeCatalogProducts(db.customerCatalog?.length?db.customerCatalog:catalogProducts),pending=pendingCutRows(db).filter(x=>x.pending>0),sheet=result.sheets[active]||result.sheets[0]
   const libraryModels=useMemo(()=>{const map=new Map();library.forEach(c=>{const id=componentModelId(c),name=componentModelName(c);if(!map.has(id))map.set(id,{id,name,productId:c.productId||'',components:[]});map.get(id).components.push(c)});return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,'es'))},[library])
+  function modelForFigure(figure){const key=normalizedName(figure);const product=products.find(p=>normalizedName(p.name)===key)||products.find(p=>normalizedName(p.name).includes(key)||key.includes(normalizedName(p.name)));const model=libraryModels.find(m=>(product?.id&&m.productId===product.id)||normalizedName(m.name)===key)||libraryModels.find(m=>normalizedName(m.name).includes(key)||key.includes(normalizedName(m.name)));return {product,model}}
   const scale=Math.min(700/num(sheetW,122),420/num(sheetH,58))
   const dirtyKey=useMemo(()=>JSON.stringify([items.map(x=>[x.id,x.qty,x.width,x.height,x.svgId]),sheetW,sheetH,gap]),[items,sheetW,sheetH,gap])
   useEffect(()=>setResult(r=>({...r,stale:true})),[dirtyKey])
@@ -99,8 +101,8 @@ export default function SheetPlanner({db,onSave}){
   function loadPending(){
     const next=[];const missing=[]
     for(const row of pending){
-      const product=products.find(p=>p.name.toLowerCase()===row.figure.toLowerCase())
-      const components=library.filter(s=>(product?.id&&s.productId===product.id)||componentModelName(s).toLowerCase()===row.figure.toLowerCase())
+      const {product,model}=modelForFigure(row.figure)
+      const components=model?.components||[]
       if(!components.length){missing.push(row.figure);continue}
       const totalPerUnit=components.reduce((a,c)=>a+num(c.qtyPerUnit,1),0)||1;components.forEach((c,i)=>{const width=num(c.sourceWidthCm||c.widthCm),height=num(c.sourceHeightCm||c.heightCm);next.push({id:uid(),svgId:c.id,productId:product?.id,figure:row.figure,name:`${row.figure} · ${c.role||'pieza'}`,width,height,sourceWidth:width,sourceHeight:height,sizeLocked:true,qty:row.pending*num(c.qtyPerUnit||1),unitWeight:1/totalPerUnit,svgText:c.svgText,svgMeta:parseSvg(c.svgText),allowRotate:c.allowRotate!==false,blockInterior:c.blockInterior!==false,color:COLORS[i%COLORS.length]})})
     }
@@ -109,8 +111,8 @@ export default function SheetPlanner({db,onSave}){
   function componentsForRows(rows,priority,date,source='pedido'){
     const next=[],missing=[]
     rows.forEach(row=>{
-      const product=products.find(p=>p.name.toLowerCase()===row.figure.toLowerCase())
-      const components=library.filter(s=>(product?.id&&s.productId===product.id)||componentModelName(s).toLowerCase()===row.figure.toLowerCase())
+      const {product,model}=modelForFigure(row.figure)
+      const components=model?.components||[]
       if(!components.length){missing.push(row.figure);return}
       const totalPerUnit=components.reduce((a,c)=>a+num(c.qtyPerUnit,1),0)||1;components.forEach((c,i)=>{const width=num(c.sourceWidthCm||c.widthCm),height=num(c.sourceHeightCm||c.heightCm);next.push({id:uid(),svgId:c.id,productId:product?.id,figure:row.figure,name:`${row.figure} · ${c.role||'pieza'}`,width,height,sourceWidth:width,sourceHeight:height,sizeLocked:true,qty:num(row.qty)*num(c.qtyPerUnit||1),unitWeight:1/totalPerUnit,svgText:c.svgText,svgMeta:parseSvg(c.svgText),allowRotate:c.allowRotate!==false,blockInterior:c.blockInterior!==false,color:COLORS[i%COLORS.length],priority,dueDate:date||'',source})})
     })
@@ -124,7 +126,7 @@ export default function SheetPlanner({db,onSave}){
       if(!automatic.length)throw new Error('No hay piezas pendientes con SVG vinculados para planificar.')
       let working=automatic,packed=await pack(working,num(sheetW),num(sheetH),num(gap)),fillers=[]
       const threshold=Math.max(1,Math.min(100,num(minFill,85)))
-      if(useFillers&&packed.rejected.length===0&&packed.sheets.length){
+      if(useFillers&&missing.length===0&&packed.rejected.length===0&&packed.sheets.length){
         const ranking=bestSellerNames(db),last=()=>packed.sheets[packed.sheets.length-1]
         let attempts=0
         while(last()&&last().efficiency<threshold&&attempts<40){
@@ -181,7 +183,7 @@ export default function SheetPlanner({db,onSave}){
 
   return <div className="sheet-planner-page">
     <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición ni piezas dentro de huecos cerrados.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando…':'Generar cola automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar.</span></div><div className="notice"><b>Cola automática de producción</b><span>Prioriza la fecha de salida más próxima. La última placa queda en espera hasta alcanzar el mínimo configurado. Solo agrega modelos de alta venta cuando no quedan otras piezas pendientes para completar.</span></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar.</span></div><div className="notice"><b>Cola automática de producción</b><span>Coloca primero las entregas más cercanas y completa cada placa con las figuras pendientes de las fechas siguientes. Solo usa modelos de alta venta cuando ya no queda ninguna pieza pendiente identificada.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.complete} placa(s) completas · {autoSummary.waiting} en espera · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}. Mínimo: {autoSummary.threshold}%.</span></div>}

@@ -141,7 +141,67 @@ async function analyzeFile(file,host){
   return items
 }
 
-function groupPieces(items,existing){
+function normalizedWords(value){
+  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/\.svg$/i,' ').replace(/\b(tapa|base|fondo|frente|capa|pedido|placa|corte|cnc|polifan)\b/g,' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:cm|mm)?\b/g,' ').replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(x=>x.length>1)
+}
+function filenameRole(files){
+  const text=normalizedWords((files||[]).join(' ')).join(' ')
+  if(/\btapa\b/i.test((files||[]).join(' '))||/\bfrente\b/i.test((files||[]).join(' ')))return 'tapa'
+  if(/\bbase\b/i.test((files||[]).join(' '))||/\bfondo\b/i.test((files||[]).join(' ')))return 'base'
+  if(/\bcapa\b/i.test((files||[]).join(' ')))return 'capa'
+  return ''
+}
+function filenameProductMatch(group,products){
+  const files=[...new Set(group.items.map(x=>x.sourceFile))]
+  const source=new Set(normalizedWords(files.join(' ')))
+  let best=null
+  for(const product of products||[]){
+    const words=normalizedWords(product.name)
+    if(!words.length)continue
+    const hits=words.filter(w=>source.has(w)).length
+    const coverage=hits/words.length
+    const precision=hits/Math.max(source.size,1)
+    const score=coverage*.82+Math.min(.18,precision*.5)
+    if(hits>0&&(!best||score>best.score))best={product,score,hits}
+  }
+  return best&&best.score>=.58?best:null
+}
+function autoClassifyGroups(groups,products){
+  for(const group of groups){
+    const files=[...new Set(group.items.map(x=>x.sourceFile))]
+    const role=filenameRole(files)
+    if(role){group.role=role;group.autoRole=true}
+    if(!group.productId){
+      const match=filenameProductMatch(group,products)
+      if(match){
+        group.productId=match.product.id;group.productName=match.product.name;group.name=match.product.name
+        group.filenameConfidence=Math.round(match.score*100);group.autoReason='nombre del archivo'
+      }
+    }
+  }
+  const buckets=new Map()
+  for(const group of groups){
+    const key=group.productId?`p:${group.productId}`:`n:${modelSlug(group.name)}`
+    if(!buckets.has(key))buckets.set(key,[])
+    buckets.get(key).push(group)
+  }
+  for(const bucket of buckets.values()){
+    if(bucket.length===1){if(!bucket[0].autoRole&&!bucket[0].matchConfidence)bucket[0].role='simple';continue}
+    const untyped=bucket.filter(g=>!g.autoRole)
+    const hasTapa=bucket.some(g=>g.role==='tapa'),hasBase=bucket.some(g=>g.role==='base')
+    const complexity=g=>Number(g.representative.fingerprint?.lengthRatio||0)+Number(g.representative.fingerprint?.aspect||0)*.03
+    untyped.sort((a,b)=>complexity(b)-complexity(a))
+    let cursor=0
+    if(!hasTapa&&untyped[cursor]){untyped[cursor].role='tapa';untyped[cursor].autoRole=true;untyped[cursor].autoReason='geometría más detallada';cursor++}
+    if(!hasBase&&untyped[cursor]){untyped[cursor].role='base';untyped[cursor].autoRole=true;untyped[cursor].autoReason='geometría complementaria';cursor++}
+    for(;cursor<untyped.length;cursor++){untyped[cursor].role='capa';untyped[cursor].autoRole=true;untyped[cursor].autoReason='componente adicional'}
+  }
+  return groups
+}
+
+function groupPieces(items,existing,products){
   const groups=[]
   for(const item of items){
     let best=null
@@ -166,7 +226,7 @@ function groupPieces(items,existing){
       group.name=match.lib.name||group.name;group.role=match.lib.role||'simple';group.productId=match.lib.productId||'';group.productName=match.lib.productName||'';group.matchConfidence=Math.round((1-match.distance*3)*100)
     }
   }
-  return groups.sort((a,b)=>b.items.length-a.items.length)
+  return autoClassifyGroups(groups,products).sort((a,b)=>b.items.length-a.items.length)
 }
 
 export default function SvgAnalyzer({db,onSave}){
@@ -188,7 +248,7 @@ export default function SvgAnalyzer({db,onSave}){
         try{pieces.push(...await analyzeFile(file,hostRef.current))}
         catch(e){alert(`${file.name}: ${e.message}`)}
       }
-      const next=groupPieces(pieces,library)
+      const next=groupPieces(pieces,library,products)
       setGroups(next)
       setMessage(`Se detectaron ${pieces.length} piezas y ${next.length} modelos diferentes.`)
     }finally{setBusy(false)}
@@ -253,7 +313,8 @@ export default function SvgAnalyzer({db,onSave}){
           <label>Nombre de la figura<input value={group.name} onChange={e=>updateGroup(group.id,'name',e.target.value)} placeholder={`Modelo ${index+1}`}/></label>
           <div className="svg-library-fields"><label>Tipo<select value={group.role} onChange={e=>updateGroup(group.id,'role',e.target.value)}><option value="simple">Figura simple</option><option value="tapa">Tapa</option><option value="base">Base</option><option value="capa">Capa adicional</option></select></label><label>Ancho detectado<input readOnly value={`${r.widthCm.toFixed(3)} cm`}/></label><label>Alto detectado<input readOnly value={`${r.heightCm.toFixed(3)} cm`}/></label></div>
           <label>Producto del catálogo<select value={group.productId} onChange={e=>linkProduct(group.id,e.target.value)}><option value="">Sin vincular</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          {group.matchConfidence&&<div className="match-badge">Coincidencia previa: {group.matchConfidence}%</div>}
+          {(group.matchConfidence||group.filenameConfidence)&&<div className="match-badge">Vinculación automática: {group.matchConfidence||group.filenameConfidence}% · {group.autoReason||'geometría guardada'}</div>}
+          {group.autoRole&&<small>Tipo propuesto automáticamente: {group.role==='tapa'?'Tapa':group.role==='base'?'Base':group.role==='capa'?'Capa adicional':'Figura simple'}.</small>}
           <small>Archivos: {[...new Set(group.items.map(x=>x.sourceFile))].join(', ')}</small>
           <small>Medidas encontradas: {variants.slice(0,4).join(' · ')}{variants.length>4?` · +${variants.length-4} variantes`:''}</small>
         </article>

@@ -1,0 +1,13 @@
+POLIFAN ONLINE v18.0.0 — MOTOR DE PRODUCCIÓN INTELIGENTE
+
+Cambios principales:
+- Analizar placas SVG propone automáticamente el producto usando el nombre del archivo y la geometría.
+- Reconoce coincidencias ya aprendidas en la biblioteca.
+- Agrupa componentes de un mismo diseño y propone tapa, base o capa adicional.
+- La biblioteca conserva una sola muestra por modelo y componente.
+- Diseñar placas busca los SVG por nombre normalizado del producto.
+- La cola automática prioriza la fecha de entrega más cercana y completa con pedidos de fechas siguientes.
+- Solo utiliza modelos de alta venta como relleno si no faltan SVG ni quedan piezas pendientes sin planificar.
+- Mantiene medidas exactas del SVG, separación configurada y corte simple/doble.
+
+IMPORTANTE: revisar visualmente las vinculaciones automáticas nuevas antes de guardarlas la primera vez.
