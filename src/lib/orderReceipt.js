@@ -30,9 +30,7 @@ const shippingData=o=>{
   <p><b>Código postal:</b> ${esc(o.postalCode||'-')}</p>`
 }
 export function receiptHtml(o){
-  const shipping=Number(o.shippingCost||0)
   const products=Number(o.total||0)
-  const grand=products+shipping
   const rows=(o.items||[]).filter(i=>i.figure&&Number(i.qty)>0).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty)}</td></tr>`).join('')
   return `<div class="receipt">
    <header><img src="/logo-tu-vida-en-tinta.png"><div><small>TU VIDA EN TINTA · POLIFAN</small><h1>COMPROBANTE DE PEDIDO</h1><p>Pedido #${esc(o.number)} · ${esc(o.date||'')}</p></div></header>
@@ -71,9 +69,8 @@ export function receiptHtml(o){
 
    <section class="totals">
      <p><span>Productos</span><b>${money(products)}</b></p>
-     <p><span>Costo de envío</span><b>${shipping?money(shipping):'$0'}</b></p>
      <p><span>Estado del envío</span><b>${esc(o.shippingPaid||'Pendiente de pago')}</b></p>
-     <p class="grand"><span>TOTAL FINAL</span><b>${money(grand)}</b></p>
+     <p class="grand"><span>TOTAL DEL PEDIDO</span><b>${money(products)}</b></p>
    </section>
 
    <section class="status-box">

@@ -93,7 +93,7 @@ function internalOrderHtml(o){
         <div class="box-kpi"><small>CAJA A UTILIZAR</small><b>${esc(packaging.summary)}</b><span>+ FILM NEGRO</span></div>
       </div>
       <div class="priority-line"><b>PRIORIDAD:</b><span>${esc(priority.toUpperCase())}</span></div>
-      <div class="internal-shipping">${internalShippingHtml(o)}<span><strong>Costo envío:</strong> ${orderShipping(o)?money(orderShipping(o)):'$0'}</span><span><strong>Estado envío:</strong> ${esc(o.shippingPaid||'Pendiente de pago')}</span></div>
+      <div class="internal-shipping">${internalShippingHtml(o)}<span><strong>Estado envío:</strong> ${esc(o.shippingPaid||'Pendiente de pago')}</span></div>
       <div class="summary-title">LISTADO DE PIEZAS A PREPARAR</div>${itemSummaryHtml(o)}
       <div class="internal-total-bottom"><span>TOTAL DE PIEZAS</span><b>${pieces}</b></div>
       <div class="internal-foot"><div class="internal-notes"><b>Observaciones:</b> ${esc(o.notes||'-')}</div></div>
@@ -153,7 +153,7 @@ function purchaseDetailHtml(o){
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
     <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
-    <div class="purchase-bottom"><div class="payment-card"><h3>ENVÍO</h3><p><b>COSTO</b><span>${shipping?money(shipping):'$0'}</span></p><p><b>ESTADO</b><span>${esc(o.shippingPaid||'Pendiente de pago')}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p><span>Envío</span><b>${money(shipping)}</b></p><p class="grand-total"><span>TOTAL FINAL</span><b>${money(subtotal+shipping)}</b></p></div></div>
+    <div class="purchase-bottom"><div class="payment-card"><h3>ENVÍO</h3><p><b>TIPO</b><span>${esc(deliveryType(o))}</span></p><p><b>ESTADO</b><span>${esc(o.shippingPaid||'Pendiente de pago')}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p class="grand-total"><span>TOTAL DEL PEDIDO</span><b>${money(subtotal)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
   </section>`
   if(!extra.length) return mainHtml
