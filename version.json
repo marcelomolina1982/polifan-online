@@ -1,1 +1,5 @@
-{"version":"18.4.2","name":"Escaneo de componentes y ajuste tapa/base","updatedAt":"2026-08-06T13:41:00-03:00"}
+{
+  "version": "18.4.3",
+  "name": "Validación estricta de medidas",
+  "updatedAt": "2026-08-06"
+}

@@ -54,6 +54,17 @@ async function pack(items,wCm,hCm,gap){
 }
 
 
+
+function usableModelComponents(model){
+  const components=model?.components||[]
+  const tapa=components.find(c=>c.role==='tapa'),base=components.find(c=>c.role==='base')
+  if(tapa&&base){
+    const compatible=tapa.pairCompatible!==false&&base.pairCompatible!==false&&sameSize(tapa.sourceWidthCm||tapa.widthCm,base.sourceWidthCm||base.widthCm,.001)&&sameSize(tapa.sourceHeightCm||tapa.heightCm,base.sourceHeightCm||base.heightCm,.001)
+    if(!compatible)return {components:[],reason:'tapa y base con medidas incompatibles'}
+  }
+  return {components,reason:''}
+}
+
 function pendingGroupsByDelivery(db){
   const available={}
   pendingCutRows(db).forEach(r=>{available[r.figure]=num(r.pending)})
@@ -102,8 +113,8 @@ export default function SheetPlanner({db,onSave}){
     const next=[];const missing=[]
     for(const row of pending){
       const {product,model}=modelForFigure(row.figure)
-      const components=model?.components||[]
-      if(!components.length){missing.push(row.figure);continue}
+      const checked=usableModelComponents(model),components=checked.components
+      if(!components.length){missing.push(`${row.figure}${checked.reason?` (${checked.reason})`:''}`);continue}
       const totalPerUnit=components.reduce((a,c)=>a+num(c.qtyPerUnit,1),0)||1;components.forEach((c,i)=>{const width=num(c.sourceWidthCm||c.widthCm),height=num(c.sourceHeightCm||c.heightCm);next.push({id:uid(),svgId:c.id,productId:product?.id,figure:row.figure,name:`${row.figure} · ${c.role||'pieza'}`,width,height,sourceWidth:width,sourceHeight:height,sizeLocked:true,qty:row.pending*num(c.qtyPerUnit||1),unitWeight:1/totalPerUnit,svgText:c.svgText,svgMeta:parseSvg(c.svgText),allowRotate:c.allowRotate!==false,blockInterior:c.blockInterior!==false,color:COLORS[i%COLORS.length]})})
     }
     setItems(next);if(missing.length)alert(`Faltan SVG vinculados para: ${missing.join(', ')}`)
@@ -112,8 +123,8 @@ export default function SheetPlanner({db,onSave}){
     const next=[],missing=[]
     rows.forEach(row=>{
       const {product,model}=modelForFigure(row.figure)
-      const components=model?.components||[]
-      if(!components.length){missing.push(row.figure);return}
+      const checked=usableModelComponents(model),components=checked.components
+      if(!components.length){missing.push(`${row.figure}${checked.reason?` (${checked.reason})`:''}`);return}
       const totalPerUnit=components.reduce((a,c)=>a+num(c.qtyPerUnit,1),0)||1;components.forEach((c,i)=>{const width=num(c.sourceWidthCm||c.widthCm),height=num(c.sourceHeightCm||c.heightCm);next.push({id:uid(),svgId:c.id,productId:product?.id,figure:row.figure,name:`${row.figure} · ${c.role||'pieza'}`,width,height,sourceWidth:width,sourceHeight:height,sizeLocked:true,qty:num(row.qty)*num(c.qtyPerUnit||1),unitWeight:1/totalPerUnit,svgText:c.svgText,svgMeta:parseSvg(c.svgText),allowRotate:c.allowRotate!==false,blockInterior:c.blockInterior!==false,color:COLORS[i%COLORS.length],priority,dueDate:date||'',source})})
     })
     return {items:next,missing}
@@ -152,8 +163,8 @@ export default function SheetPlanner({db,onSave}){
     const wanted=String(modelSearch||'').trim().toLowerCase()
     const model=libraryModels.find(m=>m.name.toLowerCase()===wanted)||libraryModels.find(m=>m.name.toLowerCase().includes(wanted))
     if(!model)return alert('No encontré esa figura en la Biblioteca SVG.')
-    const qty=Math.max(1,Math.floor(num(modelQty,1))),components=model.components.filter(c=>['tapa','base','simple','capa'].includes(c.role||'simple'))
-    if(!components.length)return alert('La figura no tiene componentes SVG.')
+    const qty=Math.max(1,Math.floor(num(modelQty,1))),checked=usableModelComponents(model),components=checked.components.filter(c=>['tapa','base','simple','capa'].includes(c.role||'simple'))
+    if(!components.length)return alert(checked.reason||'La figura no tiene componentes SVG.')
     const totalPerUnit=components.reduce((a,c)=>a+num(c.qtyPerUnit,1),0)||1
     const additions=components.map((c,i)=>{const width=num(c.sourceWidthCm||c.widthCm),height=num(c.sourceHeightCm||c.heightCm);return {id:uid(),svgId:c.id,modelId:model.id,productId:c.productId||model.productId,figure:model.name,name:`${model.name} · ${c.role||'pieza'}`,width,height,sourceWidth:width,sourceHeight:height,sizeLocked:true,qty:qty*num(c.qtyPerUnit||1),unitWeight:1/totalPerUnit,svgText:c.svgText,svgMeta:parseSvg(c.svgText),allowRotate:c.allowRotate!==false,blockInterior:c.blockInterior!==false,color:COLORS[(items.length+i)%COLORS.length]}})
     const invalid=additions.filter(x=>!x.width||!x.height)

@@ -1,0 +1,4 @@
+Versión 18.4.3
+- Se eliminó el autoajuste de tamaño.
+- Tapa y base conservan sus medidas originales.
+- Las parejas incompatibles quedan bloqueadas para crear placas.

@@ -22,14 +22,6 @@ function parseSvg(text){
 }
 function dataUrl(text){return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`}
 function matrixText(m){return `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`}
-function resizeSvgPhysical(svgText,targetWidthCm,targetHeightCm){
-  const doc=new DOMParser().parseFromString(svgText,'image/svg+xml'),svg=doc.documentElement
-  if(!svg||doc.querySelector('parsererror'))return svgText
-  svg.setAttribute('width',`${targetWidthCm}cm`)
-  svg.setAttribute('height',`${targetHeightCm}cm`)
-  svg.setAttribute('preserveAspectRatio','none')
-  return new XMLSerializer().serializeToString(svg)
-}
 async function scanSvgPieces(file,host){
   const parsed=parseSvg(await file.text())
   if(!parsed.physicalSizeDeclared)throw new Error('El SVG debe declarar sus medidas físicas en mm o cm.')
@@ -67,7 +59,7 @@ function componentModelId(item){return item.modelId||(item.productId?`producto:$
 
 export default function SvgLibrary({db,onSave}){
   const library=db.svgLibrary||[],products=normalizeCatalogProducts(db.customerCatalog?.length?db.customerCatalog:catalogProducts)
-  const [search,setSearch]=useState(''),[busy,setBusy]=useState(false),[scanner,setScanner]=useState(null)
+  const [search,setSearch]=useState(''),[busy,setBusy]=useState(false),[scanner,setScanner]=useState(null),[sizeMismatch,setSizeMismatch]=useState(null)
   const hostRef=useRef(null)
   const allModels=useMemo(()=>{
     const map=new Map()
@@ -99,41 +91,35 @@ export default function SvgLibrary({db,onSave}){
       setScanner({fileName:file.name,model,role,candidates})
     }catch(error){alert(error.message||'No se pudo analizar el SVG.')}finally{setBusy(false)}
   }
-  async function saveScannedCandidate(candidate){
+  async function persistScannedCandidate(candidate,{forceMismatch=false}={}){
     if(!scanner)return
     setBusy(true)
     try{
       const {model,role}=scanner
       const modelName=String(model.modelName||model.productName||'Modelo').trim(),productId=model.productId||'',productName=model.productName||modelName
       const modelId=productId?`producto:${productId}`:`modelo:${modelSlug(modelName)}`
-      let targetW=Number(candidate.widthCm),targetH=Number(candidate.heightCm),candidateSvg=candidate.svgText
+      const widthCm=Number(candidate.widthCm),heightCm=Number(candidate.heightCm)
       let nextLibrary=[...library]
       const counterpartRole=role==='tapa'?'base':role==='base'?'tapa':''
       const counterpart=counterpartRole?nextLibrary.find(x=>componentModelId(x)===modelId&&(x.role||'simple')===counterpartRole):null
-      let adjustmentMessage=''
+      let pairCompatible=true,pairMismatch=null
       if(counterpart){
         const otherW=Number(counterpart.sourceWidthCm||counterpart.widthCm||0),otherH=Number(counterpart.sourceHeightCm||counterpart.heightCm||0)
-        const same=Math.abs(otherW-targetW)<=.001&&Math.abs(otherH-targetH)<=.001
-        if(!same){
-          const candidateArea=targetW*targetH,otherArea=otherW*otherH
-          if(candidateArea>=otherArea){
-            const updatedSvg=resizeSvgPhysical(counterpart.svgText,targetW,targetH)
-            nextLibrary=nextLibrary.map(x=>x.id===counterpart.id?{...x,originalWidthCm:x.originalWidthCm||otherW,originalHeightCm:x.originalHeightCm||otherH,widthCm:targetW,heightCm:targetH,sourceWidthCm:targetW,sourceHeightCm:targetH,svgText:updatedSvg,autoAdjustedToPair:true,pairReferenceRole:role}:x)
-            adjustmentMessage=`Se ajustó la ${roleLabel(counterpartRole).toLowerCase()} de ${otherW.toFixed(3)} × ${otherH.toFixed(3)} cm a ${targetW.toFixed(3)} × ${targetH.toFixed(3)} cm, tomando como referencia la pieza nueva más grande.`
-          }else{
-            candidateSvg=resizeSvgPhysical(candidate.svgText,otherW,otherH);targetW=otherW;targetH=otherH
-            adjustmentMessage=`Se ajustó la ${roleLabel(role).toLowerCase()} nueva a ${targetW.toFixed(3)} × ${targetH.toFixed(3)} cm, tomando como referencia la pieza ya guardada más grande.`
-          }
+        pairCompatible=Math.abs(otherW-widthCm)<=.001&&Math.abs(otherH-heightCm)<=.001
+        if(!pairCompatible){
+          pairMismatch={role,candidateWidthCm:widthCm,candidateHeightCm:heightCm,counterpartRole,counterpartWidthCm:otherW,counterpartHeightCm:otherH}
+          if(!forceMismatch){setSizeMismatch({candidate,counterpart,...pairMismatch});return}
         }
+        nextLibrary=nextLibrary.map(x=>x.id===counterpart.id?{...x,pairCompatible,pairMismatch:pairCompatible?null:pairMismatch}:x)
       }
-      const item={id:uid(),modelId,modelName,name:`${modelName} · ${roleLabel(role)}`,role,productId,productName,qtyPerUnit:1,widthCm:targetW,heightCm:targetH,sourceWidthCm:targetW,sourceHeightCm:targetH,originalWidthCm:Number(candidate.widthCm),originalHeightCm:Number(candidate.heightCm),sizeSource:'svg',sizeLocked:true,allowRotate:true,blockInterior:true,svgText:candidateSvg,svgMeta:{widthCm:targetW,heightCm:targetH,sourceFile:scanner.fileName,sourceIndex:candidate.sourceIndex,autoAdjustedToPair:targetW!==Number(candidate.widthCm)||targetH!==Number(candidate.heightCm)},createdAt:new Date().toISOString()}
+      const item={id:uid(),modelId,modelName,name:`${modelName} · ${roleLabel(role)}`,role,productId,productName,qtyPerUnit:1,widthCm,heightCm,sourceWidthCm:widthCm,sourceHeightCm:heightCm,originalWidthCm:widthCm,originalHeightCm:heightCm,sizeSource:'svg',sizeLocked:true,allowRotate:true,blockInterior:true,pairCompatible,pairMismatch:pairCompatible?null:pairMismatch,svgText:candidate.svgText,svgMeta:{widthCm,heightCm,sourceFile:scanner.fileName,sourceIndex:candidate.sourceIndex,autoAdjustedToPair:false},createdAt:new Date().toISOString()}
       nextLibrary=nextLibrary.filter(x=>!(componentModelId(x)===modelId&&(x.role||'simple')===role))
       const figures=[...new Set([...(db.figures||[]),productName||modelName])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
       await onSave({...db,figures,svgLibrary:[...nextLibrary,item]})
-      setScanner(null)
-      if(adjustmentMessage)alert(adjustmentMessage)
+      setScanner(null);setSizeMismatch(null)
     }catch(error){alert(error.message||'No se pudo guardar la pieza detectada.')}finally{setBusy(false)}
   }
+  async function saveScannedCandidate(candidate){return persistScannedCandidate(candidate)}
   function requestComponent(model,role){
     const input=document.createElement('input')
     input.type='file';input.accept='.svg,image/svg+xml'
@@ -144,7 +130,7 @@ export default function SvgLibrary({db,onSave}){
 
   return <>
     <Title title="Biblioteca SVG" sub="Cada tarjeta representa una figura y muestra juntos su tapa, base o pieza simple." actions={<label className="primary filebtn">{busy?'Analizando…':'Importar SVG individuales'}<input type="file" accept=".svg,image/svg+xml" multiple disabled={busy} onChange={e=>importFiles(e.target.files)}/></label>}/>
-    <div className="notice"><b>Una figura, sus componentes</b><span>La tapa y la base deben tener el mismo nombre de figura. Las medidas se conservan desde cada SVG y nunca se toman del catálogo.</span></div>
+    <div className="notice"><b>Una figura, sus componentes</b><span>La tapa y la base deben tener el mismo nombre y exactamente las mismas medidas. La app nunca ajusta, escala ni deforma automáticamente los SVG.</span></div>
     <div className="panel"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar figura por nombre..."/></div>
     <div className="svg-model-grid">
       {models.map(model=><article className="panel svg-model-card" key={model.id}>
@@ -162,6 +148,7 @@ export default function SvgLibrary({db,onSave}){
           <div><span className={model.components.some(x=>x.role==='tapa')?'ok':'missing'}>{model.components.some(x=>x.role==='tapa')?'✓ Tapa':'Falta tapa'}</span>{!model.components.some(x=>x.role==='tapa')&&<button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(model,'tapa')}>＋ Agregar tapa</button>}</div>
           <div><span className={model.components.some(x=>x.role==='base')?'ok':'missing'}>{model.components.some(x=>x.role==='base')?'✓ Base':'Falta base'}</span>{!model.components.some(x=>x.role==='base')&&<button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(model,'base')}>＋ Agregar base</button>}</div>
         </div>}
+        {model.components.some(x=>x.role==='tapa')&&model.components.some(x=>x.role==='base')&&<div className="component-status"><span className={model.components.every(x=>x.role!=='tapa'&&x.role!=='base'||x.pairCompatible!==false)?'ok':'missing'}>{model.components.every(x=>x.role!=='tapa'&&x.role!=='base'||x.pairCompatible!==false)?'✓ Medidas compatibles':'⚠ Revisar medidas: tapa y base no coinciden'}</span></div>}
       </article>)}
       {!models.length&&search&&<div className="panel">No hay figuras que coincidan con la búsqueda.</div>}
     </div>
@@ -184,8 +171,10 @@ export default function SvgLibrary({db,onSave}){
           <div className="svg-library-preview"><img src={dataUrl(candidate.svgText)} alt={`Pieza ${index+1}`}/></div>
           <b>Pieza {index+1}</b><span>{candidate.widthCm.toFixed(3)} × {candidate.heightCm.toFixed(3)} cm</span><small>{candidate.tag}</small>
         </button>)}</div>
-        <div className="notice"><b>Ajuste automático de pareja</b><span>Si la tapa y la base tienen medidas diferentes, la pieza menor se ajustará automáticamente a las medidas exactas de la pieza mayor para que coincidan al pegarlas.</span></div>
+        <div className="notice"><b>Sin autoajuste</b><span>La app conservará las medidas originales. Si tapa y base no coinciden, te avisará y la figura quedará bloqueada para generar placas hasta corregirla.</span></div>
       </div>
     </div>}
+
+    {sizeMismatch&&<div className="svg-scan-overlay" role="dialog" aria-modal="true"><div className="svg-scan-dialog panel"><div className="panel-heading"><div><h2>Las medidas no coinciden</h2><small>La app no modificará automáticamente ninguna pieza.</small></div><button className="ghost" onClick={()=>setSizeMismatch(null)}>Cerrar</button></div><div className="notice"><b>{roleLabel(sizeMismatch.role)} nueva</b><span>{Number(sizeMismatch.candidateWidthCm).toFixed(3)} × {Number(sizeMismatch.candidateHeightCm).toFixed(3)} cm</span></div><div className="notice"><b>{roleLabel(sizeMismatch.counterpartRole)} guardada</b><span>{Number(sizeMismatch.counterpartWidthCm).toFixed(3)} × {Number(sizeMismatch.counterpartHeightCm).toFixed(3)} cm</span></div><p>Elegí otra pieza o archivo para conservar la figura compatible. También podés guardarla igualmente para revisarla después; en ese caso no podrá utilizarse en el generador automático de placas.</p><div className="title-actions"><button className="ghost" onClick={()=>setSizeMismatch(null)}>Elegir otra pieza</button><button className="ghost" onClick={()=>{setSizeMismatch(null);setScanner(null);requestComponent(scanner.model,scanner.role)}}>Elegir otro archivo</button><button className="danger" disabled={busy} onClick={()=>persistScannedCandidate(sizeMismatch.candidate,{forceMismatch:true})}>Guardar para revisar</button></div></div></div>}
   </>
 }
