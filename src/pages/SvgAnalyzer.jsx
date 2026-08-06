@@ -236,6 +236,8 @@ export default function SvgAnalyzer({db,onSave}){
   const [groups,setGroups]=useState([])
   const [busy,setBusy]=useState(false)
   const [message,setMessage]=useState('')
+  const [picker,setPicker]=useState(null)
+  const [catalogSearch,setCatalogSearch]=useState('')
   const total=useMemo(()=>groups.reduce((s,g)=>s+g.items.length,0),[groups])
 
   async function analyze(files){
@@ -259,8 +261,11 @@ export default function SvgAnalyzer({db,onSave}){
   }
   function linkProduct(id,productId){
     const product=products.find(p=>p.id===productId)
-    setGroups(gs=>gs.map(g=>g.id===id?{...g,productId,productName:product?.name||''}:g))
+    setGroups(gs=>gs.map(g=>g.id===id?{...g,productId,productName:product?.name||'',name:product?.name||g.name,selected:!!productId||g.selected}:g))
   }
+  function openPicker(group){setPicker(group.id);setCatalogSearch(group.productName||group.name||'')}
+  function chooseProduct(product){linkProduct(picker,product.id);setPicker(null);setCatalogSearch('')}
+  const pickerProducts=products.filter(p=>`${p.name} ${p.category||''}`.toLocaleLowerCase('es').includes(catalogSearch.trim().toLocaleLowerCase('es')))
 
   async function saveSelected(){
     const selected=groups.filter(g=>g.selected)
@@ -291,7 +296,9 @@ export default function SvgAnalyzer({db,onSave}){
     const replacementKeys=new Set(additions.map(x=>`${x.modelId}|${x.role}`))
     const retained=library.filter(x=>!replacementKeys.has(`${x.modelId||(x.productId?`producto:${x.productId}`:`modelo:${modelSlug(x.modelName||x.productName||x.name)}`)}|${x.role||'simple'}`))
     const history=[...(db.svgAnalysisHistory||[]),{id:uid(),createdAt:now,pieces:total,models:new Set(additions.map(x=>x.modelId)).size,components:additions.length}]
-    await onSave({...db,svgLibrary:[...retained,...additions],svgAnalysisHistory:history})
+    const linkedNames=[...new Set(additions.map(x=>x.productName||x.modelName).filter(Boolean))]
+    const figures=[...new Set([...(db.figures||[]),...linkedNames])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+    await onSave({...db,figures,svgLibrary:[...retained,...additions],svgAnalysisHistory:history})
     const models=new Set(additions.map(x=>x.modelId)).size
     alert(`${models} figura(s) guardadas con ${additions.length} componente(s). Se conservó una sola tapa, base o figura de cada modelo.`)
   }
@@ -312,7 +319,7 @@ export default function SvgAnalyzer({db,onSave}){
           <div className="svg-library-preview"><img src={dataUrl(r.svgText)} alt={group.name}/></div>
           <label>Nombre de la figura<input value={group.name} onChange={e=>updateGroup(group.id,'name',e.target.value)} placeholder={`Modelo ${index+1}`}/></label>
           <div className="svg-library-fields"><label>Tipo<select value={group.role} onChange={e=>updateGroup(group.id,'role',e.target.value)}><option value="simple">Figura simple</option><option value="tapa">Tapa</option><option value="base">Base</option><option value="capa">Capa adicional</option></select></label><label>Ancho detectado<input readOnly value={`${r.widthCm.toFixed(3)} cm`}/></label><label>Alto detectado<input readOnly value={`${r.heightCm.toFixed(3)} cm`}/></label></div>
-          <label>Producto del catálogo<select value={group.productId} onChange={e=>linkProduct(group.id,e.target.value)}><option value="">Sin vincular</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label>Vincular con catálogo<div className="catalog-link-row"><select value={group.productId} onChange={e=>linkProduct(group.id,e.target.value)}><option value="">Sin vincular</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button type="button" className="ghost catalog-search-button" title="Buscar manualmente" onClick={()=>openPicker(group)}>🔍</button></div></label>
           {(group.matchConfidence||group.filenameConfidence)&&<div className="match-badge">Vinculación automática: {group.matchConfidence||group.filenameConfidence}% · {group.autoReason||'geometría guardada'}</div>}
           {group.autoRole&&<small>Tipo propuesto automáticamente: {group.role==='tapa'?'Tapa':group.role==='base'?'Base':group.role==='capa'?'Capa adicional':'Figura simple'}.</small>}
           <small>Archivos: {[...new Set(group.items.map(x=>x.sourceFile))].join(', ')}</small>
@@ -321,5 +328,6 @@ export default function SvgAnalyzer({db,onSave}){
       })}
       {!busy&&!groups.length&&<div className="panel">Subí uno o varios SVG de placas ya cortadas para comenzar el análisis.</div>}
     </div>
+    {picker&&<div className="catalog-picker-backdrop" onClick={()=>setPicker(null)}><div className="panel catalog-picker" onClick={e=>e.stopPropagation()}><div className="customer-section-title"><div><h3>Buscar en el catálogo</h3><p>Al elegir un producto, la pieza, la biblioteca y el inventario usarán exactamente ese nombre.</p></div><button className="ghost" onClick={()=>setPicker(null)}>Cerrar</button></div><input autoFocus type="search" placeholder="Escribí Minnie, Stitch, Arcoíris..." value={catalogSearch} onChange={e=>setCatalogSearch(e.target.value)}/><div className="catalog-picker-list">{pickerProducts.slice(0,80).map(product=><button type="button" key={product.id} onClick={()=>chooseProduct(product)}><img src={product.image} alt=""/><span><b>{product.name}</b><small>{product.category} · {product.measure||'Sin medida'}</small></span></button>)}{!pickerProducts.length&&<p>No se encontraron productos.</p>}</div></div></div>}
   </>
 }

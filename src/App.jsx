@@ -49,18 +49,19 @@ export default function App(){
       setSession(s)
       if(s) loadData(false)
     })
-    const refresh=()=>{ if(document.visibilityState==='visible') loadData(false) }
+    const refresh=()=>{ if(document.visibilityState==='visible') loadData(false,true) }
+    const timer=window.setInterval(()=>{if(document.visibilityState==='visible'&&!saving)loadData(false,true)},25000)
     document.addEventListener('visibilitychange',refresh)
-    return ()=>{subscription.unsubscribe();document.removeEventListener('visibilitychange',refresh)}
+    return ()=>{subscription.unsubscribe();window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh)}
   },[])
 
   useEffect(()=>{sessionStorage.setItem('polifan-current-page',page)},[page])
 
-  async function loadData(initial=false){
+  async function loadData(initial=false,silent=false){
     if(initial) setLoading(true)
     const {data,error} = await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
     if(error){
-      alert('No se pudo conectar con Supabase: '+error.message)
+      if(!silent) alert('No se pudo conectar con Supabase: '+error.message)
       setLoading(false)
       return
     }

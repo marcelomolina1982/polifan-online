@@ -42,6 +42,8 @@ export default function CustomerOrder() {
   const [cart, setCart] = useState({})
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
+  const [chatOpen,setChatOpen]=useState(false)
+  const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Soy el asistente de Tu Vida en Tinta. Puedo ayudarte a buscar figuras, conocer precios y armar el pedido.'}])
 
   async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
     if(showLoading) setLoading(true)
@@ -221,6 +223,20 @@ export default function CustomerOrder() {
     window.open(`https://wa.me/${config.whatsapp}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
+  function chatbotAction(action){
+    const replies={
+      catalogo:'Podés buscar por nombre o recorrer las categorías. Decime qué figura buscás usando el buscador del catálogo.',
+      precios:'Los precios se calculan automáticamente según la cantidad. Armá el carrito y vas a ver el total estimado sin envío.',
+      envio:'El envío se coordina por WhatsApp. Necesitamos localidad, provincia y código postal para buscar la mejor opción.',
+      comprar:'Elegí las figuras, completá tus datos y enviá la solicitud por WhatsApp. Después confirmaremos disponibilidad, fecha, pago y envío.',
+      humano:'Te conectamos con nosotros por WhatsApp para una atención personalizada.'
+    }
+    setChatMessages(m=>[...m,{from:'user',text:{catalogo:'Ver catálogo',precios:'Consultar precios',envio:'Consultar envío',comprar:'Cómo comprar',humano:'Hablar con una persona'}[action]},{from:'bot',text:replies[action]}])
+    if(action==='catalogo'){setChatOpen(false);document.querySelector('.catalog-search-main')?.scrollIntoView({behavior:'smooth'})}
+    if(action==='comprar'){setChatOpen(false);document.querySelector('.cart-summary,.customer-grid')?.scrollIntoView({behavior:'smooth'})}
+    if(action==='humano'&&config.whatsapp)window.open(`https://wa.me/${config.whatsapp}?text=${encodeURIComponent('Hola, necesito ayuda para realizar una compra en el catálogo.')}`,'_blank','noopener,noreferrer')
+  }
+
   return <div className="customer-page">
     <header className="customer-hero">
       <div className="customer-hero-brand">
@@ -303,5 +319,7 @@ export default function CustomerOrder() {
       </section>
     </>}
     {items.length>0&&<button type="button" className="floating-cart" onClick={()=>document.querySelector('.cart-summary')?.scrollIntoView({behavior:'smooth'})}><span>🛒 {total} piezas</span><strong>{money(estimatedTotal)}</strong></button>}
+    <button type="button" className="catalog-chat-launcher" onClick={()=>setChatOpen(v=>!v)}>💬<span>¿Necesitás ayuda?</span></button>
+    {chatOpen&&<aside className="catalog-chatbot"><header><div><b>Asistente de compra</b><small>Tu Vida en Tinta</small></div><button onClick={()=>setChatOpen(false)}>×</button></header><div className="catalog-chat-messages">{chatMessages.map((m,i)=><div key={i} className={`chat-message ${m.from}`}>{m.text}</div>)}</div><div className="catalog-chat-options"><button onClick={()=>chatbotAction('catalogo')}>🔎 Buscar figuras</button><button onClick={()=>chatbotAction('precios')}>💰 Precios</button><button onClick={()=>chatbotAction('envio')}>📦 Envío</button><button onClick={()=>chatbotAction('comprar')}>🛒 Cómo comprar</button><button onClick={()=>chatbotAction('humano')}>👤 Hablar con nosotros</button></div></aside>}
   </div>
 }

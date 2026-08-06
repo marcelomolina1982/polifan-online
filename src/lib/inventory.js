@@ -34,22 +34,19 @@ export function activeCutQty(db){
 export function stockRows(db){
   const demand=orderDemand(db)
   const balance=manualBalance(db)
-  const names=new Set([...(db.figures||[]),...Object.keys(demand),...Object.keys(balance)])
-  return [...names].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})).map(f=>({
-    figure:f,
-    available:Number(balance[f]||0),
-    ordered:Number(demand[f]||0),
-    total:Number(balance[f]||0)-Number(demand[f]||0),
-    min:Number(db.stockMin?.[f]||0)
-  }))
+  const inCut=activeCutQty(db)
+  const catalogNames=(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)
+  const names=new Set([...(db.figures||[]),...catalogNames,...Object.keys(demand),...Object.keys(balance),...Object.keys(inCut)])
+  return [...names].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})).map(f=>{
+    const cut=Number(balance[f]||0)
+    const ordered=Number(demand[f]||0)
+    const cutting=Number(inCut[f]||0)
+    const free=cut-ordered
+    const projected=cut+cutting-ordered
+    return {figure:f,cut,available:cut,ordered,inCut:cutting,free,total:free,projected,min:Number(db.stockMin?.[f]||0)}
+  })
 }
 
 export function pendingCutRows(db){
-  const inCut=activeCutQty(db)
-  return stockRows(db).map(r=>({
-    ...r,
-    inCut:Number(inCut[r.figure]||0),
-    pending:Math.max(0,-r.total-Number(inCut[r.figure]||0))
-  })).filter(r=>r.pending>0)
+  return stockRows(db).map(r=>({...r,pending:Math.max(0,-r.projected)})).filter(r=>r.pending>0)
 }
-

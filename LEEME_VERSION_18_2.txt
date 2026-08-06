@@ -1,0 +1,9 @@
+POLIFAN ONLINE 18.2.1
+
+Incluye:
+- Buscador manual para vincular piezas SVG con el catálogo.
+- Biblioteca agrupada por nombre, tapa y base.
+- Inventario con cortadas, pedidas, en corte, saldo y proyección.
+- Chatbot de ayuda dentro del catálogo.
+
+Mercado Pago queda suspendido por ahora. Los pedidos continúan por WhatsApp y el pago se coordina manualmente.
