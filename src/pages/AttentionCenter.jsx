@@ -155,12 +155,15 @@ function TemplateEditor({templates,db,onSave}){
 
 
 function ChatbotEditor({settings,db,onSave}){
- const [values,setValues]=useState(settings)
+ const [values,setValues]=useState({assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...settings})
  async function save(){await onSave(values);alert('Configuración del chatbot guardada. El catálogo usará estas respuestas.')}
+ function chooseImage(file){if(!file)return;const reader=new FileReader();reader.onload=()=>setValues(current=>({...current,assistantImage:String(reader.result||'')}));reader.readAsDataURL(file)}
  return <div className="panel attention-templates">
-  <div className="panel-heading"><div><h3>Chatbot del catálogo</h3><p>El Centro de Atención controla lo que responde el asistente público. Cuando no puede resolver una consulta, deriva a WhatsApp.</p></div><button className="primary" onClick={save}>Guardar chatbot</button></div>
+  <div className="panel-heading"><div><h3>Chatbot del catálogo</h3><p>Personalizá la identidad y las respuestas del asistente público. Cuando no puede resolver una consulta, deriva a WhatsApp.</p></div><button className="primary" onClick={save}>Guardar chatbot</button></div>
   <label className="form-check"><input className="form-check-input" type="checkbox" checked={values.enabled!==false} onChange={e=>setValues({...values,enabled:e.target.checked})}/><span className="form-check-label">Mostrar chatbot en el catálogo</span></label>
+  <div className="chatbot-identity-editor"><div className="chatbot-avatar-preview">{values.assistantImage?<img src={values.assistantImage} alt={values.assistantName||'Asistente'}/>:<span>💬</span>}</div><div className="chatbot-identity-fields"><label>Nombre del asistente<input value={values.assistantName||''} onChange={e=>setValues({...values,assistantName:e.target.value})} placeholder="Ej.: Mía"/></label><label>Descripción<input value={values.assistantSubtitle||''} onChange={e=>setValues({...values,assistantSubtitle:e.target.value})} placeholder="Asistente de Tu Vida en Tinta"/></label><label>Imagen del asistente<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseImage(e.target.files?.[0])}/></label>{values.assistantImage&&<button type="button" className="ghost smallbtn" onClick={()=>setValues({...values,assistantImage:''})}>Quitar imagen</button>}</div></div>
+  <label className="chatbot-welcome-field"><span>Mensaje de bienvenida</span><textarea rows="3" value={values.welcome||''} onChange={e=>setValues({...values,welcome:e.target.value})}/></label>
   <div className="attention-template-grid">{[['catalogo','Buscar figuras'],['precios','Precios'],['envio','Envíos'],['comprar','Cómo comprar'],['humano','Derivación a una persona']].map(([id,label])=><label key={id}><span>{label}</span><textarea rows="5" value={values[id]||''} onChange={e=>setValues({...values,[id]:e.target.value})}/></label>)}</div>
-  <div className="notice"><b>Utilidad del Centro de Atención</b><span>Desde acá podés cambiar las respuestas del chatbot sin modificar código. La opción “Hablar con nosotros” deriva a WhatsApp; luego podés copiar esa conversación al Centro de Atención para darle seguimiento.</span></div>
+  <div className="notice"><b>Utilidad del Centro de Atención</b><span>Desde acá podés cambiar el nombre, la imagen y las respuestas del chatbot sin modificar código. La opción “Hablar con nosotros” deriva a WhatsApp; luego podés copiar esa conversación al Centro de Atención para darle seguimiento.</span></div>
  </div>
 }

@@ -1,0 +1,6 @@
+POLIFAN ONLINE v18.4.4
+
+- Si tapa y base no coinciden, pregunta si se desea guardar igualmente.
+- No deja advertencias permanentes en la biblioteca.
+- La aceptación manual permite usar la figura normalmente.
+- Chatbot configurable con nombre, descripción, imagen y bienvenida.

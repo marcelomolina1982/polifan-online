@@ -43,8 +43,10 @@ export default function CustomerOrder() {
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
   const [chatOpen,setChatOpen]=useState(false)
-  const [chatbotSettings,setChatbotSettings]=useState({enabled:true})
-  const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Soy el asistente de Tu Vida en Tinta. Puedo ayudarte a buscar figuras, conocer precios y armar el pedido.'}])
+  const [chatbotSettings,setChatbotSettings]=useState({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'})
+  const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'}])
+
+  useEffect(()=>{setChatMessages(current=>current.length<=1?[{from:'bot',text:chatbotSettings.welcome||`¡Hola! Soy ${chatbotSettings.assistantName||'tu asistente'}. Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.`}]:current)},[chatbotSettings.welcome,chatbotSettings.assistantName])
 
   async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
     if(showLoading) setLoading(true)
@@ -66,7 +68,7 @@ export default function CustomerOrder() {
             whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
             businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
           })
-          setChatbotSettings({enabled:true,...(state.chatbotSettings||{})})
+          setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(state.chatbotSettings||{})})
           const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
@@ -89,7 +91,7 @@ export default function CustomerOrder() {
           whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),
           businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'
         })
-        setChatbotSettings({enabled:true,...(cachedState.chatbotSettings||{})})
+        setChatbotSettings({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...(cachedState.chatbotSettings||{})})
         setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
         return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
       }
@@ -322,7 +324,7 @@ export default function CustomerOrder() {
       </section>
     </>}
     {items.length>0&&<button type="button" className="floating-cart" onClick={()=>document.querySelector('.cart-summary')?.scrollIntoView({behavior:'smooth'})}><span>🛒 {total} piezas</span><strong>{money(estimatedTotal)}</strong></button>}
-    {chatbotSettings.enabled!==false&&<button type="button" className="catalog-chat-launcher" onClick={()=>setChatOpen(v=>!v)}>💬<span>¿Necesitás ayuda?</span></button>}
-    {chatbotSettings.enabled!==false&&chatOpen&&<aside className="catalog-chatbot"><header><div><b>Asistente de compra</b><small>Tu Vida en Tinta</small></div><button onClick={()=>setChatOpen(false)}>×</button></header><div className="catalog-chat-messages">{chatMessages.map((m,i)=><div key={i} className={`chat-message ${m.from}`}>{m.text}</div>)}</div><div className="catalog-chat-options"><button onClick={()=>chatbotAction('catalogo')}>🔎 Buscar figuras</button><button onClick={()=>chatbotAction('precios')}>💰 Precios</button><button onClick={()=>chatbotAction('envio')}>📦 Envío</button><button onClick={()=>chatbotAction('comprar')}>🛒 Cómo comprar</button><button onClick={()=>chatbotAction('humano')}>👤 Hablar con nosotros</button></div></aside>}
+    {chatbotSettings.enabled!==false&&<button type="button" className="catalog-chat-launcher" onClick={()=>setChatOpen(v=>!v)}>{chatbotSettings.assistantImage?<img src={chatbotSettings.assistantImage} alt={chatbotSettings.assistantName||'Asistente'}/>:<span className="chat-launcher-icon">💬</span>}<span>¿Necesitás ayuda?</span></button>}
+    {chatbotSettings.enabled!==false&&chatOpen&&<aside className="catalog-chatbot"><header><div className="catalog-chat-identity"><div className="catalog-chat-avatar">{chatbotSettings.assistantImage?<img src={chatbotSettings.assistantImage} alt={chatbotSettings.assistantName||'Asistente'}/>:<span>💬</span>}</div><div><b>{chatbotSettings.assistantName||'Asistente de compra'}</b><small>{chatbotSettings.assistantSubtitle||'Tu Vida en Tinta'}</small></div></div><button onClick={()=>setChatOpen(false)}>×</button></header><div className="catalog-chat-messages">{chatMessages.map((m,i)=><div key={i} className={`chat-message ${m.from}`}>{m.text}</div>)}</div><div className="catalog-chat-options"><button onClick={()=>chatbotAction('catalogo')}>🔎 Buscar figuras</button><button onClick={()=>chatbotAction('precios')}>💰 Precios</button><button onClick={()=>chatbotAction('envio')}>📦 Envío</button><button onClick={()=>chatbotAction('comprar')}>🛒 Cómo comprar</button><button onClick={()=>chatbotAction('humano')}>👤 Hablar con nosotros</button></div></aside>}
   </div>
 }
