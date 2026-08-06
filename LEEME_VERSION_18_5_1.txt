@@ -1,0 +1,4 @@
+Polifan Online 18.5.1
+- Avatar configurable encima, a la izquierda o dentro del botón del chatbot.
+- Nombre configurable visible debajo del avatar.
+- Incluye avatar Mía predeterminado.

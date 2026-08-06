@@ -5,7 +5,8 @@ const DEFAULTS={
  enabled:true,
  assistantName:'Mía',
  assistantSubtitle:'Asistente de Tu Vida en Tinta',
- assistantImage:'',
+ assistantImage:'/mia-assistant-avatar.webp',
+ launcherAvatarPosition:'above',
  themeColor:'#6f3dc4',
  welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',
  tone:'Cercana',
@@ -27,7 +28,7 @@ const TABS=[['general','General'],['personality','Personalidad'],['responses','R
 
 export default function CatalogAssistant({db,onSave}){
  const [tab,setTab]=useState('general')
- const [values,setValues]=useState({...DEFAULTS,...(db.chatbotSettings||{})})
+ const [values,setValues]=useState(()=>{const saved=db.chatbotSettings||{};return {...DEFAULTS,...saved,assistantImage:saved.assistantImage||DEFAULTS.assistantImage}})
  const [saving,setSaving]=useState(false)
  const previewColor=values.themeColor||DEFAULTS.themeColor
  const actions=useMemo(()=>[
@@ -69,6 +70,7 @@ export default function CatalogAssistant({db,onSave}){
        <label>Descripción<input value={values.assistantSubtitle||''} onChange={e=>patch('assistantSubtitle',e.target.value)} placeholder="Asistente de Tu Vida en Tinta"/></label>
        <label>Avatar del asistente<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseImage(e.target.files?.[0])}/><small>PNG, JPG o WebP. Recomendado: imagen cuadrada y menor a 900 KB.</small></label>
        <label>Color principal<div className="assistant-color-row"><input type="color" value={previewColor} onChange={e=>patch('themeColor',e.target.value)}/><input value={previewColor} onChange={e=>patch('themeColor',e.target.value)} /></div></label>
+       <label>Posición del avatar en el botón<select value={values.launcherAvatarPosition||'above'} onChange={e=>patch('launcherAvatarPosition',e.target.value)}><option value="above">Encima del botón</option><option value="left">A la izquierda</option><option value="inside">Dentro del botón</option></select></label>
        {values.assistantImage&&<button type="button" className="ghost smallbtn" onClick={()=>patch('assistantImage','')}>Quitar avatar</button>}
       </div>
      </div>
@@ -102,6 +104,7 @@ export default function CatalogAssistant({db,onSave}){
      <header style={{background:previewColor}}><div className="catalog-chat-avatar">{values.assistantImage?<img src={values.assistantImage} alt={values.assistantName||'Asistente'}/>:<span>💬</span>}</div><div><b>{values.assistantName||'Asistente'}</b><small>{values.assistantSubtitle||'Tu Vida en Tinta'}</small></div></header>
      <div className="assistant-preview-body"><div className="chat-message bot">{values.welcome||DEFAULTS.welcome}</div><div className="assistant-preview-actions">{actions.map(action=><button key={action}>{action}</button>)}</div></div>
     </div>
+    <div className={`assistant-launcher-preview launcher-${values.launcherAvatarPosition||'above'}`} style={{'--assistant-color':previewColor}}><div className="assistant-launcher-avatar">{values.assistantImage?<img src={values.assistantImage} alt={values.assistantName||'Asistente'}/>:<span>💬</span>}</div><span className="assistant-launcher-name">{values.assistantName||'Asistente'}</span><button type="button">💬 ¿Necesitás ayuda?</button></div>
     <p className="assistant-preview-note">El avatar y el nombre se muestran en el botón flotante y en el encabezado del chat del catálogo.</p>
    </aside>
   </div>
