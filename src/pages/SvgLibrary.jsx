@@ -25,11 +25,17 @@ function componentModelId(item){return item.modelId||(item.productId?`producto:$
 export default function SvgLibrary({db,onSave}){
   const library=db.svgLibrary||[],products=normalizeCatalogProducts(db.customerCatalog?.length?db.customerCatalog:catalogProducts)
   const [search,setSearch]=useState(''),[busy,setBusy]=useState(false)
-  const models=useMemo(()=>{
+  const allModels=useMemo(()=>{
     const map=new Map()
     library.forEach(item=>{const id=componentModelId(item),modelName=item.modelName||item.productName||String(item.name||'Modelo').replace(/\s*[·-]\s*(tapa|base|figura|capa.*)$/i,'');if(!map.has(id))map.set(id,{id,modelName,productId:item.productId||'',productName:item.productName||modelName,components:[]});map.get(id).components.push(item)})
-    return [...map.values()].map(m=>({...m,components:m.components.sort((a,b)=>({tapa:0,base:1,simple:2,capa:3}[a.role]??9)-({tapa:0,base:1,simple:2,capa:3}[b.role]??9))})).filter(m=>`${m.modelName} ${m.productName} ${m.components.map(c=>c.role).join(' ')}`.toLowerCase().includes(search.toLowerCase())).sort((a,b)=>a.modelName.localeCompare(b.modelName,'es'))
-  },[library,search])
+    return [...map.values()].map(m=>({...m,components:m.components.sort((a,b)=>({tapa:0,base:1,simple:2,capa:3}[a.role]??9)-({tapa:0,base:1,simple:2,capa:3}[b.role]??9))})).sort((a,b)=>a.modelName.localeCompare(b.modelName,'es'))
+  },[library])
+  const models=useMemo(()=>allModels.filter(m=>`${m.modelName} ${m.productName} ${m.components.map(c=>c.role).join(' ')}`.toLowerCase().includes(search.toLowerCase())),[allModels,search])
+  const missingCatalog=useMemo(()=>{
+    const linkedIds=new Set(allModels.map(m=>m.productId).filter(Boolean))
+    const linkedNames=new Set(allModels.map(m=>String(m.productName||m.modelName||'').trim().toLocaleLowerCase('es')))
+    return products.filter(product=>!linkedIds.has(product.id)&&!linkedNames.has(String(product.name||'').trim().toLocaleLowerCase('es')))
+  },[allModels,products])
 
   async function importFiles(files){
     const list=[...files||[]].filter(f=>/\.svg$/i.test(f.name)||f.type==='image/svg+xml');if(!list.length)return alert('Elegí uno o varios archivos SVG.')
@@ -41,6 +47,29 @@ export default function SvgLibrary({db,onSave}){
   async function linkProduct(model,productId){const product=products.find(p=>p.id===productId),newId=productId?`producto:${productId}`:`modelo:${modelSlug(model.modelName)}`;await onSave({...db,svgLibrary:library.map(x=>componentModelId(x)===model.id?{...x,modelId:newId,modelName:product?.name||model.modelName,productId,productName:product?.name||model.modelName,name:`${product?.name||model.modelName} · ${roleLabel(x.role)}`}:x)})}
   async function removeComponent(id){if(confirm('¿Eliminar este componente SVG?'))await onSave({...db,svgLibrary:library.filter(x=>x.id!==id)})}
   async function removeModel(model){if(confirm(`¿Eliminar la figura ${model.modelName} con todos sus componentes?`))await onSave({...db,svgLibrary:library.filter(x=>componentModelId(x)!==model.id)})}
+  async function readComponentFile(file,model,role){
+    if(!file)return
+    setBusy(true)
+    try{
+      const parsed=parseSvg(await file.text())
+      if(!parsed.physicalSizeDeclared)throw new Error('El SVG debe declarar sus medidas físicas en mm o cm.')
+      const modelName=String(model.modelName||model.productName||'Modelo').trim()
+      const productId=model.productId||''
+      const productName=model.productName||modelName
+      const modelId=productId?`producto:${productId}`:`modelo:${modelSlug(modelName)}`
+      const item={id:uid(),modelId,modelName,name:`${modelName} · ${roleLabel(role)}`,role,productId,productName,qtyPerUnit:1,widthCm:parsed.widthCm,heightCm:parsed.heightCm,sourceWidthCm:parsed.widthCm,sourceHeightCm:parsed.heightCm,sizeSource:'svg',sizeLocked:true,allowRotate:true,blockInterior:true,svgText:parsed.text,svgMeta:parsed,createdAt:new Date().toISOString()}
+      const retained=library.filter(x=>!(componentModelId(x)===modelId&&(x.role||'simple')===role))
+      const figures=[...new Set([...(db.figures||[]),productName||modelName])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+      await onSave({...db,figures,svgLibrary:[...retained,item]})
+    }catch(error){alert(error.message||'No se pudo agregar el componente SVG.')}finally{setBusy(false)}
+  }
+  function requestComponent(model,role){
+    const input=document.createElement('input')
+    input.type='file';input.accept='.svg,image/svg+xml'
+    input.onchange=()=>readComponentFile(input.files?.[0],model,role)
+    input.click()
+  }
+  function productAsModel(product){return {id:`producto:${product.id}`,modelName:product.name,productId:product.id,productName:product.name,components:[]}}
 
   return <>
     <Title title="Biblioteca SVG" sub="Cada tarjeta representa una figura y muestra juntos su tapa, base o pieza simple." actions={<label className="primary filebtn">{busy?'Analizando…':'Importar SVG individuales'}<input type="file" accept=".svg,image/svg+xml" multiple disabled={busy} onChange={e=>importFiles(e.target.files)}/></label>}/>
@@ -58,9 +87,23 @@ export default function SvgLibrary({db,onSave}){
           <div className="svg-card-checks"><label className="form-check"><input className="form-check-input" type="checkbox" checked={item.allowRotate!==false} onChange={e=>updateComponent(item.id,'allowRotate',e.target.checked)}/><span className="form-check-label">Rotar</span></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={item.blockInterior!==false} onChange={e=>updateComponent(item.id,'blockInterior',e.target.checked)}/><span className="form-check-label">Bloquear interior</span></label></div>
           <button className="danger smallbtn" onClick={()=>removeComponent(item.id)}>Eliminar componente</button>
         </section>)}</div>
-        {!model.components.some(x=>x.role==='simple')&&<div className="component-status"><span className={model.components.some(x=>x.role==='tapa')?'ok':'missing'}>{model.components.some(x=>x.role==='tapa')?'✓ Tapa':'Falta tapa'}</span><span className={model.components.some(x=>x.role==='base')?'ok':'missing'}>{model.components.some(x=>x.role==='base')?'✓ Base':'Falta base'}</span></div>}
+        {!model.components.some(x=>x.role==='simple')&&<div className="component-status component-status-actions">
+          <div><span className={model.components.some(x=>x.role==='tapa')?'ok':'missing'}>{model.components.some(x=>x.role==='tapa')?'✓ Tapa':'Falta tapa'}</span>{!model.components.some(x=>x.role==='tapa')&&<button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(model,'tapa')}>＋ Agregar tapa</button>}</div>
+          <div><span className={model.components.some(x=>x.role==='base')?'ok':'missing'}>{model.components.some(x=>x.role==='base')?'✓ Base':'Falta base'}</span>{!model.components.some(x=>x.role==='base')&&<button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(model,'base')}>＋ Agregar base</button>}</div>
+        </div>}
       </article>)}
-      {!models.length&&<div className="panel">Todavía no hay figuras SVG guardadas.</div>}
+      {!models.length&&search&&<div className="panel">No hay figuras que coincidan con la búsqueda.</div>}
     </div>
+    <section className="panel missing-catalog-library">
+      <div className="customer-section-title"><div><h2>Figuras que faltan del catálogo</h2><p>Estas fichas corresponden a productos del catálogo que todavía no tienen ningún SVG guardado. Agregá su tapa y su base para completar la base de datos.</p></div><span className="count-badge">{missingCatalog.length} pendientes</span></div>
+      <div className="missing-catalog-card-grid">
+        {missingCatalog.map(product=><article className="missing-catalog-card" key={product.id}>
+          {product.image&&<img src={product.image} alt={product.name}/>}
+          <div><b>{product.name}</b><small>{product.category||'Sin categoría'} · {product.measure||'Medida según SVG'}</small></div>
+          <div className="missing-catalog-actions"><button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(productAsModel(product),'tapa')}>＋ Agregar tapa</button><button className="primary smallbtn" disabled={busy} onClick={()=>requestComponent(productAsModel(product),'base')}>＋ Agregar base</button><button className="ghost smallbtn" disabled={busy} onClick={()=>requestComponent(productAsModel(product),'simple')}>Figura simple</button></div>
+        </article>)}
+        {!missingCatalog.length&&<div className="svg-complete-message">✓ Todos los productos del catálogo ya tienen al menos un modelo SVG en la biblioteca.</div>}
+      </div>
+    </section>
   </>
 }

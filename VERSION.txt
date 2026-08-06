@@ -1,1 +1,2 @@
-18.4.0 - SVG completos, proyección clara y chatbot administrable
+18.4.1
+Biblioteca SVG completa con tapa y base

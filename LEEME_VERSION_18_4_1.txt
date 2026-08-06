@@ -1,0 +1,7 @@
+POLIFAN ONLINE 18.4.1
+
+- En Biblioteca SVG, cada figura incompleta muestra Agregar tapa o Agregar base.
+- Bluey y cualquier modelo con un solo componente pueden completarse desde su propia tarjeta.
+- Al final se muestran fichas de productos del catálogo que todavía no tienen SVG.
+- Cada ficha faltante permite cargar tapa, base o figura simple.
+- Las medidas se leen del SVG cargado y no del catálogo.
