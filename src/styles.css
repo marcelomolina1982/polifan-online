@@ -369,3 +369,63 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher{min-height:58px!important;font-size:14px!important;padding:12px 15px!important}
  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher-name{font-size:14px;padding:6px 16px;margin-bottom:-10px}
 }
+
+/* V18.6.2 · asistente compacto y fijo abajo a la derecha en celulares */
+@media(max-width:800px){
+  .catalog-chat-launcher-wrap.launcher-above{
+    position:fixed!important;
+    right:10px!important;
+    left:auto!important;
+    bottom:76px!important;
+    width:156px!important;
+    max-width:calc(100vw - 20px)!important;
+    transform:none!important;
+    align-items:center!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher-avatar{
+    width:104px!important;
+    height:96px!important;
+    margin:0 0 -23px!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher-name{
+    min-width:58px!important;
+    max-width:118px!important;
+    margin-bottom:-7px!important;
+    padding:4px 11px!important;
+    border-width:1px!important;
+    border-radius:8px 8px 6px 6px!important;
+    font-size:11px!important;
+    line-height:1!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher{
+    width:100%!important;
+    min-height:42px!important;
+    padding:8px 10px!important;
+    border-width:2px!important;
+    border-radius:22px!important;
+    font-size:11px!important;
+    line-height:1.05!important;
+    gap:5px!important;
+    white-space:nowrap!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .chat-launcher-icon{
+    font-size:14px!important;
+  }
+}
+@media(max-width:420px){
+  .catalog-chat-launcher-wrap.launcher-above{
+    right:8px!important;
+    bottom:72px!important;
+    width:145px!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher-avatar{
+    width:94px!important;
+    height:88px!important;
+    margin-bottom:-21px!important;
+  }
+  .catalog-chat-launcher-wrap.launcher-above .catalog-chat-launcher{
+    min-height:40px!important;
+    font-size:10.5px!important;
+    padding:8px 8px!important;
+  }
+}
