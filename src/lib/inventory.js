@@ -25,7 +25,7 @@ export function activeCutQty(db){
   ;(db.cutBatches||[]).filter(b=>b.status==='En corte').forEach(b=>{
     ;(b.items||[]).forEach(i=>{
       if(!i.figure)return
-      active[i.figure]=(active[i.figure]||0)+Number(i.qty||0)
+      active[i.figure]=(active[i.figure]||0)+Number(i.qty||0)*Math.max(1,Number(b.multiplier)||1)
     })
   })
   return active

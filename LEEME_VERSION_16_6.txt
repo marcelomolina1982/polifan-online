@@ -1,0 +1,12 @@
+POLIFAN ONLINE v16.6 · ESTADÍSTICAS DEL CATÁLOGO
+
+NOVEDADES:
+- Resumen de ventas, facturación estimada, faltantes y stock crítico.
+- Tabla por producto con ventas, stock, demanda, en corte, rotación y última venta.
+- Producción sugerida según faltantes, ventas de 30 días y stock ideal para dos semanas.
+- Ranking de productos para completar placas y alerta de sobrestock.
+- Modelos sin SVG vinculados.
+- Exportación CSV.
+- Las estadísticas web existentes se conservan en la pestaña Clientes online.
+
+La facturación por figura se estima usando el precio unitario guardado en cada pedido.

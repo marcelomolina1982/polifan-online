@@ -1,0 +1,9 @@
+POLIFAN ONLINE v16.3 — COLA AUTOMÁTICA DE PLACAS
+
+- Prioriza piezas por fecha de entrega, de la más próxima a la siguiente.
+- Genera únicamente placas consideradas completas según un porcentaje configurable (85% por defecto).
+- La última placa incompleta queda en espera hasta que ingresen más piezas.
+- Puede completar el último espacio con modelos de mayor venta, solo después de cargar todos los pendientes disponibles.
+- Las piezas de relleno quedan identificadas en el plan.
+- No descuenta stock ni pendientes hasta registrar la placa enviada a corte.
+- Conserva medidas exactas de cada SVG y prohíbe escalado.

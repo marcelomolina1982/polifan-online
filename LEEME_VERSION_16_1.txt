@@ -1,0 +1,14 @@
+TU VIDA EN TINTA · POLIFAN v16.1
+
+NUEVO:
+- Biblioteca SVG con importación múltiple.
+- Clasificación de SVG como figura simple, tapa, base o capa.
+- Vinculación de SVG con productos del catálogo.
+- Regla “Bloquear interior” para impedir piezas dentro de huecos cerrados.
+- Nueva sección Diseñar placas de corte.
+- Carga automática desde Pedidos para cortar cuando el producto tiene SVG vinculados.
+- Generación y descarga SVG de placas.
+- Guardado de diseños sin descontar stock todavía.
+
+IMPORTANTE:
+Primero importá SVG en Biblioteca SVG, asigná medidas y vinculalos a los productos. Después entrá en Diseñar placas y presioná Cargar “Para cortar”.

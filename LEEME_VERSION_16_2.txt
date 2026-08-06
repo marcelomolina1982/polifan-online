@@ -1,0 +1,9 @@
+POLIFAN ONLINE v16.2 — MEDIDAS EXACTAS DEL SVG
+
+- Las medidas físicas se leen de width/height del SVG con unidades mm, cm, in, pt, pc o px.
+- El catálogo solo identifica el modelo; nunca reemplaza la medida del archivo.
+- Ancho y alto quedan bloqueados en Biblioteca SVG y Diseñar placas.
+- El motor valida que escala X = 1 y escala Y = 1 antes de generar y exportar.
+- Solo se permiten traslado y rotación de 90°.
+- Los SVG sin medida física declarada quedan pendientes y no pueden usarse para diseñar placas.
+- La exportación incluye metadata con las medidas originales de cada pieza.

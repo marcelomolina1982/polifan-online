@@ -1,0 +1,8 @@
+POLIFAN ONLINE v16.5 — CORTE SIMPLE Y DOBLE
+
+- Cada placa generada puede configurarse como simple o doble.
+- El corte doble produce dos copias idénticas del diseño.
+- Al enviar a corte, las cantidades quedan reservadas en Pedidos para cortar multiplicadas por 2.
+- Al terminar la placa, el inventario recibe las cantidades multiplicadas.
+- Las placas manuales de En corte también permiten seleccionar simple o doble.
+- El SVG no se duplica: se registra el factor físico de producción.

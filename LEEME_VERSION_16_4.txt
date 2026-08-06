@@ -1,0 +1,14 @@
+POLIFAN ONLINE v16.4 — ANALIZAR PLACAS SVG
+
+Nueva sección: Analizar placas SVG.
+
+- Permite subir muchos SVG de pedidos anteriores.
+- Separa automáticamente los elementos vectoriales de cada placa.
+- Agrupa modelos parecidos aunque estén trasladados o rotados.
+- Conserva el ancho y alto exactos detectados en cada SVG.
+- Compara contra los modelos previamente guardados en Biblioteca SVG.
+- Permite confirmar nombre, tipo (tapa/base/simple/capa) y producto.
+- Guarda un SVG individual recortado de cada modelo sin cambiar escala.
+- Registra archivos de origen y cantidad de apariciones.
+
+El catálogo solo identifica el nombre. La medida siempre proviene del SVG analizado.

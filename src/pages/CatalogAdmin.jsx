@@ -4,7 +4,7 @@ import { catalogProducts, catalogCategories, normalizeCatalogProducts } from '..
 import { money } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
-const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', active:true }
+const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', active:true, productionType:'simple' }
 const slug = text => String(text||'producto').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
 
 function resizeImage(file){
@@ -49,7 +49,7 @@ export default function CatalogAdmin({db,onSave}){
     if(!form.name.trim())return alert('Ingresá el nombre del producto.')
     if(!form.image)return alert('Subí una imagen del producto.')
     const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
-    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),fixedPrice:Number(form.fixedPrice)||null,active:form.active!==false}
+    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),fixedPrice:Number(form.fixedPrice)||null,active:form.active!==false,productionType:form.productionType||'simple'}
     const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
     await onSave({...db,customerCatalog:next})
     clear(); alert(form.id?'Producto actualizado.':'Producto agregado al catálogo.')
@@ -187,6 +187,7 @@ export default function CatalogAdmin({db,onSave}){
           <label>Nombre<input value={form.name} onChange={e=>update('name',e.target.value)} placeholder="Ej.: Pikachu"/></label>
           <label>Medida<input value={form.measure} onChange={e=>update('measure',e.target.value)} placeholder="Ej.: 20 x 16 cm"/></label>
           <label>Categoría<select value={form.category} onChange={e=>update('category',e.target.value)}>{editableCategories.map(c=><option key={c}>{c}</option>)}</select></label>
+          <label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>
           <label>Precio fijo opcional<input inputMode="numeric" value={form.fixedPrice} onChange={e=>update('fixedPrice',e.target.value.replace(/\D/g,''))} placeholder="Dejar vacío para usar promociones"/></label>
           <label className="form-check"><input className="form-check-input" type="checkbox" checked={form.active!==false} onChange={e=>update('active',e.target.checked)}/><span className="form-check-label">Mostrar en el catálogo de clientes</span></label>
         </div>
@@ -199,7 +200,7 @@ export default function CatalogAdmin({db,onSave}){
       <input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar producto..."/>
       <div className="admin-catalog-grid">
         {filtered.map(p=><article className={`admin-product ${p.active===false?'inactive':''}`} key={p.id}>
-          <img src={p.image} alt={p.name}/><div className="admin-product-body"><b>{p.name}</b><small>{p.category} · {p.measure||'Sin medida'}</small><span>{p.active===false?'Oculto':'Visible'}</span></div>
+          <img src={p.image} alt={p.name}/><div className="admin-product-body"><b>{p.name}</b><small>{p.category} · {p.measure||'Sin medida'} · {(db.svgLibrary||[]).filter(s=>s.productId===p.id).length} SVG</small><span>{p.active===false?'Oculto':'Visible'}</span></div>
           <div className="row-actions"><button className="ghost smallbtn" onClick={()=>edit(p)}>Editar</button><button className="ghost smallbtn" onClick={()=>toggle(p)}>{p.active===false?'Activar':'Ocultar'}</button><button className="danger smallbtn" onClick={()=>remove(p)}>Eliminar</button></div>
         </article>)}
       </div>

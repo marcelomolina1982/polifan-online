@@ -1,0 +1,13 @@
+POLIFAN ONLINE v16.7 — CENTRO DE ATENCIÓN
+
+Novedades:
+- Nueva sección Centro de Atención.
+- Carga manual de consultas de WhatsApp, Instagram, TikTok, Facebook u otros canales.
+- Clasificación automática: catálogo, precios, envío, pedido, fecha/demora o atención humana.
+- Respuesta sugerida editable y botón para copiar.
+- Nunca confirma automáticamente pedidos ni costos de envío.
+- Estados: Pendiente, Esperando datos, Respondido, Requiere atención y Cerrado.
+- Respuestas rápidas editables con variables de catálogo, WhatsApp y nombre del negocio.
+- Filtros, buscador y métricas de consultas.
+
+Esta versión no conecta directamente con las APIs de las redes. Permite organizar y contestar mucho más rápido copiando los mensajes recibidos.

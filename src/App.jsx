@@ -17,7 +17,11 @@ import CustomerOrder from './pages/CustomerOrder'
 import OrderControl from './pages/OrderControl'
 import Analytics from './pages/Analytics'
 import WebRequests from './pages/WebRequests'
+import AttentionCenter from './pages/AttentionCenter'
 import ProductionCalendar from './pages/ProductionCalendar'
+import SheetPlanner from './pages/SheetPlanner'
+import SvgLibrary from './pages/SvgLibrary'
+import SvgAnalyzer from './pages/SvgAnalyzer'
 import { APP_VERSION_LABEL, APP_UPDATED_AT } from './version'
 
 export default function App(){
@@ -94,8 +98,8 @@ export default function App(){
 
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
-    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['stock','◇','Inventario']]],
-    ['VENTAS', [['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
+    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','▧','Diseñar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
+    ['VENTAS', [['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
   ]
@@ -124,11 +128,15 @@ export default function App(){
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
+        {page==='sheetplanner' && <SheetPlanner db={db} onSave={saveData}/>} 
+        {page==='svganalyzer' && <SvgAnalyzer db={db} onSave={saveData}/>} 
+        {page==='svglibrary' && <SvgLibrary db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
         {page==='clients' && <Clients db={db} onSave={saveData}/>} 
+        {page==='attention' && <AttentionCenter db={db} onSave={saveData}/>} 
         {page==='webrequests' && <WebRequests db={db} onSave={saveData}/>} 
         {page==='catalog' && <CatalogAdmin db={db} onSave={saveData}/>} 
-        {page==='analytics' && <Analytics/>} 
+        {page==='analytics' && <Analytics db={db}/>} 
         {page==='expenses' && <Expenses db={db} onSave={saveData}/>} 
         {page==='monthly' && <Monthly db={db}/>} 
         {page==='settings' && <Settings db={db} onSave={saveData}/>} 
