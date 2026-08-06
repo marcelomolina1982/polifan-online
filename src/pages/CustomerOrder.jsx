@@ -33,6 +33,8 @@ export default function CustomerOrder() {
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState([])
   const [closedProductionDates, setClosedProductionDates] = useState([])
+  const [planningSync, setPlanningSync] = useState({ status: 'loading', error: '', updatedAt: '', fetchedAt: '' })
+  const [sending, setSending] = useState(false)
   const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
@@ -40,21 +42,37 @@ export default function CustomerOrder() {
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
 
-  async function refreshPlanning(showLoading=false) {
+  async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
     if(showLoading) setLoading(true)
+    setPlanningSync(previous=>({...previous,status:'loading',error:''}))
+    let lastError=null
     try {
-      const { data: row, error } = await supabase.from('app_state').select('data,updated_at').eq('id', 'main').maybeSingle()
-      if(error) throw error
-      const state = row?.data || {}
-      setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
-      setOrders(state.orders || [])
-      setClosedProductionDates(state.productionClosedDates || [])
-      setConfig({
-        whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
-        businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
-      })
-      return state
-    } catch {
+      for(let attempt=1;attempt<=Math.max(1,retries);attempt++){
+        try{
+          const { data: row, error } = await supabase.from('app_state').select('data,updated_at').eq('id', 'main').maybeSingle()
+          if(error) throw error
+          if(!row?.data) throw new Error('No se encontró la planificación principal.')
+          const state = row.data
+          if(!Array.isArray(state.productionClosedDates)) throw new Error('La planificación no contiene la lista de días cerrados.')
+          if(!Array.isArray(state.orders)) throw new Error('La planificación no contiene la lista de pedidos.')
+          setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+          setOrders(state.orders)
+          setClosedProductionDates(state.productionClosedDates)
+          setConfig({
+            whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
+            businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
+          })
+          setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
+          return {...state,__updatedAt:row.updated_at||''}
+        }catch(error){
+          lastError=error
+          if(attempt<retries) await new Promise(resolve=>window.setTimeout(resolve,500*attempt))
+        }
+      }
+      throw lastError || new Error('No se pudo actualizar la planificación.')
+    } catch(error) {
+      setPlanningSync(previous=>({...previous,status:'error',error:error?.message||'No se pudo actualizar la planificación.'}))
+      if(strict) throw error
       return null
     } finally {
       if(showLoading) setLoading(false)
@@ -62,11 +80,12 @@ export default function CustomerOrder() {
   }
 
   useEffect(() => {
-    refreshPlanning(true)
-    const onVisible=()=>{ if(document.visibilityState==='visible') refreshPlanning(false) }
+    refreshPlanning(true,{retries:3})
+    const onVisible=()=>{ if(document.visibilityState==='visible') refreshPlanning(false,{retries:2}) }
     document.addEventListener('visibilitychange',onVisible)
-    const timer=window.setInterval(()=>refreshPlanning(false),30000)
-    return ()=>{document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer)}
+    const timer=window.setInterval(()=>refreshPlanning(false,{retries:2}),30000)
+    const channel=supabase.channel('catalog-planning-sync').on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.main'},()=>refreshPlanning(false,{retries:3})).subscribe()
+    return ()=>{document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer);supabase.removeChannel(channel)}
   }, [urlPhone])
 
   useEffect(() => {
@@ -94,7 +113,7 @@ export default function CustomerOrder() {
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
   const total = items.reduce((sum, item) => sum + item.qty, 0)
-  const deliveryEstimate = estimateProductionAvailability(orders,total,closedProductionDates)
+  const deliveryEstimate = planningSync.status==='ready' ? estimateProductionAvailability(orders,total,closedProductionDates) : null
   const fmtProductionDate = value => formatArgentinaLongDate(value,{includeYear:false,capitalize:true})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
   const missingForGoal = nextGoal ? nextGoal - regularQty : 0
@@ -120,6 +139,7 @@ export default function CustomerOrder() {
     setData(previous => ({ ...previous, [field]: value }))
   }
   async function send() {
+    if(sending) return
     if (!config.whatsapp) return alert('El comercio todavía no configuró su número de WhatsApp.')
     if (!data.firstName.trim()) return alert('Ingresá tu nombre.')
     if (!data.lastName.trim()) return alert('Ingresá tu apellido.')
@@ -128,10 +148,21 @@ export default function CustomerOrder() {
     if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
     if(['Vía Cargo','Correo Argentino'].includes(data.method) && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
 
-    const latestState=await refreshPlanning(false)
-    const latestOrders=latestState?.orders || orders
-    const latestClosedDates=latestState?.productionClosedDates || closedProductionDates
+    setSending(true)
+    let latestState
+    try{
+      latestState=await refreshPlanning(false,{retries:3,strict:true})
+    }catch(error){
+      setSending(false)
+      return alert('No pudimos actualizar el calendario de producción. La solicitud no fue enviada para evitar informar una fecha incorrecta. Revisá tu conexión e intentá nuevamente. '+(error?.message||''))
+    }
+    const latestOrders=latestState.orders
+    const latestClosedDates=latestState.productionClosedDates
     const finalDeliveryEstimate=estimateProductionAvailability(latestOrders,total,latestClosedDates)
+    if(!finalDeliveryEstimate?.productionDate){
+      setSending(false)
+      return alert('No se pudo calcular una fecha de producción válida. La solicitud no fue enviada.')
+    }
 
     const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
     const arNow = argentinaNow()
@@ -165,7 +196,7 @@ export default function CustomerOrder() {
 
     const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
     const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:finalDeliveryEstimate.productionDate,estimatedDeliveryEnd:finalDeliveryEstimate.productionDate},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:finalDeliveryEstimate.productionDate,estimated_to:finalDeliveryEstimate.productionDate,notes:data.notes.trim()})
-    if(requestError) return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message)
+    if(requestError){ setSending(false); return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message) }
     trackCatalogEvent('order_sent', {
       locality: data.locality,
       province: data.province,
@@ -174,6 +205,7 @@ export default function CustomerOrder() {
       metadata: { method: data.method, estimatedTotal }
     })
     items.forEach(item => trackCatalogEvent('order_product', { productId: item.product.id, productName: item.product.name, category: item.product.category, quantity: item.qty }))
+    setSending(false)
     window.open(`https://wa.me/${config.whatsapp}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
@@ -233,7 +265,7 @@ export default function CustomerOrder() {
           <label>{['Vía Cargo','Correo Argentino'].includes(data.method)?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
           <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
-          <div className="delivery-estimate-box"><small>🛠️ PRODUCCIÓN DISPONIBLE</small><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>La fecha definitiva de entrega se confirmará junto con la cotización del envío y la confirmación del pago.</span></div>
+          <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='error'?<><b>No se pudo actualizar el calendario</b><span>Por seguridad no se enviará la solicitud hasta recuperar la planificación. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Estamos verificando los días cerrados y la capacidad disponible.</span></>}</div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
           {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
@@ -244,7 +276,7 @@ export default function CustomerOrder() {
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
-        <button type="button" className="whatsapp-button" onClick={send}><span>Enviar solicitud por WhatsApp</span><small>Te confirmamos envío, disponibilidad y pago</small></button>
+        <button type="button" className="whatsapp-button" onClick={send} disabled={planningSync.status!=='ready'||sending}><span>{sending?'Verificando y enviando…':planningSync.status==='error'?'Calendario no disponible':'Enviar solicitud por WhatsApp'}</span><small>{planningSync.status==='ready'?'Te confirmamos envío, disponibilidad y pago':'La solicitud se habilita cuando el calendario está actualizado'}</small></button>
       </section>
 
       <section className="customer-section customer-feedback">

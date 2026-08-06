@@ -1,0 +1,9 @@
+POLIFAN ONLINE v16.8 - SINCRONIZACIÓN SEGURA DEL CALENDARIO
+
+- El catálogo obtiene obligatoriamente app_state desde Supabase antes de enviar.
+- Reintenta hasta 3 veces si falla la consulta.
+- Bloquea la solicitud si no puede leer pedidos y días cerrados.
+- Se actualiza cada 30 segundos, al volver a la pestaña y por cambios en tiempo real.
+- La fecha se calcula después del último día cerrado registrado.
+- El calendario interno solo confirma un cierre cuando Supabase guardó el cambio.
+- Si el guardado falla, la interfaz no conserva un cierre falso.

@@ -71,14 +71,22 @@ export default function App(){
   }
 
   async function saveData(next){
-    setDb(next)
-    try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}
     setSaving(true)
-    const {error} = await supabase.from('app_state').upsert({
-      id:'main', data:next, updated_at:new Date().toISOString(), updated_by:session.user.id
-    },{onConflict:'id'})
+    const previous=db
+    const updatedAt=new Date().toISOString()
+    const {data:saved,error} = await supabase.from('app_state').upsert({
+      id:'main', data:next, updated_at:updatedAt, updated_by:session.user.id
+    },{onConflict:'id'}).select('data,updated_at').single()
     setSaving(false)
-    if(error) alert('No se pudo guardar: '+error.message)
+    if(error){
+      setDb(previous)
+      alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+error.message)
+      return {ok:false,error}
+    }
+    const confirmed=saved?.data ? {...emptyState(),...saved.data} : next
+    setDb(confirmed)
+    try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
+    return {ok:true,updatedAt:saved?.updated_at||updatedAt}
   }
 
   async function logout(){
