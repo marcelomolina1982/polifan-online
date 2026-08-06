@@ -1,2 +1,1 @@
-Polifan Online v17.0.2
-Comprobantes sin costo de envío.
+17.0.3 - Comprobante cliente sin estados de envío

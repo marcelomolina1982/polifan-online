@@ -153,7 +153,7 @@ function purchaseDetailHtml(o){
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
     <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3><p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(o.carrier||'-')}</p></div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
-    <div class="purchase-bottom"><div class="payment-card"><h3>ENVÍO</h3><p><b>TIPO</b><span>${esc(deliveryType(o))}</span></p><p><b>ESTADO</b><span>${esc(o.shippingPaid||'Pendiente de pago')}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p class="grand-total"><span>TOTAL DEL PEDIDO</span><b>${money(subtotal)}</b></p></div></div>
+    <div class="purchase-bottom"><div class="payment-card"><h3>ENTREGA</h3><p><b>TIPO</b><span>${esc(deliveryType(o))}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p class="grand-total"><span>TOTAL DEL PEDIDO</span><b>${money(subtotal)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
   </section>`
   if(!extra.length) return mainHtml
@@ -272,9 +272,9 @@ export default function Orders({db,onSave,onEdit}){
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${printStyles()}${extraCss}</style></head><body>${bodyHtml}<script>window.onload=()=>setTimeout(()=>window.print(),350)<\/script></body></html>`)
     win.document.close()
   }
-  function printInternalOnly(o){openPrintDocument(`<div class="single-internal">${internalOrderHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-internal{width:125mm;margin:auto}.single-internal .internal-order{height:190mm}.single-internal .summary-list{max-height:none;font-size:9px}`,`Pedido interno #${o.number}`)}
+  function printInternalOnly(o){openPrintDocument(`<div class="single-internal">${internalOrderHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-internal{width:125mm;margin:auto}.single-internal .internal-order{height:190mm}.single-internal .summary-list{max-height:none;font-size:9px}`,`Orden de trabajo #${o.number}`)}
   function printLabelOnly(o){openPrintDocument(`<div class="single-label">${boxLabelHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-label{width:100mm;margin:auto}.single-label .box-label{height:150mm}`,`Etiqueta #${o.number}`)}
-  function printReceiptOnly(o){openPrintDocument(`<div class="single-receipt">${purchaseDetailHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-receipt{width:194mm;margin:auto}.single-receipt .purchase-detail{height:auto;min-height:135mm}`,`Comprobante #${o.number}`)}
+  function printReceiptOnly(o){openPrintDocument(`<div class="single-receipt">${purchaseDetailHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-receipt{width:194mm;margin:auto}.single-receipt .purchase-detail{height:auto;min-height:135mm}`,`Comprobante cliente #${o.number}`)}
   async function downloadReceiptPdf(o){
     const host=document.createElement('div');host.style.cssText='position:fixed;left:-10000px;top:0;background:#fff;z-index:-1';host.innerHTML=`<style>${receiptCss}</style>${receiptHtml(o)}`;document.body.appendChild(host)
     try{await new Promise(r=>setTimeout(r,250));const node=host.querySelector('.receipt');const canvas=await html2canvas(node,{scale:1.5,useCORS:true,backgroundColor:'#fff'});const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});const img=canvas.toDataURL('image/jpeg',.94);const ratio=Math.min(210/canvas.width,297/canvas.height);const w=canvas.width*ratio,h=canvas.height*ratio;pdf.addImage(img,'JPEG',(210-w)/2,0,w,h);pdf.save(`comprobante-pedido-${o.number}.pdf`)}catch(err){console.error(err);alert('No se pudo generar el PDF.')}finally{host.remove()}
@@ -361,12 +361,12 @@ export default function Orders({db,onSave,onEdit}){
         <td>{money(o.total)}</td><td className="row-actions">
           <details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu">
             <button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button>
-            <button className="ghost" onClick={()=>printInternalOnly(o)}>Solo pedido interno</button>
+            <button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button>
             <button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button>
-            <button className="ghost" onClick={()=>printReceiptOnly(o)}>Solo comprobante</button>
+            <button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button>
             <button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button>
-            <button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante JPG</button>
-            <button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante PDF</button>
+            <button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button>
+            <button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button>
           </div></details>
           {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
           <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
