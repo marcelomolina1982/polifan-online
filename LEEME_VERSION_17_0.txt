@@ -1,0 +1,6 @@
+POLIFAN ONLINE v17.0 — VERSIÓN COMPACTA
+
+- Conserva todas las funciones de v16.10.
+- Elimina notas y archivos históricos que no usa la aplicación.
+- Mantiene corte simple/doble, SVG, estadísticas, calendario y centro de atención.
+- Reduce la cantidad de elementos para facilitar la carga en GitHub.

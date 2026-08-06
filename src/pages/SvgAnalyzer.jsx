@@ -12,6 +12,7 @@ function lengthCm(value){
   return Number(m[1])*(UNIT_TO_CM[(m[2]||'px').toLowerCase()]||0)
 }
 function cleanName(name){return String(name||'placa').replace(/\.svg$/i,'')}
+function modelSlug(value){return String(value||'modelo').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'modelo'}
 function matrixText(m){return `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`}
 function dataUrl(text){return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`}
 function round(n,d=4){const p=10**d;return Math.round(Number(n||0)*p)/p}
@@ -203,13 +204,23 @@ export default function SvgAnalyzer({db,onSave}){
 
   async function saveSelected(){
     const selected=groups.filter(g=>g.selected)
-    if(!selected.length)return alert('Seleccioná al menos un modelo.')
+    if(!selected.length)return alert('Seleccioná al menos un componente.')
+    const unnamed=selected.filter(g=>!String(g.name||'').trim())
+    if(unnamed.length)return alert('Escribí el nombre de la figura en todos los componentes seleccionados.')
     const now=new Date().toISOString()
-    const additions=selected.map(g=>{
+    const unique=new Map()
+    selected.forEach(g=>{
+      const modelName=String(g.name||'').trim()
+      const modelId=g.productId?`producto:${g.productId}`:`modelo:${modelSlug(modelName)}`
+      const role=g.role||'simple'
+      const key=`${modelId}|${role}`
+      if(!unique.has(key))unique.set(key,{g,modelId,modelName,role})
+    })
+    const additions=[...unique.values()].map(({g,modelId,modelName,role})=>{
       const r=g.representative
       return {
-        id:uid(),name:g.name||`Modelo ${library.length+1}`,role:g.role||'simple',
-        productId:g.productId||'',productName:g.productName||'',
+        id:uid(),modelId,modelName,name:`${modelName} · ${role==='tapa'?'Tapa':role==='base'?'Base':role==='capa'?'Capa adicional':'Figura'}`,role,
+        productId:g.productId||'',productName:g.productName||modelName,qtyPerUnit:1,
         widthCm:r.widthCm,heightCm:r.heightCm,sourceWidthCm:r.widthCm,sourceHeightCm:r.heightCm,
         sizeSource:'svg-instance',sizeLocked:true,allowRotate:true,blockInterior:true,
         svgText:r.svgText,svgMeta:{paths:1,closed:0,physicalSizeDeclared:true,sourceFiles:[...new Set(g.items.map(x=>x.sourceFile))],occurrences:g.items.length},
@@ -217,26 +228,29 @@ export default function SvgAnalyzer({db,onSave}){
         createdAt:now
       }
     })
-    const history=[...(db.svgAnalysisHistory||[]),{id:uid(),createdAt:now,pieces:total,models:groups.length,saved:additions.length}]
-    await onSave({...db,svgLibrary:[...library,...additions],svgAnalysisHistory:history})
-    alert(`${additions.length} modelos agregados a la Biblioteca SVG.`)
+    const replacementKeys=new Set(additions.map(x=>`${x.modelId}|${x.role}`))
+    const retained=library.filter(x=>!replacementKeys.has(`${x.modelId||(x.productId?`producto:${x.productId}`:`modelo:${modelSlug(x.modelName||x.productName||x.name)}`)}|${x.role||'simple'}`))
+    const history=[...(db.svgAnalysisHistory||[]),{id:uid(),createdAt:now,pieces:total,models:new Set(additions.map(x=>x.modelId)).size,components:additions.length}]
+    await onSave({...db,svgLibrary:[...retained,...additions],svgAnalysisHistory:history})
+    const models=new Set(additions.map(x=>x.modelId)).size
+    alert(`${models} figura(s) guardadas con ${additions.length} componente(s). Se conservó una sola tapa, base o figura de cada modelo.`)
   }
 
   return <>
-    <Title title="Analizar placas SVG" sub="Subí placas de pedidos anteriores. La app separa las piezas, agrupa modelos iguales y conserva la medida exacta de cada instancia." actions={<label className="primary filebtn">{busy?'Analizando…':'Subir placas SVG'}<input type="file" accept=".svg,image/svg+xml" multiple disabled={busy} onChange={e=>analyze(e.target.files)}/></label>}/>
+    <Title title="Analizar placas SVG" sub="Subí placas anteriores. La app extrae una sola muestra de cada modelo y permite unir su tapa y su base bajo el mismo nombre." actions={<label className="primary filebtn">{busy?'Analizando…':'Subir placas SVG'}<input type="file" accept=".svg,image/svg+xml" multiple disabled={busy} onChange={e=>analyze(e.target.files)}/></label>}/>
     <div ref={hostRef}/>
     <div className="notice"><b>La medida sale del SVG original</b><span>El catálogo se usa únicamente para ponerle nombre al modelo. Las piezas detectadas se guardan con su ancho y alto reales, sin escalar ni deformar.</span></div>
-    <div className="notice"><b>Revisión asistida</b><span>Las coincidencias seguras se proponen automáticamente. Los modelos dudosos quedan para que confirmes nombre, tipo y producto una sola vez.</span></div>
+    <div className="notice"><b>Una figura por modelo</b><span>Las repeticiones se agrupan y no se guardan varias veces. Para formar una figura completa, escribí el mismo nombre en su tapa y su base y elegí el tipo correspondiente.</span></div>
     {message&&<div className="panel svg-analysis-summary"><b>{message}</b>{groups.length>0&&<span>{total} piezas · {groups.length} grupos · {groups.filter(g=>g.matchConfidence).length} coincidencias con la biblioteca</span>}</div>}
-    {groups.length>0&&<div className="toolbar"><button className="primary" onClick={saveSelected}>Agregar modelos seleccionados a la biblioteca</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:true})))}>Seleccionar todos</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:false})))}>Quitar selección</button></div>}
+    {groups.length>0&&<div className="toolbar"><button className="primary" onClick={saveSelected}>Guardar figuras con tapa y base</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:true})))}>Seleccionar todos</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:false})))}>Quitar selección</button></div>}
     <div className="svg-analysis-grid">
       {groups.map((group,index)=>{
         const r=group.representative
         const variants=[...new Set(group.items.map(x=>`${x.widthCm.toFixed(2)} × ${x.heightCm.toFixed(2)} cm`))]
         return <article className="panel svg-analysis-card" key={group.id}>
-          <div className="svg-analysis-head"><label className="form-check"><input className="form-check-input" type="checkbox" checked={group.selected} onChange={e=>updateGroup(group.id,'selected',e.target.checked)}/><span className="form-check-label">Guardar modelo</span></label><span className="count-badge">{group.items.length} apariciones</span></div>
+          <div className="svg-analysis-head"><label className="form-check"><input className="form-check-input" type="checkbox" checked={group.selected} onChange={e=>updateGroup(group.id,'selected',e.target.checked)}/><span className="form-check-label">Guardar componente</span></label><span className="count-badge">{group.items.length} apariciones</span></div>
           <div className="svg-library-preview"><img src={dataUrl(r.svgText)} alt={group.name}/></div>
-          <label>Nombre del modelo<input value={group.name} onChange={e=>updateGroup(group.id,'name',e.target.value)} placeholder={`Modelo ${index+1}`}/></label>
+          <label>Nombre de la figura<input value={group.name} onChange={e=>updateGroup(group.id,'name',e.target.value)} placeholder={`Modelo ${index+1}`}/></label>
           <div className="svg-library-fields"><label>Tipo<select value={group.role} onChange={e=>updateGroup(group.id,'role',e.target.value)}><option value="simple">Figura simple</option><option value="tapa">Tapa</option><option value="base">Base</option><option value="capa">Capa adicional</option></select></label><label>Ancho detectado<input readOnly value={`${r.widthCm.toFixed(3)} cm`}/></label><label>Alto detectado<input readOnly value={`${r.heightCm.toFixed(3)} cm`}/></label></div>
           <label>Producto del catálogo<select value={group.productId} onChange={e=>linkProduct(group.id,e.target.value)}><option value="">Sin vincular</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           {group.matchConfidence&&<div className="match-badge">Coincidencia previa: {group.matchConfidence}%</div>}

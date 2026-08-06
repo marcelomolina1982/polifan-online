@@ -1,14 +1,13 @@
-# Polifan Online — Tu Vida En Tinta
+# Polifan Online v17.0
 
-**Versión actual: 14.9**
-Sistema de gestión de pedidos, catálogo, producción, inventario, finanzas y solicitudes web.
+Versión compacta de Tu Vida en Tinta.
 
-## Versión 13.3
+Incluye gestión de pedidos, catálogo, inventario, piezas para cortar, calendario de producción, biblioteca y análisis SVG, diseño de placas, corte simple/doble, estadísticas y centro de atención.
 
-La impresión de cada pedido genera una hoja A4 con:
+## Instalación
 
-- Pedido interno amplio con resumen de figuras y caja sugerida.
-- Etiqueta para la caja con datos completos, QR, aviso de frágil y film negro.
-- Detalle de compra para el cliente con productos, cantidades, precios y totales.
+1. Subir todos los archivos al repositorio.
+2. Configurar las variables de Supabase ya utilizadas por el proyecto.
+3. Ejecutar `npm install` y `npm run build`, o desplegar en Vercel.
 
-La caja sugerida se calcula automáticamente según la cantidad de piezas. Para pedidos grandes se combinan varias cajas.
+Los archivos SQL de la raíz se conservan para preparar las tablas auxiliares de Supabase cuando sean necesarias.
