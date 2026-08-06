@@ -10,6 +10,16 @@ const DEFAULT_TEMPLATES={
  humano:'¡Hola! Recibimos tu mensaje. Esta consulta necesita revisión de una persona del equipo. Te respondemos apenas podamos dentro de nuestro horario de atención.'
 }
 
+
+const DEFAULT_CHATBOT={
+ enabled:true,
+ catalogo:'Podés buscar por nombre o recorrer las categorías. Usá el buscador del catálogo para encontrar la figura que necesitás.',
+ precios:'Los precios se calculan automáticamente según la cantidad. Armá el carrito y vas a ver el total estimado de los productos.',
+ envio:'El envío se coordina por WhatsApp después de revisar localidad, provincia y código postal.',
+ comprar:'Elegí las figuras, completá tus datos y enviá la solicitud. Después confirmaremos disponibilidad, fecha, pago y envío.',
+ humano:'Esta consulta necesita una persona. Presioná el botón para escribirnos por WhatsApp y continuar la atención.'
+}
+
 const CATEGORIES=[
  ['catalogo','Catálogo'],['precios','Precios'],['envio','Envío'],['pedido','Pedido'],['demora','Fecha/demora'],['humano','Atención humana']
 ]
@@ -44,6 +54,7 @@ export default function AttentionCenter({db,onSave}){
  const [showNew,setShowNew]=useState(false)
  const rows=db.attentionMessages||[]
  const templates={...DEFAULT_TEMPLATES,...(db.attentionTemplates||{})}
+ const chatbot={...DEFAULT_CHATBOT,...(db.chatbotSettings||{})}
 
  const visible=useMemo(()=>rows.filter(row=>{
   const isOpen=!['Cerrado'].includes(row.status)
@@ -107,11 +118,11 @@ export default function AttentionCenter({db,onSave}){
   </div>}
 
   <div className="attention-toolbar">
-   <div className="request-tabs"><button className={tab==='pending'?'active':''} onClick={()=>setTab('pending')}>Pendientes</button><button className={tab==='history'?'active':''} onClick={()=>setTab('history')}>Cerradas</button><button className={tab==='templates'?'active':''} onClick={()=>setTab('templates')}>Respuestas rápidas</button></div>
-   {tab!=='templates'&&<div className="attention-filters"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar consulta…"/><select value={channel} onChange={e=>setChannel(e.target.value)}><option>Todos</option>{CHANNELS.map(x=><option key={x}>{x}</option>)}</select><select value={category} onChange={e=>setCategory(e.target.value)}><option>Todos</option>{CATEGORIES.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></div>}
+   <div className="request-tabs"><button className={tab==='pending'?'active':''} onClick={()=>setTab('pending')}>Pendientes</button><button className={tab==='history'?'active':''} onClick={()=>setTab('history')}>Cerradas</button><button className={tab==='templates'?'active':''} onClick={()=>setTab('templates')}>Respuestas rápidas</button><button className={tab==='chatbot'?'active':''} onClick={()=>setTab('chatbot')}>Chatbot del catálogo</button></div>
+   {!['templates','chatbot'].includes(tab)&&<div className="attention-filters"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar consulta…"/><select value={channel} onChange={e=>setChannel(e.target.value)}><option>Todos</option>{CHANNELS.map(x=><option key={x}>{x}</option>)}</select><select value={category} onChange={e=>setCategory(e.target.value)}><option>Todos</option>{CATEGORIES.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></div>}
   </div>
 
-  {tab==='templates'?<TemplateEditor templates={templates} db={db} onSave={saveTemplates}/>:<div className="attention-list">
+  {tab==='templates'?<TemplateEditor templates={templates} db={db} onSave={saveTemplates}/>:tab==='chatbot'?<ChatbotEditor settings={chatbot} db={db} onSave={async next=>onSave({...db,chatbotSettings:next})}/>:<div className="attention-list">
    {visible.map(row=><article className="panel attention-card" key={row.id}>
     <div className="attention-card-head"><div><div className="attention-tags"><span>{row.channel}</span><span>{CATEGORIES.find(x=>x[0]===row.category)?.[1]||row.category}</span><span className={'attention-status '+String(row.status).toLowerCase().replaceAll(' ','-')}>{row.status}</span></div><h3>{row.customer||'Consulta sin nombre'}</h3><small>{row.contact||''} · {new Date(row.createdAt).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'})}</small></div><button className="danger ghost" onClick={()=>remove(row.id)}>Eliminar</button></div>
     <div className="attention-columns">
@@ -139,5 +150,17 @@ function TemplateEditor({templates,db,onSave}){
  return <div className="panel attention-templates">
   <div className="panel-heading"><div><h3>Respuestas rápidas</h3><p>Podés usar <code>{'{catalogo}'}</code>, <code>{'{whatsapp}'}</code> y <code>{'{negocio}'}</code>. Catálogo actual: {settings.catalogUrl||settings.storeUrl||window.location.origin+'/#pedido'}</p></div><button className="primary" onClick={save}>Guardar plantillas</button></div>
   <div className="attention-template-grid">{CATEGORIES.map(([id,label])=><label key={id}><span>{label}</span><textarea rows="6" value={values[id]||''} onChange={e=>setValues({...values,[id]:e.target.value})}/><small>Vista previa: {applyVariables(values[id],db)}</small></label>)}</div>
+ </div>
+}
+
+
+function ChatbotEditor({settings,db,onSave}){
+ const [values,setValues]=useState(settings)
+ async function save(){await onSave(values);alert('Configuración del chatbot guardada. El catálogo usará estas respuestas.')}
+ return <div className="panel attention-templates">
+  <div className="panel-heading"><div><h3>Chatbot del catálogo</h3><p>El Centro de Atención controla lo que responde el asistente público. Cuando no puede resolver una consulta, deriva a WhatsApp.</p></div><button className="primary" onClick={save}>Guardar chatbot</button></div>
+  <label className="form-check"><input className="form-check-input" type="checkbox" checked={values.enabled!==false} onChange={e=>setValues({...values,enabled:e.target.checked})}/><span className="form-check-label">Mostrar chatbot en el catálogo</span></label>
+  <div className="attention-template-grid">{[['catalogo','Buscar figuras'],['precios','Precios'],['envio','Envíos'],['comprar','Cómo comprar'],['humano','Derivación a una persona']].map(([id,label])=><label key={id}><span>{label}</span><textarea rows="5" value={values[id]||''} onChange={e=>setValues({...values,[id]:e.target.value})}/></label>)}</div>
+  <div className="notice"><b>Utilidad del Centro de Atención</b><span>Desde acá podés cambiar las respuestas del chatbot sin modificar código. La opción “Hablar con nosotros” deriva a WhatsApp; luego podés copiar esa conversación al Centro de Atención para darle seguimiento.</span></div>
  </div>
 }

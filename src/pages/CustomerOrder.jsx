@@ -43,6 +43,7 @@ export default function CustomerOrder() {
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
   const [chatOpen,setChatOpen]=useState(false)
+  const [chatbotSettings,setChatbotSettings]=useState({enabled:true})
   const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Soy el asistente de Tu Vida en Tinta. Puedo ayudarte a buscar figuras, conocer precios y armar el pedido.'}])
 
   async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
@@ -65,6 +66,7 @@ export default function CustomerOrder() {
             whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
             businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
           })
+          setChatbotSettings({enabled:true,...(state.chatbotSettings||{})})
           const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
@@ -87,6 +89,7 @@ export default function CustomerOrder() {
           whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),
           businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'
         })
+        setChatbotSettings({enabled:true,...(cachedState.chatbotSettings||{})})
         setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
         return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
       }
@@ -225,11 +228,11 @@ export default function CustomerOrder() {
 
   function chatbotAction(action){
     const replies={
-      catalogo:'Podés buscar por nombre o recorrer las categorías. Decime qué figura buscás usando el buscador del catálogo.',
-      precios:'Los precios se calculan automáticamente según la cantidad. Armá el carrito y vas a ver el total estimado sin envío.',
-      envio:'El envío se coordina por WhatsApp. Necesitamos localidad, provincia y código postal para buscar la mejor opción.',
-      comprar:'Elegí las figuras, completá tus datos y enviá la solicitud por WhatsApp. Después confirmaremos disponibilidad, fecha, pago y envío.',
-      humano:'Te conectamos con nosotros por WhatsApp para una atención personalizada.'
+      catalogo:chatbotSettings.catalogo||'Podés buscar por nombre o recorrer las categorías. Usá el buscador del catálogo.',
+      precios:chatbotSettings.precios||'Los precios se calculan automáticamente según la cantidad. Armá el carrito y vas a ver el total estimado.',
+      envio:chatbotSettings.envio||'El envío se coordina por WhatsApp. Necesitamos localidad, provincia y código postal.',
+      comprar:chatbotSettings.comprar||'Elegí las figuras, completá tus datos y enviá la solicitud. Después confirmaremos disponibilidad, fecha, pago y envío.',
+      humano:chatbotSettings.humano||'Te conectamos con nosotros por WhatsApp para una atención personalizada.'
     }
     setChatMessages(m=>[...m,{from:'user',text:{catalogo:'Ver catálogo',precios:'Consultar precios',envio:'Consultar envío',comprar:'Cómo comprar',humano:'Hablar con una persona'}[action]},{from:'bot',text:replies[action]}])
     if(action==='catalogo'){setChatOpen(false);document.querySelector('.catalog-search-main')?.scrollIntoView({behavior:'smooth'})}
@@ -319,7 +322,7 @@ export default function CustomerOrder() {
       </section>
     </>}
     {items.length>0&&<button type="button" className="floating-cart" onClick={()=>document.querySelector('.cart-summary')?.scrollIntoView({behavior:'smooth'})}><span>🛒 {total} piezas</span><strong>{money(estimatedTotal)}</strong></button>}
-    <button type="button" className="catalog-chat-launcher" onClick={()=>setChatOpen(v=>!v)}>💬<span>¿Necesitás ayuda?</span></button>
-    {chatOpen&&<aside className="catalog-chatbot"><header><div><b>Asistente de compra</b><small>Tu Vida en Tinta</small></div><button onClick={()=>setChatOpen(false)}>×</button></header><div className="catalog-chat-messages">{chatMessages.map((m,i)=><div key={i} className={`chat-message ${m.from}`}>{m.text}</div>)}</div><div className="catalog-chat-options"><button onClick={()=>chatbotAction('catalogo')}>🔎 Buscar figuras</button><button onClick={()=>chatbotAction('precios')}>💰 Precios</button><button onClick={()=>chatbotAction('envio')}>📦 Envío</button><button onClick={()=>chatbotAction('comprar')}>🛒 Cómo comprar</button><button onClick={()=>chatbotAction('humano')}>👤 Hablar con nosotros</button></div></aside>}
+    {chatbotSettings.enabled!==false&&<button type="button" className="catalog-chat-launcher" onClick={()=>setChatOpen(v=>!v)}>💬<span>¿Necesitás ayuda?</span></button>}
+    {chatbotSettings.enabled!==false&&chatOpen&&<aside className="catalog-chatbot"><header><div><b>Asistente de compra</b><small>Tu Vida en Tinta</small></div><button onClick={()=>setChatOpen(false)}>×</button></header><div className="catalog-chat-messages">{chatMessages.map((m,i)=><div key={i} className={`chat-message ${m.from}`}>{m.text}</div>)}</div><div className="catalog-chat-options"><button onClick={()=>chatbotAction('catalogo')}>🔎 Buscar figuras</button><button onClick={()=>chatbotAction('precios')}>💰 Precios</button><button onClick={()=>chatbotAction('envio')}>📦 Envío</button><button onClick={()=>chatbotAction('comprar')}>🛒 Cómo comprar</button><button onClick={()=>chatbotAction('humano')}>👤 Hablar con nosotros</button></div></aside>}
   </div>
 }

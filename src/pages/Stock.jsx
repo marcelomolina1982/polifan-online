@@ -8,7 +8,7 @@ export default function Stock({db,onSave}){
   const [search,setSearch]=useState('')
   const rows=stockRows(db).filter(r=>r.figure.toLowerCase().includes(search.toLowerCase()))
   const sortedFigures=useMemo(()=>[...new Set([...(db.figures||[]),...(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures,db.customerCatalog])
-  const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free}),{cut:0,ordered:0,inCut:0,free:0}),[rows])
+  const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free,projected:a.projected+r.projected}),{cut:0,ordered:0,inCut:0,free:0,projected:0}),[rows])
 
   async function add(e){e.preventDefault();if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');const movement={...form,id:crypto.randomUUID(),qty:Number(form.qty),createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]});setForm({...form,qty:1,detail:''})}
   async function quick(figure,delta){const movement={id:crypto.randomUUID(),date:today(),figure,type:delta>0?'Ajuste positivo':'Ajuste negativo',qty:Math.abs(delta),detail:'Ajuste rápido',createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]})}
@@ -19,9 +19,10 @@ export default function Stock({db,onSave}){
       <div className="panel"><small>CORTADAS AHORA</small><b>{totals.cut}</b><span>Piezas físicas registradas</span></div>
       <div className="panel"><small>PEDIDAS</small><b>{totals.ordered}</b><span>Comprometidas en pedidos</span></div>
       <div className="panel"><small>EN CORTE</small><b>{totals.inCut}</b><span>Producción todavía no terminada</span></div>
-      <div className={'panel '+(totals.free<0?'inventory-negative':'inventory-positive')}><small>SALDO ACTUAL</small><b>{totals.free>0?`+${totals.free}`:totals.free}</b><span>{totals.free<0?'Faltan piezas':'Sobran piezas disponibles'}</span></div>
+      <div className={'panel '+(totals.free<0?'inventory-negative':'inventory-positive')}><small>SALDO ACTUAL</small><b>{totals.free>0?`+${totals.free}`:totals.free}</b><span>{totals.free<0?'Faltan piezas hoy':'Sobran piezas disponibles hoy'}</span></div>
+      <div className={'panel '+(totals.projected<0?'inventory-negative':'inventory-positive')}><small>PROYECCIÓN</small><b>{totals.projected>0?`+${totals.projected}`:totals.projected}</b><span>Saldo cuando termine lo que está en corte</span></div>
     </div>
-    <div className="notice"><b>Cómo leerlo</b><span><b>Cortadas</b> es lo que tenés físicamente. <b>Pedidas</b> es lo comprometido. <b>Saldo actual</b> indica cuántas sobran o faltan. <b>Proyección</b> suma lo que está en corte.</span></div>
+    <div className="notice inventory-explanation"><b>¿Qué significa Proyección?</b><span>Es el saldo futuro suponiendo que todas las placas que figuran <b>En corte</b> terminan correctamente. Fórmula: <b>Cortadas + En corte − Pedidas</b>. Ejemplo: tenés 10, te piden 14 y hay 6 en corte → proyección <b>+2</b>. Eso significa que, cuando termine la máquina, podrás cubrir los pedidos y sobrarán 2.</span></div>
     <div className="panel filters"><input type="search" placeholder="🔍 Buscar figura..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
     <div className="panel table-wrap"><table className="inventory-table"><thead><tr><th>Figura</th><th>Cortadas</th><th>Pedidas</th><th>En corte</th><th>Saldo actual</th><th>Proyección</th><th>Ajuste</th></tr></thead><tbody>
       {rows.map(s=><tr key={s.figure}><td><b>{s.figure}</b></td><td className="green-text"><b>{s.cut}</b></td><td>{s.ordered}</td><td className="purple-text">{s.inCut}</td><td className={s.free<0?'red-text':s.free>0?'green-text':'purple-text'}><b>{s.free>0?`+${s.free}`:s.free}</b><small className="inventory-state">{s.free<0?'Faltan':s.free>0?'Sobran':'Justo'}</small></td><td className={s.projected<0?'red-text':s.projected>0?'green-text':'purple-text'}><b>{s.projected>0?`+${s.projected}`:s.projected}</b></td><td className="row-actions"><button className="ghost smallbtn" onClick={()=>quick(s.figure,-1)}>−1</button><button className="primary smallbtn" onClick={()=>quick(s.figure,1)}>+1</button></td></tr>)}

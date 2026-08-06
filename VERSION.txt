@@ -1,1 +1,1 @@
-18.2.1
+18.4.0 - SVG completos, proyección clara y chatbot administrable

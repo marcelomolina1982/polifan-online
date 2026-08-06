@@ -251,13 +251,15 @@ export default function SvgAnalyzer({db,onSave}){
     byProduct.forEach(entry=>{
       const known=library.filter(x=>entry.productId?x.productId===entry.productId:String(x.productName||x.modelName||'').trim().toLocaleLowerCase('es')===String(entry.name).trim().toLocaleLowerCase('es'))
       const expected=new Set(known.map(x=>x.role||'simple'))
-      if(entry.roles.has('tapa')||entry.roles.has('base')||expected.has('tapa')||expected.has('base')){
-        if(!entry.roles.has('tapa'))componentIssues.push(`${entry.name}: falta la tapa`)
-        if(!entry.roles.has('base'))componentIssues.push(`${entry.name}: falta la base`)
+      const available=new Set([...entry.roles,...expected])
+      if(available.has('tapa')||available.has('base')){
+        if(!available.has('tapa'))componentIssues.push({...entry,missingRole:'tapa'})
+        if(!available.has('base'))componentIssues.push({...entry,missingRole:'base'})
       }
     })
     const linkedIds=new Set([...byProduct.values()].map(x=>x.productId).filter(Boolean))
     const linkedNames=new Set([...byProduct.values()].map(x=>String(x.name).trim().toLocaleLowerCase('es')))
+    library.forEach(x=>{if(x.productId)linkedIds.add(x.productId);const name=String(x.productName||x.modelName||'').trim().toLocaleLowerCase('es');if(name)linkedNames.add(name)})
     const missingCatalog=products.filter(p=>!linkedIds.has(p.id)&&!linkedNames.has(String(p.name).trim().toLocaleLowerCase('es')))
     return {componentIssues,missingCatalog,detectedModels:byProduct.size}
   },[groups,products,library])
@@ -284,6 +286,27 @@ export default function SvgAnalyzer({db,onSave}){
   function linkProduct(id,productId){
     const product=products.find(p=>p.id===productId)
     setGroups(gs=>gs.map(g=>g.id===id?{...g,productId,productName:product?.name||'',name:product?.name||g.name,selected:!!productId||g.selected}:g))
+  }
+  async function addMissingComponent(issue){
+    const input=document.createElement('input')
+    input.type='file';input.accept='.svg,image/svg+xml'
+    input.onchange=async()=>{
+      const file=input.files?.[0]
+      if(!file)return
+      setBusy(true);setMessage(`Analizando ${issue.missingRole} de ${issue.name}…`)
+      try{
+        const pieces=await analyzeFile(file,hostRef.current)
+        const detected=groupPieces(pieces,library,products)
+        if(!detected.length)throw new Error('No se detectó ninguna figura en el SVG.')
+        if(detected.length>1&&!confirm(`El archivo contiene ${detected.length} formas. Se usará la primera como ${issue.missingRole}. ¿Continuar?`))return
+        const source=detected[0]
+        const newGroup={...source,id:uid(),name:issue.name,productId:issue.productId||'',productName:issue.name,role:issue.missingRole,selected:true,matchConfidence:100,matchReason:'Componente agregado manualmente'}
+        setGroups(gs=>[...gs,newGroup])
+        setMessage(`Se agregó la ${issue.missingRole} de ${issue.name}. Revisala y guardá las figuras.`)
+      }catch(error){alert(error.message||'No se pudo analizar el componente.')}
+      finally{setBusy(false)}
+    }
+    input.click()
   }
   function openPicker(group){setPicker(group.id);setCatalogSearch(group.productName||group.name||'')}
   function chooseProduct(product){linkProduct(picker,product.id);setPicker(null);setCatalogSearch('')}
@@ -334,8 +357,8 @@ export default function SvgAnalyzer({db,onSave}){
     {groups.length>0&&<div className="panel svg-audit-panel">
       <div><h3>Control contra el catálogo</h3><p>La app revisa qué modelos aparecen en el SVG y si cada diseño vinculado tiene su tapa y su base.</p></div>
       <div className="svg-audit-cards"><span><b>{analysisAudit.detectedModels}</b> modelos vinculados</span><span className={analysisAudit.componentIssues.length?'warn':'ok'}><b>{analysisAudit.componentIssues.length}</b> componentes faltantes</span><span><b>{analysisAudit.missingCatalog.length}</b> modelos del catálogo no aparecen</span></div>
-      {analysisAudit.componentIssues.length>0?<div className="svg-missing-components"><b>Faltan componentes:</b>{analysisAudit.componentIssues.map(x=><span key={x}>⚠ {x}</span>)}</div>:<div className="svg-complete-message">✓ No falta ninguna tapa o base entre los modelos vinculados.</div>}
-      <details><summary>Ver figuras del catálogo que no aparecen en este SVG ({analysisAudit.missingCatalog.length})</summary><div className="svg-missing-catalog">{analysisAudit.missingCatalog.map(p=><span key={p.id}>{p.name}</span>)}{!analysisAudit.missingCatalog.length&&<span>Están todas las figuras del catálogo.</span>}</div></details>
+      {analysisAudit.componentIssues.length>0?<div className="svg-missing-components"><b>Figuras incompletas:</b>{analysisAudit.componentIssues.map(issue=><div className="svg-missing-row" key={`${issue.productId||issue.name}-${issue.missingRole}`}><span>⚠ {issue.name}: falta la {issue.missingRole}</span><button className="primary smallbtn" disabled={busy} onClick={()=>addMissingComponent(issue)}>＋ Agregar {issue.missingRole}</button></div>)}</div>:<div className="svg-complete-message">✓ No falta ninguna tapa o base entre los modelos vinculados.</div>}
+      <details open={analysisAudit.missingCatalog.length>0}><summary>Figuras que faltan incorporar desde el catálogo ({analysisAudit.missingCatalog.length})</summary><p className="muted">Estas figuras todavía no fueron detectadas en las placas analizadas. Subí un SVG que las contenga para completar la biblioteca.</p><div className="svg-missing-catalog">{analysisAudit.missingCatalog.map(p=><span key={p.id}>○ {p.name}</span>)}{!analysisAudit.missingCatalog.length&&<span>✓ Ya están todas las figuras del catálogo.</span>}</div></details>
     </div>}
     {groups.length>0&&<div className="toolbar"><button className="primary" onClick={saveSelected}>Guardar figuras con tapa y base</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:true})))}>Seleccionar todos</button><button className="ghost" onClick={()=>setGroups(gs=>gs.map(g=>({...g,selected:false})))}>Quitar selección</button></div>}
     <div className="svg-analysis-grid">
