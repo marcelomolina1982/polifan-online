@@ -316,6 +316,68 @@ export function stockRows(db){
   })
 }
 
+/**
+ * Asigna el stock físico y las piezas que ya están en corte a los pedidos
+ * por fecha de salida, siempre desde la entrega más próxima hacia las siguientes.
+ * El stock nunca se reserva primero para un pedido futuro si existe uno anterior.
+ */
+export function pendingCutByDelivery(db){
+  const physical=physicalStockBalance(db)
+  const inCut=activeCutQty(db)
+  const available={}
+  const aliases=canonicalAliasMap(db)
+  const canonical=value=>aliases.get(normalizeFigureKey(value))||String(value||'').trim()
+
+  const names=new Set([...Object.keys(physical),...Object.keys(inCut)])
+  names.forEach(name=>{
+    const figure=canonical(name)
+    available[figure]=(available[figure]||0)+Number(physical[name]||0)+Number(inCut[name]||0)
+  })
+
+  const groups={}
+  ;(db.orders||[])
+    .filter(o=>isOrderCommitted(o))
+    .slice()
+    .sort((a,b)=>(orderDate(a)||'9999-12-31').localeCompare(orderDate(b)||'9999-12-31') || String(a.number||'').localeCompare(String(b.number||'')))
+    .forEach(order=>{
+      const date=orderDate(order)
+      const key=date||'sin-fecha'
+      if(!groups[key])groups[key]={key,date,orders:[],rows:{}}
+      groups[key].orders.push(order.number)
+      ;(order.items||[]).forEach(item=>{
+        if(!item?.figure || Number(item.qty||0)<=0)return
+        const figure=canonical(item.figure)
+        const qty=Number(item.qty||0)
+        const onHand=Math.max(0,Number(available[figure]||0))
+        const covered=Math.min(onHand,qty)
+        available[figure]=onHand-covered
+        const pending=qty-covered
+        if(pending>0)groups[key].rows[figure]=(groups[key].rows[figure]||0)+pending
+      })
+    })
+
+  return Object.values(groups)
+    .map(g=>({
+      key:g.key,
+      date:g.date,
+      orders:[...new Set(g.orders)].filter(Boolean),
+      rows:Object.entries(g.rows)
+        .map(([figure,qty])=>({figure,qty:Number(qty||0)}))
+        .filter(r=>r.qty>0)
+        .sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
+    }))
+    .filter(g=>g.rows.length)
+    .sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
+}
+
 export function pendingCutRows(db){
-  return stockRows(db).map(r=>({...r,pending:Math.max(0,-r.projected)})).filter(r=>r.pending>0)
+  const totals={}
+  pendingCutByDelivery(db).forEach(group=>group.rows.forEach(row=>{
+    totals[row.figure]=(totals[row.figure]||0)+Number(row.qty||0)
+  }))
+  const byFigure=Object.fromEntries(stockRows(db).map(row=>[normalizeFigureKey(row.figure),row]))
+  return Object.entries(totals).map(([figure,pending])=>{
+    const base=byFigure[normalizeFigureKey(figure)]||{figure,cut:0,available:0,ordered:0,inCut:0,free:0,total:0,projected:0}
+    return {...base,figure,pending}
+  }).filter(r=>r.pending>0)
 }

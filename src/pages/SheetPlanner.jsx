@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { pendingCutRows } from '../lib/inventory'
+import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
 
 const COLORS=['#ec2c7c','#14b8b8','#087fc4','#7b3dbb','#f59e0b','#16a34a','#ef4444','#6366f1']
@@ -66,23 +66,9 @@ function usableModelComponents(model){
 }
 
 function pendingGroupsByDelivery(db){
-  const available={}
-  pendingCutRows(db).forEach(r=>{available[r.figure]=num(r.pending)})
-  const groups={}
-  ;(db.orders||[]).filter(o=>o.status!=='Cancelado').slice().sort((a,b)=>(a.delivery||'9999-12-31').localeCompare(b.delivery||'9999-12-31')||String(a.number||'').localeCompare(String(b.number||''))).forEach(o=>{
-    const date=o.delivery||'sin-fecha'
-    if(!groups[date])groups[date]={date:o.delivery||'',orders:[],rows:{}}
-    groups[date].orders.push(o.number)
-    ;(o.items||[]).forEach(it=>{
-      const remaining=Math.max(0,num(available[it.figure]))
-      if(!it.figure||remaining<=0)return
-      const qty=Math.min(remaining,Math.max(0,num(it.qty)))
-      if(qty>0){groups[date].rows[it.figure]=(groups[date].rows[it.figure]||0)+qty;available[it.figure]=remaining-qty}
-    })
-  })
-  Object.entries(available).forEach(([figure,qty])=>{if(qty>0){const key='sin-fecha';if(!groups[key])groups[key]={date:'',orders:[],rows:{}};groups[key].rows[figure]=(groups[key].rows[figure]||0)+qty}})
-  return Object.values(groups).map(g=>({...g,orders:[...new Set(g.orders)],rows:Object.entries(g.rows).map(([figure,qty])=>({figure,qty}))})).filter(g=>g.rows.length).sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
+  return pendingCutByDelivery(db)
 }
+
 function bestSellerNames(db){
   const counts={}
   ;(db.orders||[]).filter(o=>o.status!=='Cancelado').forEach(o=>(o.items||[]).forEach(i=>{if(i.figure)counts[i.figure]=(counts[i.figure]||0)+num(i.qty)}))

@@ -19,6 +19,7 @@ import Analytics from './pages/Analytics'
 import WebRequests from './pages/WebRequests'
 import AttentionCenter from './pages/AttentionCenter'
 import CatalogAssistant from './pages/CatalogAssistant'
+import Quotes from './pages/Quotes'
 import ProductionCalendar from './pages/ProductionCalendar'
 import SheetPlanner from './pages/SheetPlanner'
 import SvgLibrary from './pages/SvgLibrary'
@@ -109,7 +110,7 @@ export default function App(){
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
     ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','▧','Diseñar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
-    ['VENTAS', [['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
+    ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
   ]
@@ -143,6 +144,7 @@ export default function App(){
         {page==='svglibrary' && <SvgLibrary db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
         {page==='clients' && <Clients db={db} onSave={saveData}/>} 
+        {page==='quotes' && <Quotes db={db} onSave={saveData}/>} 
         {page==='assistant' && <CatalogAssistant db={db} onSave={saveData}/>} 
         {page==='attention' && <AttentionCenter db={db} onSave={saveData}/>} 
         {page==='webrequests' && <WebRequests db={db} onSave={saveData}/>} 

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { today } from '../lib/format'
-import { activeCutQty, physicalStockBalance, pendingCutRows, isOrderCommitted } from '../lib/inventory'
+import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 
 function dateLabel(value){
   if(!value) return 'Sin fecha de entrega'
@@ -10,40 +10,7 @@ function dateLabel(value){
 }
 
 function groupedPendingByDelivery(db){
-  const stock=physicalStockBalance(db)
-  const inCut=activeCutQty(db)
-  const available={}
-  const names=new Set([...(db.figures||[]),...Object.keys(stock),...Object.keys(inCut)])
-  names.forEach(f=>{ available[f]=Number(stock[f]||0)+Number(inCut[f]||0) })
-
-  const groups={}
-  ;(db.orders||[])
-    .filter(o=>isOrderCommitted(o))
-    .slice()
-    .sort((a,b)=>(a.delivery||'9999-12-31').localeCompare(b.delivery||'9999-12-31') || String(a.number||'').localeCompare(String(b.number||'')))
-    .forEach(o=>{
-      const key=o.delivery||'sin-fecha'
-      if(!groups[key]) groups[key]={date:o.delivery||'',rows:{},orders:[]}
-      groups[key].orders.push(o.number)
-      ;(o.items||[]).forEach(i=>{
-        if(!i.figure || Number(i.qty||0)<=0) return
-        const qty=Number(i.qty||0)
-        const covered=Math.min(Math.max(0,available[i.figure]||0),qty)
-        available[i.figure]=(available[i.figure]||0)-covered
-        const pending=qty-covered
-        if(pending>0) groups[key].rows[i.figure]=(groups[key].rows[i.figure]||0)+pending
-      })
-    })
-
-  return Object.entries(groups)
-    .map(([key,g])=>({
-      key,
-      date:g.date,
-      orders:[...new Set(g.orders)],
-      rows:Object.entries(g.rows).map(([figure,qty])=>({figure,qty})).sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
-    }))
-    .filter(g=>g.rows.length)
-    .sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
+  return pendingCutByDelivery(db)
 }
 
 export default function CutList({db,onSave,goBatches}){

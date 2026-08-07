@@ -6,6 +6,7 @@ import { DAILY_PIECE_LIMIT, PIECES_PER_SHEET, daysForPieces, piecesScheduledForD
 import { packagingForPieces } from '../lib/packaging'
 import { upsertClientFromOrder } from '../lib/clients'
 import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
+import { downloadQuoteJpg } from '../lib/quoteReceipt'
 
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
@@ -69,6 +70,27 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   function updateItem(ix,key,val){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:val}:it)}))
+  }
+
+  function nextQuoteCode(){
+    const max=Math.max(0,...(db.quotes||[]).map(q=>Number(String(q.code||'').match(/\d+$/)?.[0]||0)))
+    return `PRES-${String(max+1).padStart(4,'0')}`
+  }
+  async function saveQuote(){
+    if(!form.firstName?.trim()) return alert('Ingresá el nombre del cliente.')
+    if(!form.lastName?.trim()) return alert('Ingresá el apellido del cliente.')
+    if(!form.phone?.trim()) return alert('Ingresá el teléfono del cliente.')
+    const validItems=form.items.filter(i=>i.figure&&Number(i.qty)>0)
+    if(!validItems.length)return alert('Agregá al menos una figura.')
+    const fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim()
+    const code=nextQuoteCode()
+    const quote={...form,id:crypto.randomUUID(),code,source:'Manual',status:'Pendiente',client:fullName,total,items:validItems.map(i=>({...i,qty:Number(i.qty)})),date:today(),shippingCost:0,shippingPaid:'No corresponde',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
+    const saved=await onSave({...db,quotes:[...(db.quotes||[]),quote]})
+    if(saved?.ok===false)return
+    try{await downloadQuoteJpg(quote)}catch(err){console.error('No se pudo generar el presupuesto JPG',err)}
+    localStorage.removeItem(DRAFT_KEY)
+    setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()
+    alert(`${code} guardado. Podés aprobarlo desde VENTAS → Presupuestos.`)
   }
 
   async function submit(e){
@@ -181,7 +203,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
           <div><small>Total final</small><b>{money(total+Number(form.shippingCost||0))}</b></div>
         </>}
       </div>
-      <div className="actions"><button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
+      <div className="actions">{!editing&&<button type="button" className="ghost quote-button" onClick={saveQuote}>🧾 Guardar presupuesto + JPG</button>}<button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
     </form>
   </>
 }
