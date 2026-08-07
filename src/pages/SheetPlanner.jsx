@@ -238,6 +238,47 @@ function buildCompleteKits(rows,priority,date,source,modelResolver){
 }
 
 
+
+function solidifyConnectedComponents(mask,w,h){
+  const seen=new Uint8Array(mask.length)
+  const out=mask.slice()
+  const qx=new Int32Array(mask.length),qy=new Int32Array(mask.length)
+
+  for(let sy=0;sy<h;sy++)for(let sx=0;sx<w;sx++){
+    const start=sy*w+sx
+    if(!mask[start]||seen[start])continue
+
+    let head=0,tail=0
+    qx[tail]=sx;qy[tail]=sy;tail++;seen[start]=1
+    const rows=new Map()
+
+    while(head<tail){
+      const x=qx[head],y=qy[head];head++
+      const prev=rows.get(y)
+      if(!prev)rows.set(y,[x,x])
+      else{if(x<prev[0])prev[0]=x;if(x>prev[1])prev[1]=x}
+
+      const neighbors=[[x-1,y],[x+1,y],[x,y-1],[x,y+1],[x-1,y-1],[x+1,y-1],[x-1,y+1],[x+1,y+1]]
+      for(const [nx,ny] of neighbors){
+        if(nx<0||ny<0||nx>=w||ny>=h)continue
+        const ni=ny*w+nx
+        if(mask[ni]&&!seen[ni]){
+          seen[ni]=1
+          qx[tail]=nx;qy[tail]=ny;tail++
+        }
+      }
+    }
+
+    // Solidifica cada componente por filas. Esto cierra la silueta exterior de
+    // personajes/figuras aunque el SVG tenga pequeños huecos en el trazo, sin
+    // unir componentes independientes como letras separadas.
+    for(const [y,[minX,maxX]] of rows){
+      for(let x=minX;x<=maxX;x++)out[y*w+x]=1
+    }
+  }
+  return out
+}
+
 const angleMaskCache=new Map()
 async function makeAngleMask(part,angle=0,gapCm=0){
   const normalized=((num(angle)%360)+360)%360
@@ -277,7 +318,10 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   const alpha=ctx.getImageData(0,0,pw,ph).data
   let mask=new Uint8Array(pw*ph)
   for(let i=0;i<mask.length;i++)if(alpha[i*4+3]>20)mask[i]=1
-  if(part.blockInterior!==false)mask=fillClosedHoles(mask,pw,ph)
+  if(part.blockInterior!==false){
+    mask=solidifyConnectedComponents(mask,pw,ph)
+    mask=fillClosedHoles(mask,pw,ph)
+  }
 
   // Dilatación de la separación mínima.
   if(pad){
@@ -421,7 +465,22 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
 
   if(!best)return {sheets:[],rejected:kits,total:0,sheetArea,used:0,completeFigures:0,target}
   // Limpia datos internos antes de guardar/exportar.
-  best.sheet.placed=best.sheet.placed.map(({_maskX,_maskY,_pw,_ph,...piece})=>piece)
+  // Segunda validación: vuelve a estampar todas las piezas elegidas desde cero.
+  // Si alguna colisión escapó durante el acomodo, la placa se rechaza antes de mostrar/exportar.
+  const verifyOcc=new Uint8Array(sw*sh)
+  const verified=[]
+  for(const piece of best.sheet.placed){
+    const m=await makeAngleMask(piece,num(piece.angle,0),gap)
+    const x=Math.round(num(piece.x)*PX_PER_CM-m.pad)
+    const y=Math.round(num(piece.y)*PX_PER_CM-m.pad)
+    if(maskCollides(verifyOcc,m,x,y)){
+      throw new Error(`Seguridad de placa: se detectó una superposición real en ${piece.name}. Volvé a generar la placa.`)
+    }
+    maskStamp(verifyOcc,m,x,y)
+    verified.push(piece)
+  }
+
+  best.sheet.placed=verified.map(({_maskX,_maskY,_pw,_ph,...piece})=>piece)
   return {
     sheets:best.sheet.placed.length?[best.sheet]:[],
     rejected:best.skipped,
@@ -625,7 +684,7 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático las colisiones se calculan sobre la silueta real de cada SVG.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático las colisiones se calculan sobre una silueta sólida de cada componente y se validan una segunda vez antes de mostrar o exportar la placa.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
     <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. La colisión se calcula sobre la silueta real del SVG y prueba rotaciones cada 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
