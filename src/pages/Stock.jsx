@@ -1,16 +1,24 @@
 import React, { useMemo, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { today } from '../lib/format'
-import { stockRows, duplicateFigureGroups, mergeDuplicateFigures } from '../lib/inventory'
+import { stockRows, duplicateFigureGroups, mergeDuplicateFigures, catalogFigureInfo, mergeFigureInto } from '../lib/inventory'
 
 export default function Stock({db,onSave}){
   const [form,setForm]=useState({date:today(),figure:db.figures[0]||'',component:'complete',type:'Entrada extra',qty:1,detail:''})
   const [search,setSearch]=useState('')
   const [quickQty,setQuickQty]=useState({})
   const [quickPart,setQuickPart]=useState({})
+  const [mergeA,setMergeA]=useState('')
+  const [mergeB,setMergeB]=useState('')
+  const [mergeKeep,setMergeKeep]=useState('')
   const rows=stockRows(db).filter(r=>r.figure.toLowerCase().includes(search.toLowerCase()))
   const sortedFigures=useMemo(()=>[...new Set([...(db.figures||[]),...(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures,db.customerCatalog])
   const duplicateGroups=useMemo(()=>duplicateFigureGroups(db),[db])
+  const mergeInfoA=useMemo(()=>catalogFigureInfo(db,mergeA),[db,mergeA])
+  const mergeInfoB=useMemo(()=>catalogFigureInfo(db,mergeB),[db,mergeB])
+  const selectedKeep=useMemo(()=>{if(mergeInfoA.isCatalog&&!mergeInfoB.isCatalog)return mergeA;if(mergeInfoB.isCatalog&&!mergeInfoA.isCatalog)return mergeB;return mergeKeep||mergeA},[mergeA,mergeB,mergeKeep,mergeInfoA.isCatalog,mergeInfoB.isCatalog])
+  const selectedSource=selectedKeep===mergeA?mergeB:mergeA
+  const rowByFigure=useMemo(()=>Object.fromEntries(stockRows(db).map(r=>[r.figure,r])),[db])
   const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free,projected:a.projected+r.projected}),{cut:0,ordered:0,inCut:0,free:0,projected:0}),[rows])
 
   async function add(e){e.preventDefault();if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]});setForm({...form,qty:1,detail:''})}
@@ -22,6 +30,27 @@ export default function Stock({db,onSave}){
     const result=mergeDuplicateFigures(db)
     const saved=await onSave(result.db)
     if(saved?.ok!==false)alert(`Listo. Se unificaron ${result.groups.length} grupo(s) y se eliminaron ${result.changes} nombre(s) duplicados sin perder pedidos ni stock.`)
+  }
+
+  async function mergeManual(){
+    if(!mergeA||!mergeB)return alert('Elegí las dos figuras que querés unificar.')
+    if(mergeA===mergeB)return alert('Elegí dos figuras diferentes.')
+    const infoA=catalogFigureInfo(db,mergeA),infoB=catalogFigureInfo(db,mergeB)
+    let keep=selectedKeep
+    if(infoA.isCatalog&&!infoB.isCatalog)keep=mergeA
+    if(infoB.isCatalog&&!infoA.isCatalog)keep=mergeB
+    const source=keep===mergeA?mergeB:mergeA
+    const src=rowByFigure[source]||{},dst=rowByFigure[keep]||{}
+    const catalogText=infoA.isCatalog&&infoB.isCatalog?'Las dos pertenecen al catálogo.':infoA.isCatalog?`${mergeA} es la del catálogo.`:infoB.isCatalog?`${mergeB} es la del catálogo.`:'Ninguna de las dos coincide con un nombre del catálogo.'
+    const preview=`${catalogText}\n\nSe conservará: ${keep}\nSe eliminará del inventario: ${source}\n\nSe migrará desde ${source}:\n• Cortadas: ${Number(src.cut||0)}\n• Pedidas: ${Number(src.ordered||0)}\n• En corte: ${Number(src.inCut||0)}\n• Tapas sueltas: ${Number(src.looseTapa||0)}\n• Bases sueltas: ${Number(src.looseBase||0)}\n\nTodo se sumará/unificará con lo que ya tenga ${keep}. ¿Continuar?`
+    if(!window.confirm(preview))return
+    const result=mergeFigureInto(db,source,keep)
+    if(result.error)return alert(result.error)
+    const saved=await onSave(result.db)
+    if(saved?.ok!==false){
+      setMergeA('');setMergeB('');setMergeKeep('')
+      alert(`Listo. ${source} se unificó dentro de ${keep}. Se migraron stock, pedidos, piezas en corte, tapas/bases y referencias relacionadas.`)
+    }
   }
 
   async function quick(figure,direction){
@@ -48,6 +77,7 @@ export default function Stock({db,onSave}){
     <div className="notice inventory-explanation"><b>Tapas y bases sueltas</b><span>Podés registrar partes por separado sin sumarlas como figura completa. Si hay más tapas que bases, el inventario te avisa cuántas bases faltan para emparejarlas, y viceversa.</span></div>
     <div className="notice inventory-explanation"><b>¿Qué significa Proyección?</b><span>Es el saldo futuro suponiendo que todas las placas que figuran <b>En corte</b> terminan correctamente. Fórmula: <b>Cortadas + En corte − Pedidas</b>. Ejemplo: tenés 10, te piden 14 y hay 6 en corte → proyección <b>+2</b>. Eso significa que, cuando termine la máquina, podrás cubrir los pedidos y sobrarán 2.</span></div>
     <div className={"notice inventory-explanation "+(duplicateGroups.length?"inventory-duplicate-alert":"")}><b>Duplicados del inventario</b><span>{duplicateGroups.length?`Encontré ${duplicateGroups.length} grupo(s) con el mismo nombre escrito de distintas maneras. Se conservará la versión vinculada al catálogo y se migrarán automáticamente los pedidos, movimientos y piezas en corte.`:'No se detectan nombres duplicados.'}</span>{duplicateGroups.length>0&&<button type="button" className="primary smallbtn" onClick={cleanDuplicates}>🧹 Unificar duplicados</button>}</div>
+    <div className="panel inventory-manual-merge"><div className="inventory-manual-merge-head"><div><h3>🔗 Unificar dos figuras manualmente</h3><p className="muted">Usalo cuando sabés que dos nombres diferentes son la misma mercadería. La app te indica cuál pertenece al catálogo y migra todo al nombre que se conserva.</p></div></div><div className="inventory-merge-grid"><Field label="Figura 1"><select value={mergeA} onChange={e=>{setMergeA(e.target.value);setMergeKeep('')}}><option value="">Elegir figura...</option>{sortedFigures.map(f=><option key={`a-${f}`} value={f} disabled={f===mergeB}>{f}</option>)}</select>{mergeA&&<small className={mergeInfoA.isCatalog?'inventory-catalog-badge':'inventory-manual-badge'}>{mergeInfoA.isCatalog?'✓ Figura del catálogo':'Nombre manual / histórico'}</small>}</Field><Field label="Figura 2"><select value={mergeB} onChange={e=>{setMergeB(e.target.value);setMergeKeep('')}}><option value="">Elegir figura...</option>{sortedFigures.map(f=><option key={`b-${f}`} value={f} disabled={f===mergeA}>{f}</option>)}</select>{mergeB&&<small className={mergeInfoB.isCatalog?'inventory-catalog-badge':'inventory-manual-badge'}>{mergeInfoB.isCatalog?'✓ Figura del catálogo':'Nombre manual / histórico'}</small>}</Field><Field label="Nombre que se conserva"><select value={selectedKeep||''} onChange={e=>setMergeKeep(e.target.value)} disabled={(mergeInfoA.isCatalog&&!mergeInfoB.isCatalog)||(mergeInfoB.isCatalog&&!mergeInfoA.isCatalog)}><option value="">Elegir...</option>{mergeA&&<option value={mergeA}>{mergeA}{mergeInfoA.isCatalog?' · CATÁLOGO':''}</option>}{mergeB&&<option value={mergeB}>{mergeB}{mergeInfoB.isCatalog?' · CATÁLOGO':''}</option>}</select>{mergeA&&mergeB&&((mergeInfoA.isCatalog&&!mergeInfoB.isCatalog)||(mergeInfoB.isCatalog&&!mergeInfoA.isCatalog))&&<small>Se conserva automáticamente la figura del catálogo.</small>}</Field></div>{mergeA&&mergeB&&<div className="inventory-merge-summary"><div><b>{mergeA}</b><span>{Number(rowByFigure[mergeA]?.cut||0)} cortadas · {Number(rowByFigure[mergeA]?.ordered||0)} pedidas · {Number(rowByFigure[mergeA]?.inCut||0)} en corte</span></div><div className="inventory-merge-arrow">→</div><div><b>{mergeB}</b><span>{Number(rowByFigure[mergeB]?.cut||0)} cortadas · {Number(rowByFigure[mergeB]?.ordered||0)} pedidas · {Number(rowByFigure[mergeB]?.inCut||0)} en corte</span></div></div>}<button type="button" className="primary" disabled={!mergeA||!mergeB||!selectedKeep} onClick={mergeManual}>🔗 Unificar y migrar todo</button></div>
     <div className="panel filters"><input type="search" placeholder="🔍 Buscar figura..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
     <div className="panel table-wrap"><table className="inventory-table"><thead><tr><th>Figura</th><th>Cortadas</th><th>Tapas sueltas</th><th>Bases sueltas</th><th>Pedidas hoy/futuras</th><th>En corte</th><th>Saldo actual</th><th>Proyección</th><th>Ajuste</th></tr></thead><tbody>
       {rows.map(s=><tr key={s.figure}><td><b>{s.figure}</b>{s.missingPart&&<small className="inventory-part-warning">⚠ Falta{ s.missingPart.qty===1?'':'n'} {s.missingPart.qty} {s.missingPart.type}{s.missingPart.qty===1?'':'s'}</small>}{!s.missingPart&&s.loosePairs>0&&<small className="inventory-part-ok">✓ {s.loosePairs} par{s.loosePairs===1?'':'es'} suelto{s.loosePairs===1?'':'s'}</small>}</td><td className="green-text"><b>{s.cut}</b></td><td><b>{s.looseTapa}</b></td><td><b>{s.looseBase}</b></td><td>{s.ordered}</td><td className="purple-text">{s.inCut}</td><td className={s.free<0?'red-text':s.free>0?'green-text':'purple-text'}><b>{s.free>0?`+${s.free}`:s.free}</b><small className="inventory-state">{s.free<0?'Faltan':s.free>0?'Sobran':'Justo'}</small></td><td className={s.projected<0?'red-text':s.projected>0?'green-text':'purple-text'}><b>{s.projected>0?`+${s.projected}`:s.projected}</b></td><td><div className="stock-number-adjust"><select aria-label={`Qué ajustar en ${s.figure}`} value={quickPart[s.figure]||'complete'} onChange={e=>setQuickPart(v=>({...v,[s.figure]:e.target.value}))}><option value="complete">Figura completa</option><option value="tapa">Tapa suelta</option><option value="base">Base suelta</option></select><input aria-label={`Cantidad para ajustar ${s.figure}`} type="number" min="1" inputMode="numeric" placeholder="Cantidad" value={quickQty[s.figure]??''} onChange={e=>setQuickQty(v=>({...v,[s.figure]:e.target.value}))}/><div className="stock-number-actions"><button type="button" className="primary smallbtn" onClick={()=>quick(s.figure,'add')}>＋ Agregar</button><button type="button" className="ghost smallbtn" onClick={()=>quick(s.figure,'remove')}>− Quitar</button></div></div></td></tr>)}

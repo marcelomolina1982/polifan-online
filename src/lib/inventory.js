@@ -39,6 +39,84 @@ export function duplicateFigureGroups(db){
   }).filter(g=>g.names.length>1)
 }
 
+export function catalogFigureInfo(db,name){
+  const key=normalizeFigureKey(name)
+  const product=(db.customerCatalog||[]).find(p=>normalizeFigureKey(p?.name)===key)||null
+  return {isCatalog:Boolean(product),product}
+}
+
+export function mergeFigureInto(db,sourceName,targetName){
+  const source=String(sourceName||'').trim()
+  const target=String(targetName||'').trim()
+  if(!source||!target) return {db,changed:false,error:'Elegí las dos figuras.'}
+  if(source===target) return {db,changed:false,error:'Elegí dos figuras diferentes.'}
+  const sourceKey=normalizeFigureKey(source)
+  const targetKey=normalizeFigureKey(target)
+  const targetProduct=(db.customerCatalog||[]).find(p=>normalizeFigureKey(p?.name)===targetKey)||null
+  const rename=value=>normalizeFigureKey(value)===sourceKey?target:String(value||'').trim()
+  const withProduct=item=>{
+    if(!item?.figure) return item
+    const old=item.figure,figure=rename(old)
+    if(figure===old) return item
+    return {...item,figure,...(targetProduct?.id?{productId:targetProduct.id}:{})}
+  }
+  const mergeItems=items=>{
+    const out=[],byKey=new Map()
+    ;(items||[]).forEach(raw=>{
+      const item=withProduct(raw)
+      if(!item?.figure){out.push(item);return}
+      const key=normalizeFigureKey(item.figure)
+      if(!byKey.has(key)){
+        const next={...item,qty:Number(item.qty||0)}
+        byKey.set(key,next);out.push(next)
+      }else{
+        const current=byKey.get(key)
+        current.qty=Number(current.qty||0)+Number(item.qty||0)
+        if(targetProduct?.id) current.productId=targetProduct.id
+      }
+    })
+    return out
+  }
+
+  const figureMap=new Map()
+  ;(db.figures||[]).forEach(name=>{
+    const n=rename(name),k=normalizeFigureKey(n)
+    if(k&&!figureMap.has(k)) figureMap.set(k,n)
+  })
+  if(targetKey) figureMap.set(targetKey,target)
+  ;(db.customerCatalog||[]).forEach(p=>{
+    const k=normalizeFigureKey(p?.name)
+    if(k&&!figureMap.has(k)) figureMap.set(k,p.name)
+  })
+
+  const stockMin={}
+  Object.entries(db.stockMin||{}).forEach(([name,value])=>{
+    const n=rename(name)
+    stockMin[n]=Math.max(Number(stockMin[n]||0),Number(value||0))
+  })
+
+  const svgLibrary=(db.svgLibrary||[]).map(item=>{
+    const current=item.productName||item.modelName||''
+    if(normalizeFigureKey(current)!==sourceKey) return item
+    return {...item,productName:target,modelName:target,name:item.role?`${target} · ${item.role}`:target,...(targetProduct?.id?{productId:targetProduct.id}:{})}
+  })
+
+  const next={
+    ...db,
+    figures:[...figureMap.values()].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
+    stockMin,
+    orders:(db.orders||[]).map(o=>({...o,items:mergeItems(o.items)})),
+    movements:(db.movements||[]).map(m=>m.figure&&normalizeFigureKey(m.figure)===sourceKey?{...m,figure:target}:m),
+    cutBatches:(db.cutBatches||[]).map(b=>({...b,items:mergeItems(b.items)})),
+    generatedSheets:(db.generatedSheets||[]).map(plan=>({...plan,sheets:(plan.sheets||[]).map(sheet=>({...sheet,pieces:(sheet.pieces||[]).map(piece=>{
+      if(!piece?.figure||normalizeFigureKey(piece.figure)!==sourceKey) return piece
+      return {...piece,figure:target,name:String(piece.name||'').replace(String(piece.figure),target),...(targetProduct?.id?{productId:targetProduct.id}:{})}
+    })}))})),
+    svgLibrary
+  }
+  return {db:next,changed:true,source,target,targetProduct}
+}
+
 function canonicalAliasMap(db){
   const aliases=new Map()
   duplicateFigureGroups(db).forEach(g=>g.names.forEach(name=>aliases.set(normalizeFigureKey(name),g.canonical)))
