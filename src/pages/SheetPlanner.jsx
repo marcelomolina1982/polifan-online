@@ -3,7 +3,8 @@ import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
 
 const COLORS=['#ec2c7c','#14b8b8','#087fc4','#7b3dbb','#f59e0b','#16a34a','#ef4444','#6366f1']
-const PX_PER_CM=3
+const PX_PER_CM=10
+const VERIFY_PX_PER_CM=14
 const num=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f
 const sameSize=(a,b,t=.0005)=>Math.abs(num(a)-num(b))<=t
 const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
@@ -323,6 +324,13 @@ function convexHullMask(mask,w,h){
 }
 
 const angleMaskCache=new Map()
+function cacheAngleMask(key,value){
+  if(angleMaskCache.size>900){
+    const first=angleMaskCache.keys().next().value
+    if(first)angleMaskCache.delete(first)
+  }
+  return cacheAngleMask(key,value)
+}
 async function makeAngleMask(part,angle=0,gapCm=0){
   const normalized=((num(angle)%360)+360)%360
   const key=`${part.svgId||part.id}|${normalized}|${num(gapCm)}|${part.blockInterior!==false?'1':'0'}`
@@ -383,9 +391,83 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   angleMaskCache.set(key,value)
   return value
 }
+
+const precisionMaskCache=new Map()
+async function makePrecisionMask(part,angle=0,gapCm=0,scale=VERIFY_PX_PER_CM){
+  const normalized=((num(angle)%360)+360)%360
+  const key=`${part.svgId||part.id}|${normalized}|${num(gapCm)}|${scale}|precision`
+  if(precisionMaskCache.has(key))return precisionMaskCache.get(key)
+  const srcW=Math.max(.1,num(part.sourceWidth||part.width)),srcH=Math.max(.1,num(part.sourceHeight||part.height))
+  const rad=normalized*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
+  const corners=[[0,0],[srcW,0],[0,srcH],[srcW,srcH]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
+  const minX=Math.min(...corners.map(q=>q[0])),maxX=Math.max(...corners.map(q=>q[0]))
+  const minY=Math.min(...corners.map(q=>q[1])),maxY=Math.max(...corners.map(q=>q[1]))
+  const boxW=maxX-minX,boxH=maxY-minY
+  const pad=Math.ceil(Math.max(0,num(gapCm))*scale/2)
+  const pw=Math.max(1,Math.ceil(boxW*scale))+pad*2,ph=Math.max(1,Math.ceil(boxH*scale))+pad*2
+  const canvas=document.createElement('canvas');canvas.width=pw;canvas.height=ph
+  const ctx=canvas.getContext('2d',{willReadFrequently:true})
+  if(part.svgText){
+    const doc=new DOMParser().parseFromString(part.svgText,'image/svg+xml'),svg=doc.documentElement
+    if(part.blockInterior!==false)svg.querySelectorAll('path,polygon,polyline,circle,ellipse,rect').forEach(el=>{el.setAttribute('fill','#000');el.setAttribute('stroke','#000')})
+    const im=await loadImage(svgDataUrl(new XMLSerializer().serializeToString(svg)))
+    ctx.save();ctx.translate(pad-minX*scale,pad-minY*scale);ctx.rotate(rad);ctx.drawImage(im,0,0,srcW*scale,srcH*scale);ctx.restore()
+  }else ctx.fillRect(pad,pad,Math.ceil(boxW*scale),Math.ceil(boxH*scale))
+  const alpha=ctx.getImageData(0,0,pw,ph).data
+  let mask=new Uint8Array(pw*ph)
+  for(let i=0;i<mask.length;i++)if(alpha[i*4+3]>18)mask[i]=1
+  if(part.blockInterior!==false){mask=solidifyConnectedComponents(mask,pw,ph);mask=fillClosedHoles(mask,pw,ph)}
+  if(pad){
+    const d=new Uint8Array(mask.length)
+    for(let y=0;y<ph;y++)for(let x=0;x<pw;x++)if(mask[y*pw+x]){
+      for(let dy=-pad;dy<=pad;dy++)for(let dx=-pad;dx<=pad;dx++){
+        if(dx*dx+dy*dy>pad*pad)continue
+        const xx=x+dx,yy=y+dy
+        if(xx>=0&&xx<pw&&yy>=0&&yy<ph)d[yy*pw+xx]=1
+      }
+    }
+    mask=d
+  }
+  const value={mask,pw,ph,pad,boxW,boxH,angle:normalized}
+  if(precisionMaskCache.size>500)precisionMaskCache.clear()
+  precisionMaskCache.set(key,value)
+  return value
+}
+
+async function precisionValidateSheet(sheet,wCm,hCm,gapCm){
+  const scale=VERIFY_PX_PER_CM,sw=Math.floor(wCm*scale),sh=Math.floor(hCm*scale)
+  const occ=new Uint8Array(sw*sh),materialOcc=new Uint8Array(sw*sh)
+  const collides=(grid,m,x,y)=>{
+    if(x<0||y<0||x+m.pw>sw||y+m.ph>sh)return true
+    for(let my=0;my<m.ph;my++){const mo=my*m.pw,go=(y+my)*sw+x;for(let mx=0;mx<m.pw;mx++)if(m.mask[mo+mx]&&grid[go+mx])return true}
+    return false
+  }
+  const stamp=(grid,m,x,y)=>{for(let my=0;my<m.ph;my++){const mo=my*m.pw,go=(y+my)*sw+x;for(let mx=0;mx<m.pw;mx++)if(m.mask[mo+mx])grid[go+mx]=1}}
+  for(const piece of sheet?.placed||[]){
+    const angle=num(piece.angle,piece.rotated?90:0)
+    const safe=await makePrecisionMask(piece,angle,Math.max(.20,num(gapCm)),scale)
+    const x=Math.round(num(piece.x)*scale-safe.pad),y=Math.round(num(piece.y)*scale-safe.pad)
+    if(collides(occ,safe,x,y))return {ok:false,collision:piece.name,usage:0,materialArea:0}
+    stamp(occ,safe,x,y)
+    const raw=await makePrecisionMask(piece,angle,0,scale)
+    const rx=Math.round(num(piece.x)*scale),ry=Math.round(num(piece.y)*scale)
+    if(rx>=0&&ry>=0&&rx+raw.pw<=sw&&ry+raw.ph<=sh)stamp(materialOcc,raw,rx,ry)
+  }
+  let pixels=0
+  for(let i=0;i<materialOcc.length;i++)if(materialOcc[i])pixels++
+  const materialArea=pixels/(scale*scale),usage=Math.min(100,100*materialArea/(wCm*hCm))
+  return {ok:true,collision:null,usage,materialArea}
+}
+
+function seededShuffle(array,seed=1){
+  const out=array.slice();let x=(seed|0)||1
+  const rnd=()=>{x=(x*1664525+1013904223)|0;return (x>>>0)/4294967296}
+  for(let i=out.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[out[i],out[j]]=[out[j],out[i]]}
+  return out
+}
 async function packCompleteKits(kits,wCm,hCm,gap,{
   target=10,targetEfficiency=90,angleStep=15,deadline=Infinity,onProgress=null,shouldStop=null,
-  orderMode='areaDesc',scoreMode='compact',scanStep=3
+  orderMode='areaDesc',scoreMode='compact',scanStep=3,shuffleSeed=0
 }={}){
   const safeGap=Math.max(num(gap),.20)
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM)
@@ -514,7 +596,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
     return a/Math.max(1,k.parts.length)
   }
   const priority=(a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))
-  const ordered=kits.slice().sort((a,b)=>{
+  let ordered=kits.slice().sort((a,b)=>{
     const p=priority(a,b);if(p)return p
     if(orderMode==='areaAsc')return kitArea(a)-kitArea(b)
     if(orderMode==='aspect')return kitAspect(b)-kitAspect(a)||kitArea(b)-kitArea(a)
@@ -522,6 +604,16 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
     if(orderMode==='smallPartsFirst')return kitArea(a)-kitArea(b)
     return kitArea(b)-kitArea(a)
   })
+  if(shuffleSeed){
+    const groups=[]
+    ordered.forEach(k=>{
+      const key=`${num(k.priority,999999)}|${k.date||''}`
+      let g=groups.find(x=>x.key===key)
+      if(!g){g={key,items:[]};groups.push(g)}
+      g.items.push(k)
+    })
+    ordered=groups.flatMap((g,i)=>seededShuffle(g.items,shuffleSeed+i*97))
+  }
 
   const state={occ:new Uint8Array(sw*sh),boxes:[],placed:[]},skipped=[]
   for(let i=0;i<ordered.length;i++){
@@ -530,7 +622,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
     const used=occupiedAreaCm2(state.occ)
     const partial={number:1,placed:state.placed,used,efficiency:sheetArea?Math.min(100,100*used/sheetArea):0}
     onProgress?.({done:i+1,total:ordered.length,completeFigures:kitCountOnSheet(partial),efficiency:partial.efficiency,sheet:partial,
-      strategy:{angleStep,orderMode,scoreMode,scanStep}})
+      strategy:{angleStep,orderMode,scoreMode,scanStep,shuffleSeed}})
     if(i%2===0)await nextFrame()
   }
 
@@ -551,7 +643,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
 
   sheet.placed=sheet.placed.map(({_mx,_my,_pw,_ph,...piece})=>piece)
   return {sheets:[sheet],rejected:skipped,total:sheet.placed.length,sheetArea,used,completeFigures,target,targetEfficiency,
-    strategy:{angleStep,orderMode,scoreMode,scanStep}}
+    strategy:{angleStep,orderMode,scoreMode,scanStep,shuffleSeed}}
 }
 function usableModelComponents(model){
   const components=(model?.components||[]).filter(Boolean)
@@ -655,17 +747,20 @@ export default function SheetPlanner({db,onSave}){
     }
 
     const strategies=[
-      {label:'Base rápida',angleStep:30,orderMode:'areaDesc',scoreMode:'compact',scanStep:0},
-      {label:'Grandes primero',angleStep:15,orderMode:'areaDesc',scoreMode:'contact',scanStep:0},
-      {label:'Pequeñas primero',angleStep:15,orderMode:'areaAsc',scoreMode:'compact',scanStep:0},
-      {label:'Formas alargadas',angleStep:15,orderMode:'aspect',scoreMode:'balanced',scanStep:0},
-      {label:'Contacto máximo',angleStep:10,orderMode:'areaDesc',scoreMode:'contact',scanStep:0},
-      {label:'Equilibrado',angleStep:10,orderMode:'aspect',scoreMode:'balanced',scanStep:2},
-      {label:'Nesting fino A',angleStep:5,orderMode:'areaDesc',scoreMode:'contact',scanStep:2},
-      {label:'Nesting fino B',angleStep:5,orderMode:'areaAsc',scoreMode:'balanced',scanStep:2},
-      {label:'Nesting fino C',angleStep:5,orderMode:'nameMix',scoreMode:'compact',scanStep:1}
+      {label:'Base CNC',angleStep:30,orderMode:'areaDesc',scoreMode:'compact',scanStep:0,shuffleSeed:0},
+      {label:'Contacto 15°',angleStep:15,orderMode:'areaDesc',scoreMode:'contact',scanStep:0,shuffleSeed:0},
+      {label:'Alargadas 15°',angleStep:15,orderMode:'aspect',scoreMode:'balanced',scanStep:0,shuffleSeed:0},
+      {label:'Mezcla A',angleStep:15,orderMode:'areaDesc',scoreMode:'contact',scanStep:0,shuffleSeed:17},
+      {label:'Mezcla B',angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:0,shuffleSeed:41},
+      {label:'Pequeñas 10°',angleStep:10,orderMode:'areaAsc',scoreMode:'contact',scanStep:0,shuffleSeed:73},
+      {label:'Precisión A',angleStep:10,orderMode:'aspect',scoreMode:'contact',scanStep:1,shuffleSeed:101},
+      {label:'Precisión B',angleStep:5,orderMode:'areaDesc',scoreMode:'contact',scanStep:1,shuffleSeed:131},
+      {label:'Precisión C',angleStep:5,orderMode:'areaAsc',scoreMode:'balanced',scanStep:1,shuffleSeed:173},
+      {label:'Precisión D',angleStep:5,orderMode:'aspect',scoreMode:'compact',scanStep:1,shuffleSeed:211},
+      {label:'Mutación E',angleStep:5,orderMode:'nameMix',scoreMode:'contact',scanStep:1,shuffleSeed:257},
+      {label:'Mutación F',angleStep:5,orderMode:'areaDesc',scoreMode:'balanced',scanStep:1,shuffleSeed:307}
     ]
-    const limits=optimizerMode==='fast'?3:optimizerMode==='smart'?6:strategies.length
+    const limits=optimizerMode==='fast'?3:optimizerMode==='smart'?7:strategies.length
     const selected=strategies.slice(0,limits)
 
     const update=(label,index,data={})=>{
@@ -674,7 +769,7 @@ export default function SheetPlanner({db,onSave}){
       const local=(Number(data.done||0)/Math.max(1,Number(data.total||1)))*(78/Math.max(1,selected.length))
       const percent=Math.min(96,Math.max(1,Math.round(base+local)))
       const eta=percent>2?Math.max(0,elapsed*(100-percent)/percent):null
-      setCalcProgress({stage:`Motor inteligente · ${label}`,percent,elapsed,eta,
+      setCalcProgress({stage:`Motor CNC · ${label}`,percent,elapsed,eta,
         completeFigures:best?.completeFigures||data.completeFigures||0,efficiency:best?.efficiency||data.efficiency||0})
     }
 
@@ -683,9 +778,16 @@ export default function SheetPlanner({db,onSave}){
         const st=selected[i];tested++
         const trial=await packCompleteKits(kits,num(sheetW),num(sheetH),num(gap),{
           target:targetComplete,targetEfficiency,deadline,shouldStop,
-          angleStep:st.angleStep,orderMode:st.orderMode,scoreMode:st.scoreMode,scanStep:st.scanStep,
+          angleStep:st.angleStep,orderMode:st.orderMode,scoreMode:st.scoreMode,scanStep:st.scanStep,shuffleSeed:st.shuffleSeed||0,
           onProgress:d=>update(st.label,i,d)
         })
+        if(trial.sheets?.[0]){
+          const precision=await precisionValidateSheet(trial.sheets[0],num(sheetW),num(sheetH),num(gap))
+          if(!precision.ok){setOptimizerStats(v=>({...v,tested}));await nextFrame();continue}
+          trial.efficiency=precision.usage;trial.used=precision.materialArea
+          trial.sheets[0].efficiency=precision.usage;trial.sheets[0].used=precision.materialArea
+          trial.precisionValidated=true
+        }
         if(better(trial,best)){
           best=trial;improved++
           const sh=trial.sheets?.[0]
@@ -706,12 +808,19 @@ export default function SheetPlanner({db,onSave}){
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
           if(!built.kits.length){stagnant++;continue}
           const candidate=[...working,...built.kits]
-          setCalcProgress(v=>v?{...v,stage:`Motor inteligente · probando relleno ${name}`,percent:Math.min(98,80+Math.round(a/maxFill*18))}:v)
+          setCalcProgress(v=>v?{...v,stage:`Motor CNC · probando relleno ${name}`,percent:Math.min(98,80+Math.round(a/maxFill*18))}:v)
           tested++
           const trial=await packCompleteKits(candidate,num(sheetW),num(sheetH),num(gap),{
             target:targetComplete,targetEfficiency,deadline,shouldStop,
-            angleStep:bestSt.angleStep,orderMode:bestSt.orderMode,scoreMode:bestSt.scoreMode,scanStep:bestSt.scanStep
+            angleStep:bestSt.angleStep,orderMode:bestSt.orderMode,scoreMode:bestSt.scoreMode,scanStep:bestSt.scanStep,shuffleSeed:bestSt.shuffleSeed||0
           })
+          if(trial.sheets?.[0]){
+            const precision=await precisionValidateSheet(trial.sheets[0],num(sheetW),num(sheetH),num(gap))
+            if(!precision.ok){stagnant++;continue}
+            trial.efficiency=precision.usage;trial.used=precision.materialArea
+            trial.sheets[0].efficiency=precision.usage;trial.sheets[0].used=precision.materialArea
+            trial.precisionValidated=true
+          }
           if(better(trial,best)){
             best=trial;working=candidate;bestWorking=working;fillers.push(name);improved++;stagnant=0
             setBestLive({sheet:trial.sheets[0],completeFigures:trial.completeFigures,efficiency:trial.efficiency})
@@ -724,6 +833,11 @@ export default function SheetPlanner({db,onSave}){
       if(!best?.sheets?.length&&bestLive?.sheet)best={sheets:[bestLive.sheet],completeFigures:bestLive.completeFigures,efficiency:bestLive.efficiency,used:bestLive.sheet.used,rejected:[]}
       const one=best?.sheets?.[0]
       if(!one)throw new Error('No se encontró una placa válida dentro del tiempo de cálculo.')
+      const finalPrecision=await precisionValidateSheet(one,num(sheetW),num(sheetH),num(gap))
+      if(!finalPrecision.ok)throw new Error(`La validación CNC final detectó una superposición en ${finalPrecision.collision}. La placa fue descartada.`)
+      best.efficiency=finalPrecision.usage;best.used=finalPrecision.materialArea
+      one.efficiency=finalPrecision.usage;one.used=finalPrecision.materialArea
+      best.precisionValidated=true
 
       const placedIds=new Set(one.placed.map(p=>p.instanceId))
       const visibleItems=[]
@@ -811,8 +925,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Motor inteligente de nesting: analiza varias estrategias de orden, rotación y encastre, compara resultados y conserva automáticamente la mejor placa válida, sin cambiar las medidas de los SVG.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 5°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El motor inteligente prueba distintas estrategias y aprende durante cada cálculo cuál aprovecha mejor esa combinación de figuras. Prioriza mínimo 10 figuras completas y después maximiza la ocupación real hasta el objetivo configurado.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Motor CNC de precisión: analiza varias estrategias de orden, rotación y encastre, compara resultados y conserva automáticamente la mejor placa válida, sin cambiar las medidas de los SVG.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 5°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El motor CNC trabaja a resolución de 1 mm, genera múltiples soluciones, muta el orden dentro de la misma prioridad y valida cada candidato con una segunda geometría a mayor resolución. Ninguna solución entra si falla la validación final.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     {calcProgress&&<section className="panel calc-progress-panel">
       <div className="calc-progress-head"><div><b>{calcProgress.stage}</b><small>{calcProgress.percent}% completado</small></div>{busy&&bestLive?.sheet&&<button className="ghost" onClick={requestBestCurrent}>Usar mejor resultado actual</button>}</div>
       <div className="calc-progress-bar"><span style={{width:`${calcProgress.percent}%`}}/></div>
@@ -824,7 +938,7 @@ export default function SheetPlanner({db,onSave}){
       <div className="ai-optimizer-stats"><span>🧠 Estrategias probadas: <b>{optimizerStats.tested}</b></span><span>↗ Mejoras encontradas: <b>{optimizerStats.improved}</b></span><span>⭐ Mejor estrategia: <b>{optimizerStats.bestStrategy||'Buscando…'}</b></span></div>
       {busy&&<small>El cálculo se detiene automáticamente a los 2 min 30 s y conserva la mejor placa encontrada.</small>}
     </section>}
-    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor inteligente<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="fast">Rápido · ~30 s</option><option value="smart">Inteligente · ~90 s</option><option value="max">Máximo · ~2 min 30 s</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
+    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor CNC<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="fast">Rápido · precisión 1 mm</option><option value="smart">Preciso · múltiples soluciones</option><option value="max">Máximo · búsqueda profunda</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
     {error&&<div className="notice">{error}</div>}
@@ -841,7 +955,7 @@ export default function SheetPlanner({db,onSave}){
       </>}
     </section><section className="planner-preview"><div className="planner-kpis"><div className="metric-card"><small>Placas</small><b className="viz-stat-value">{result.sheets.length}</b></div><div className="metric-card"><small>Piezas</small><b className="viz-stat-value">{result.total}</b></div><div className="metric-card"><small>Aprovechamiento</small><b className="viz-stat-value">{result.sheets.length?Math.round(100*result.used/(result.sheetArea*result.sheets.length)):0}%</b></div></div>
       {result.rejected.length>0&&<div className="notice">{result.rejected.length} pieza(s) no entraron.</div>}{result.waitingSheets?.length>0&&<div className="notice"><b>{result.waitingSheets.length} placa(s) en espera</b><span>No se guardan como listas para cortar hasta alcanzar {result.threshold}% o recibir más piezas pendientes.</span></div>}
-      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% ocupación real {kitCountOnSheet(sheet)>=10?'· ✓ mínimo 10':'· faltan '+(10-kitCountOnSheet(sheet))+' para mínimo 10'} {sheet.efficiency>=90?'· ✓ meta 90%':'· intentando llegar al 90%'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=>{
+      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% ocupación real {result.precisionValidated?'· ✓ validación CNC':''} {kitCountOnSheet(sheet)>=10?'· ✓ mínimo 10':'· faltan '+(10-kitCountOnSheet(sheet))+' para mínimo 10'} {sheet.efficiency>=90?'· ✓ meta 90%':'· intentando llegar al 90%'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=>{
   const angle=((num(p.angle,p.rotated?90:0)%360)+360)%360
   const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
   const rad=angle*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
