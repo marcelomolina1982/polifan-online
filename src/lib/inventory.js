@@ -260,10 +260,12 @@ export function looseComponentBalance(db){
 export function physicalStockBalance(db){
   const raw=manualBalance(db)
   const out=automaticOrderOutflow(db)
-  const names=new Set([...Object.keys(raw),...Object.keys(out)])
+  const loose=looseComponentBalance(db)
+  const names=new Set([...Object.keys(raw),...Object.keys(out),...Object.keys(loose)])
   const physical={}
   names.forEach(figure=>{
-    physical[figure]=Math.max(0,Number(raw[figure]||0)-Number(out[figure]||0))
+    const paired=Math.min(Number(loose[figure]?.tapa||0),Number(loose[figure]?.base||0))
+    physical[figure]=Math.max(0,Number(raw[figure]||0)+paired-Number(out[figure]||0))
   })
   return physical
 }
@@ -272,8 +274,20 @@ export function activeCutQty(db){
   const active={}
   ;(db.cutBatches||[]).filter(b=>b.status==='En corte').forEach(b=>{
     ;(b.items||[]).forEach(i=>{
-      if(!i.figure)return
+      if(!i.figure || (i.component&&i.component!=='complete'))return
       active[i.figure]=(active[i.figure]||0)+Number(i.qty||0)*Math.max(1,Number(b.multiplier)||1)
+    })
+  })
+  return active
+}
+
+export function activeCutComponents(db){
+  const active={}
+  ;(db.cutBatches||[]).filter(b=>b.status==='En corte').forEach(b=>{
+    ;(b.items||[]).forEach(i=>{
+      if(!i.figure || !['tapa','base'].includes(i.component))return
+      if(!active[i.figure])active[i.figure]={tapa:0,base:0}
+      active[i.figure][i.component]+=Number(i.qty||0)*Math.max(1,Number(b.multiplier)||1)
     })
   })
   return active
@@ -283,19 +297,26 @@ export function stockRows(db){
   const demand=orderDemand(db)
   const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
+  const inCutComponents=activeCutComponents(db)
   const autoOut=automaticOrderOutflow(db)
   const loose=looseComponentBalance(db)
   const catalogNames=(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)
-  const names=new Set([...(db.figures||[]),...catalogNames,...Object.keys(demand),...Object.keys(physical),...Object.keys(inCut),...Object.keys(autoOut),...Object.keys(loose)])
+  const names=new Set([...(db.figures||[]),...catalogNames,...Object.keys(demand),...Object.keys(physical),...Object.keys(inCut),...Object.keys(inCutComponents),...Object.keys(autoOut),...Object.keys(loose)])
   return [...names].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})).map(f=>{
     const cut=Number(physical[f]||0)
     const ordered=Number(demand[f]||0)
     const cutting=Number(inCut[f]||0)
     const free=cut-ordered
     const projected=cut+cutting-ordered
-    const looseTapa=Number(loose[f]?.tapa||0)
-    const looseBase=Number(loose[f]?.base||0)
-    const loosePairs=Math.min(looseTapa,looseBase)
+    const rawLooseTapa=Number(loose[f]?.tapa||0)
+    const rawLooseBase=Number(loose[f]?.base||0)
+    const pairedNow=Math.min(rawLooseTapa,rawLooseBase)
+    const looseTapa=Math.max(0,rawLooseTapa-pairedNow)
+    const looseBase=Math.max(0,rawLooseBase-pairedNow)
+    const inCutTapa=Number(inCutComponents[f]?.tapa||0)
+    const inCutBase=Number(inCutComponents[f]?.base||0)
+    const futurePairs=Math.min(looseTapa+inCutTapa,looseBase+inCutBase)
+    const projectedWithParts=cut+cutting+futurePairs-ordered
     const missingPart=looseTapa>looseBase?{type:'base',qty:looseTapa-looseBase}:looseBase>looseTapa?{type:'tapa',qty:looseBase-looseTapa}:null
     return {
       figure:f,
@@ -305,10 +326,14 @@ export function stockRows(db){
       inCut:cutting,
       free,
       total:free,
-      projected,
+      projected:projectedWithParts,
       looseTapa,
       looseBase,
-      loosePairs,
+      loosePairs:0,
+      pairedNow,
+      futurePairs,
+      inCutTapa,
+      inCutBase,
       missingPart,
       autoOut:Number(autoOut[f]||0),
       min:Number(db.stockMin?.[f]||0)

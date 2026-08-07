@@ -40,7 +40,7 @@ export default function CustomerOrder() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
   const [cart, setCart] = useState({})
-  const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística', agencyDelivery: 'Envío a domicilio', notes: '' })
+  const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística GBA/CABA', agencyDelivery: 'Envío a domicilio', notes: '' })
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
   const [chatOpen,setChatOpen]=useState(false)
   const [chatbotSettings,setChatbotSettings]=useState({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'/mia-assistant-cutout.png',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'})
@@ -169,8 +169,8 @@ export default function CustomerOrder() {
     if (!data.lastName.trim()) return alert('Ingresá tu apellido.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
     if (!items.length) return alert('Elegí al menos un producto.')
-    if(data.method==='Logística' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
-    if(['Vía Cargo','Correo Argentino'].includes(data.method) && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
+    if(data.method==='Logística GBA/CABA' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
+    if(data.method==='Vía Cargo' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
 
     setSending(true)
     const latestState=await refreshPlanning(false,{retries:2})
@@ -199,12 +199,12 @@ export default function CustomerOrder() {
       data.email.trim() ? `✉️ *Email:* ${data.email.trim()}` : '',
       `📦 *Tipo de entrega:* ${data.method}`,
       data.method!=='Retiro en el local'?`📍 *Domicilio:* ${data.address.trim()}`:'',
-      data.method==='Logística'?`↔️ *Entre calles:* ${data.betweenStreets.trim()}`:'',
+      data.method==='Logística GBA/CABA'?`↔️ *Entre calles:* ${data.betweenStreets.trim()}`:'',
       data.method!=='Retiro en el local'?`🏙️ *Localidad:* ${data.locality.trim()}`:'',
       data.method!=='Retiro en el local'?`🗺️ *Partido / Departamento:* ${data.district.trim()}`:'',
       data.method!=='Retiro en el local'?`📌 *Provincia:* ${data.province.trim()}`:'',
       data.method!=='Retiro en el local'?`📮 *Código postal:* ${data.postalCode.trim()}`:'',
-      ['Vía Cargo','Correo Argentino'].includes(data.method)?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
+      data.method==='Vía Cargo'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',
       productionText, 
       '', '*PRODUCTOS*', productLines,
       '', `🔢 *Total de piezas:* ${total}`,
@@ -295,17 +295,17 @@ export default function CustomerOrder() {
           <label>Nombre<input value={data.firstName} onChange={event => {update('firstName', event.target.value);update('name',[event.target.value,data.lastName].filter(Boolean).join(' '))}} placeholder="Tu nombre" autoComplete="given-name" /></label>
           <label>Apellido<input value={data.lastName} onChange={event => {update('lastName', event.target.value);update('name',[data.firstName,event.target.value].filter(Boolean).join(' '))}} placeholder="Tu apellido" autoComplete="family-name" /></label>
           <label>Tu WhatsApp<input inputMode="tel" value={data.phone} onChange={event => update('phone', event.target.value)} placeholder="Ej.: 11 2345 6789" /></label>
-          <label>{['Vía Cargo','Correo Argentino'].includes(data.method)?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
-          <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Correo Argentino</option><option>Otro expreso</option></select></label>
+          <label>{data.method==='Vía Cargo'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event => update('dni', event.target.value.replace(/\D/g, ''))} placeholder="DNI" /></label>
+          <label>Tipo de entrega<select value={data.method} onChange={event => update('method', event.target.value)}><option>Logística GBA/CABA</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Otro expreso</option></select></label>
           <label>Correo electrónico<input type="email" value={data.email} onChange={event => update('email', event.target.value)} placeholder="tu@email.com" /></label>
           <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='stale'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante (estimado)</b><span>No pudimos actualizar ahora; usamos la última planificación guardada. Tu solicitud se enviará normalmente y confirmaremos la fecha. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Actualizar</button></span></>:planningSync.status==='error'?<><b>Fecha de producción a confirmar</b><span>No pudimos consultar el calendario en este momento. Tu solicitud se enviará normalmente y nuestro equipo confirmará la fecha. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Podés continuar completando el pedido. Si la consulta demora, la fecha se confirmará después.</span></>}</div>
           {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event => update('address', event.target.value)} placeholder="Calle y número" /></label>
-          {data.method==='Logística'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
+          {data.method==='Logística GBA/CABA'&&<label>Entre calles<input value={data.betweenStreets} onChange={event => update('betweenStreets', event.target.value)} placeholder="Entre calle... y calle..." /></label>}
           <label>Localidad<input value={data.locality} onChange={event => update('locality', event.target.value)} placeholder="Tu localidad" /></label>
           <label>Partido / Departamento<input value={data.district} onChange={event => update('district', event.target.value)} placeholder="Ej.: La Matanza" /></label>
           <label>Provincia<input value={data.province} onChange={event => update('province', event.target.value)} placeholder="Ej.: Buenos Aires" /></label>
           <label>Código postal<input inputMode="text" value={data.postalCode} onChange={event => update('postalCode', event.target.value.replace(/[^0-9A-Za-z-]/g, ''))} placeholder="Ej.: 1655" autoComplete="postal-code" /></label></>}
-          {['Vía Cargo','Correo Argentino'].includes(data.method)&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
+          {data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
         </div>
         <label>Observaciones<textarea value={data.notes} onChange={event => update('notes', event.target.value)} placeholder="Colores, nombres personalizados, cartelería u otros detalles..." /></label>
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
