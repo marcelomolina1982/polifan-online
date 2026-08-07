@@ -464,3 +464,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .calc-progress-bar span{display:block;height:100%;background:linear-gradient(90deg,#14b8b8,#7b3dbb,#ec2c7c);transition:width .25s ease}
 .calc-progress-stats{display:flex;flex-wrap:wrap;gap:10px 22px;font-size:13px}
 @media(max-width:760px){.calc-progress-head{align-items:stretch;flex-direction:column}.calc-progress-stats{display:grid;gap:5px}}
+
+.ai-optimizer-stats{display:flex;flex-wrap:wrap;gap:8px 18px;padding:9px 11px;border-radius:10px;background:#f7f3ff;border:1px solid #e7dcff;font-size:12px}
+.ai-optimizer-stats b{color:#6d28d9}
+@media(max-width:760px){.ai-optimizer-stats{display:grid;gap:5px}}
