@@ -245,14 +245,21 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
 
   function candidates(rects,w,h){
     const pts=[[0,0],[sw-w,0],[0,sh-h],[sw-w,sh-h]]
+    const xs=new Set([0,sw-w]),ys=new Set([0,sh-h])
     rects.forEach(r=>{
+      xs.add(r.x+r.w+gapPx);xs.add(r.x-w-gapPx);xs.add(r.x);xs.add(r.x+r.w-w)
+      ys.add(r.y+r.h+gapPx);ys.add(r.y-h-gapPx);ys.add(r.y);ys.add(r.y+r.h-h)
       pts.push([r.x+r.w+gapPx,r.y],[r.x,r.y+r.h+gapPx])
       pts.push([r.x-w-gapPx,r.y],[r.x,r.y-h-gapPx])
       pts.push([r.x+r.w+gapPx,r.y+r.h-h],[r.x+r.w-w,r.y+r.h+gapPx])
     })
+    // Cruza bordes relevantes de piezas ya colocadas: da muchas más opciones de
+    // compactación sin volver al barrido píxel por píxel que congelaba la app.
+    for(const x of xs)for(const y of ys)pts.push([x,y])
     const seen=new Set()
     return pts.filter(([x,y])=>x>=0&&y>=0&&x+w<=sw&&y+h<=sh)
       .filter(([x,y])=>{const k=`${Math.round(x)}|${Math.round(y)}`;if(seen.has(k))return false;seen.add(k);return true})
+      .sort((a,b)=>a[1]-b[1]||a[0]-b[0])
   }
   function overlaps(rects,x,y,w,h){
     return rects.some(r=>x<r.x+r.w+gapPx&&x+w+gapPx>r.x&&y<r.y+r.h+gapPx&&y+h+gapPx>r.y)
@@ -286,16 +293,40 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
     return true
   }
 
-  const ordered=kits.slice().sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date)))
-  for(let i=0;i<ordered.length;i++){
-    const kit=ordered[i]
-    if(!tryKit(kit))skipped.push(kit)
-    if(i>0&&i%8===0)await nextFrame()
+  const kitArea=k=>k.parts.reduce((a,p)=>a+num(p.width)*num(p.height),0)
+  const baseOrdered=kits.slice().sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))||kitArea(b)-kitArea(a))
+  const orderings=[
+    baseOrdered,
+    baseOrdered.slice().sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))||kitArea(a)-kitArea(b))
+  ]
+  let bestSheet=null,bestSkipped=null,bestCount=-1,bestEff=-1
+
+  for(const ordered of orderings){
+    sheet.rects=[];sheet.placed=[];skipped.length=0
+    for(let i=0;i<ordered.length;i++){
+      const kit=ordered[i]
+      if(!tryKit(kit))skipped.push(kit)
+      if(i>0&&i%8===0)await nextFrame()
+    }
+    const area=wCm*hCm
+    const used=sheet.placed.reduce((a,p)=>a+p.w*p.h,0)
+    const eff=area?100*used/area:0
+    const count=kitCountOnSheet(sheet)
+    if(count>bestCount||(count===bestCount&&eff>bestEff)){
+      bestCount=count;bestEff=eff
+      bestSheet={number:1,placed:sheet.placed.map(x=>({...x})),used,efficiency:eff}
+      bestSkipped=skipped.slice()
+    }
   }
 
+  sheet.number=bestSheet?.number||1
+  sheet.placed=bestSheet?.placed||[]
+  sheet.used=bestSheet?.used||0
+  sheet.efficiency=bestSheet?.efficiency||0
+  skipped.length=0
+  ;(bestSkipped||[]).forEach(x=>skipped.push(x))
+
   const area=wCm*hCm
-  sheet.used=sheet.placed.reduce((a,p)=>a+p.w*p.h,0)
-  sheet.efficiency=area?100*sheet.used/area:0
   const completeFigures=kitCountOnSheet(sheet)
   delete sheet.rects
   return {sheets:sheet.placed.length?[sheet]:[],rejected:skipped,total:sheet.placed.length,sheetArea:area,used:sheet.used,completeFigures,target}
@@ -380,7 +411,7 @@ export default function SheetPlanner({db,onSave}){
       if(useFillers&&packed.completeFigures<targetComplete){
         const ranking=bestSellerNames(db)
         let attempts=0
-        while(packed.completeFigures<targetComplete&&attempts<20&&ranking.length){
+        while(packed.completeFigures<targetComplete&&attempts<35&&ranking.length){
           const name=ranking[attempts%ranking.length];attempts++
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
           if(!built.kits.length)continue
@@ -437,7 +468,33 @@ export default function SheetPlanner({db,onSave}){
   },[items])
   async function generate(){setBusy(true);setError('');setActive(0);try{const invalid=items.filter(x=>!num(x.sourceWidth||x.width)||!num(x.sourceHeight||x.height)||!sameSize(x.width,x.sourceWidth||x.width)||!sameSize(x.height,x.sourceHeight||x.height));if(invalid.length)throw new Error(`Medida alterada o faltante en: ${invalid.map(x=>x.name).join(', ')}. El motor solo acepta la medida exacta del SVG.`);setResult({...await pack(items,num(sheetW),num(sheetH),num(gap),{strictRects:true}),stale:false})}catch(e){setError(e.message||'No se pudo generar')}finally{setBusy(false)}}
   function markup(p){const m=p.svgMeta;if(!m)return '';if(p.rotated)return `<g transform="translate(${p.x+p.w} ${p.y}) rotate(90)"><svg width="${p.h}" height="${p.w}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg></g>`;return `<svg x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg>`}
-  function download(){if(!sheet)return;const altered=sheet.placed.filter(p=>!sameSize(p.w,p.rotated?p.sourceHeight||p.height:p.sourceWidth||p.width)||!sameSize(p.h,p.rotated?p.sourceWidth||p.width:p.sourceHeight||p.height));if(altered.length)return alert('No se puede exportar: se detectó una pieza con escala diferente al SVG original.');const metadata=esc(JSON.stringify({empresa:'Tu Vida en Tinta',regla:'medidas exactas del SVG',scaleX:1,scaleY:1,piezas:sheet.placed.map(p=>({nombre:p.name,svgId:p.svgId,anchoOrigen:p.sourceWidth||p.width,altoOrigen:p.sourceHeight||p.height,rotada:p.rotated}))}));const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${sheetW}cm" height="${sheetH}cm" viewBox="0 0 ${sheetW} ${sheetH}"><metadata>${metadata}</metadata>${sheet.placed.map(markup).join('')}</svg>`;const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),a=document.createElement('a');a.href=u;a.download=`placa-cnc-${sheet.number}.svg`;a.click();URL.revokeObjectURL(u)}
+  function download(){
+    if(!sheet)return
+    const tol=.05
+    const altered=sheet.placed.filter(p=>{
+      const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
+      const expectedW=p.rotated?srcH:srcW
+      const expectedH=p.rotated?srcW:srcH
+      return Math.abs(num(p.w)-expectedW)>tol||Math.abs(num(p.h)-expectedH)>tol
+    })
+    if(altered.length)return alert(`No se puede exportar: se detectó una pieza realmente escalada o deformada: ${altered.slice(0,5).map(x=>x.name).join(', ')}${altered.length>5?'…':''}`)
+    const metadata=esc(JSON.stringify({
+      empresa:'Tu Vida en Tinta',
+      regla:'medidas exactas del SVG',
+      rotacionPermitida:true,
+      escalaPermitida:false,
+      piezas:sheet.placed.map(p=>({
+        nombre:p.name,svgId:p.svgId,
+        anchoOrigen:p.sourceWidth||p.width,
+        altoOrigen:p.sourceHeight||p.height,
+        anchoColocado:p.w,altoColocado:p.h,
+        rotada:!!p.rotated,scaleX:1,scaleY:1
+      }))
+    }))
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${sheetW}cm" height="${sheetH}cm" viewBox="0 0 ${sheetW} ${sheetH}"><metadata>${metadata}</metadata>${sheet.placed.map(markup).join('')}</svg>`
+    const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),a=document.createElement('a')
+    a.href=u;a.download=`placa-cnc-${sheet.number}.svg`;a.click();URL.revokeObjectURL(u)
+  }
   async function savePlan(){if(!result.sheets.length)return;const plan={id:uid(),date:new Date().toISOString(),status:result.automatic?'Lista automática':'Diseñada',automatic:!!result.automatic,priorityRule:'fecha de salida ascendente',fillThreshold:result.threshold||null,fillers:result.fillers||[],sheetW:num(sheetW),sheetH:num(sheetH),gap:num(gap),sheets:result.sheets.map(s=>({number:s.number,multiplier:num(sheetMultipliers[s.number],1),efficiency:s.efficiency,pieces:s.placed.map(p=>({name:p.name,figure:p.figure,unitWeight:num(p.unitWeight,1),itemId:p.itemId||p.id,svgId:p.svgId,x:p.x,y:p.y,w:p.w,h:p.h,sourceWidth:p.sourceWidth||p.width,sourceHeight:p.sourceHeight||p.height,scaleX:1,scaleY:1,rotated:p.rotated}))}))};await onSave({...db,generatedSheets:[...(db.generatedSheets||[]),plan]});alert('Diseño guardado. No se descontaron piezas todavía.')}
   function setMultiplier(number,value){setSheetMultipliers(v=>({...v,[number]:Math.max(1,Math.min(2,Number(value)||1))}))}
   async function sendSheetToCut(){
@@ -475,7 +532,7 @@ export default function SheetPlanner({db,onSave}){
       </>}
     </section><section className="planner-preview"><div className="planner-kpis"><div className="metric-card"><small>Placas</small><b className="viz-stat-value">{result.sheets.length}</b></div><div className="metric-card"><small>Piezas</small><b className="viz-stat-value">{result.total}</b></div><div className="metric-card"><small>Aprovechamiento</small><b className="viz-stat-value">{result.sheets.length?Math.round(100*result.used/(result.sheetArea*result.sheets.length)):0}%</b></div></div>
       {result.rejected.length>0&&<div className="notice">{result.rejected.length} pieza(s) no entraron.</div>}{result.waitingSheets?.length>0&&<div className="notice"><b>{result.waitingSheets.length} placa(s) en espera</b><span>No se guardan como listas para cortar hasta alcanzar {result.threshold}% o recibir más piezas pendientes.</span></div>}
-      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% aproximado</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=><div key={p.instanceId} className="placed-piece silhouette" title={p.name} style={{left:p.x*scale,top:p.y*scale,width:p.w*scale,height:p.h*scale}}>{p.rotated?<img src={svgDataUrl(p.svgText)} alt={p.name} style={{position:'absolute',left:'50%',top:'50%',width:p.h*scale,height:p.w*scale,objectFit:'contain',transform:'translate(-50%,-50%) rotate(90deg)',transformOrigin:'center'}}/>:<img src={svgDataUrl(p.svgText)} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}</div>)}</div></div></>}</div>
+      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% aproximado {kitCountOnSheet(sheet)>=10?'· ✓ Meta 10 alcanzada':'· faltan '+(10-kitCountOnSheet(sheet))+' para la meta'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=><div key={p.instanceId} className="placed-piece silhouette" title={p.name} style={{left:p.x*scale,top:p.y*scale,width:p.w*scale,height:p.h*scale}}>{p.rotated?<img src={svgDataUrl(p.svgText)} alt={p.name} style={{position:'absolute',left:'50%',top:'50%',width:p.h*scale,height:p.w*scale,objectFit:'contain',transform:'translate(-50%,-50%) rotate(90deg)',transformOrigin:'center'}}/>:<img src={svgDataUrl(p.svgText)} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}</div>)}</div></div></>}</div>
     </section></div>
   </div>
 }
