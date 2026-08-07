@@ -364,10 +364,6 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   if(part.blockInterior!==false){
     mask=solidifyConnectedComponents(mask,pw,ph)
     mask=fillClosedHoles(mask,pw,ph)
-    // Seguridad final: usa la envolvente de la silueta completa. Esto evita
-    // definitivamente que dos dibujos se encimen aunque el SVG tenga trazos
-    // abiertos, componentes separados o huecos internos.
-    mask=convexHullMask(mask,pw,ph)
   }
 
   // Dilatación de la separación mínima.
@@ -388,7 +384,7 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   return value
 }
 async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}={}){
-  const safeGap=Math.max(num(gap),.15)
+  const safeGap=Math.max(num(gap),.20)
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM)
   const sheetArea=wCm*hCm
 
@@ -406,30 +402,37 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
       for(let mx=0;mx<m.pw;mx++)if(m.mask[mo+mx])occ[oo+mx]=1
     }
   }
+  function boxOverlap(a,b){
+    return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y
+  }
 
-  function edgeCandidates(rects,m){
+  // La caja solo sirve como filtro rápido. Si se cruzan cajas, decide la máscara real.
+  function collisionHybrid(state,m,x,y){
+    if(x<0||y<0||x+m.pw>sw||y+m.ph>sh)return true
+    const candidate={x,y,w:m.pw,h:m.ph}
+    const nearby=state.boxes.some(b=>boxOverlap(candidate,b))
+    if(!nearby)return false
+    return maskCollides(state.occ,m,x,y)
+  }
+
+  function candidatePoints(state,m){
     const pts=[[0,0],[sw-m.pw,0],[0,sh-m.ph],[sw-m.pw,sh-m.ph]]
-    rects.forEach(r=>{
+    state.boxes.forEach(r=>{
       pts.push(
-        [r.x+r.w,r.y],[r.x-m.pw,r.y],
-        [r.x,r.y+r.h],[r.x,r.y-m.ph],
-        [r.x+r.w,r.y+r.h-m.ph],
-        [r.x+r.w-m.pw,r.y+r.h]
+        [r.x+r.w,r.y],[r.x-m.pw,r.y],[r.x,r.y+r.h],[r.x,r.y-m.ph],
+        [r.x+r.w,r.y+r.h-m.ph],[r.x+r.w-m.pw,r.y+r.h],
+        [r.x+r.w-m.pw/2,r.y],[r.x,r.y+r.h-m.ph/2]
       )
     })
     const seen=new Set()
-    return pts
-      .map(([x,y])=>[Math.round(x),Math.round(y)])
+    return pts.map(([x,y])=>[Math.round(x),Math.round(y)])
       .filter(([x,y])=>x>=0&&y>=0&&x+m.pw<=sw&&y+m.ph<=sh)
       .filter(([x,y])=>{const k=`${x}|${y}`;if(seen.has(k))return false;seen.add(k);return true})
   }
 
-  function rectCollidesStrict(rects,x,y,w,h){
-    return rects.some(r=>x<r.x+r.w&&x+w>r.x&&y<r.y+r.h&&y+h>r.y)
-  }
-
   async function variantsFor(part){
-    const angles=part.allowRotate===false?[0]:Array.from({length:24},(_,i)=>i*15)
+    // 5° permite encastres similares a una placa acomodada manualmente.
+    const angles=part.allowRotate===false?[0]:Array.from({length:72},(_,i)=>i*5)
     const out=[]
     for(const angle of angles)out.push(await makeAngleMask(part,angle,safeGap))
     return out
@@ -440,108 +443,94 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
     let best=null
 
     for(const m of variants){
-      const candidates=edgeCandidates(state.rects,m)
-      for(const [x,y] of candidates){
-        // Regla definitiva: ni siquiera las cajas exteriores de seguridad pueden cruzarse.
-        if(rectCollidesStrict(state.rects,x,y,m.pw,m.ph))continue
-        const maxX=Math.max(x+m.pw,...state.rects.map(r=>r.x+r.w),0)
-        const maxY=Math.max(y+m.ph,...state.rects.map(r=>r.y+r.h),0)
-        const score=maxX*maxY*1000+y*sw+x
+      const pts=candidatePoints(state,m)
+      for(const [x,y] of pts){
+        if(collisionHybrid(state,m,x,y))continue
+        const maxX=Math.max(x+m.pw,...state.boxes.map(r=>r.x+r.w),0)
+        const maxY=Math.max(y+m.ph,...state.boxes.map(r=>r.y+r.h),0)
+        // Premia compactación y contacto con material ya colocado.
+        let contacts=0
+        const probe=2
+        if(x<=probe||y<=probe||x+m.pw>=sw-probe||y+m.ph>=sh-probe)contacts++
+        state.boxes.forEach(r=>{
+          if(Math.abs(x-(r.x+r.w))<=probe||Math.abs(x+m.pw-r.x)<=probe||
+             Math.abs(y-(r.y+r.h))<=probe||Math.abs(y+m.ph-r.y)<=probe)contacts++
+        })
+        const score=maxX*maxY*10000+y*sw+x-contacts*5000
         if(!best||score<best.score)best={m,x,y,score}
       }
 
+      // Barrido fino solo si los puntos de contacto no alcanzan.
       if(!best){
-        const step=3
+        const step=2
         for(let y=0;y<=sh-m.ph;y+=step){
           for(let x=0;x<=sw-m.pw;x+=step){
-            if(rectCollidesStrict(state.rects,x,y,m.pw,m.ph))continue
+            if(collisionHybrid(state,m,x,y))continue
             const score=y*sw+x
-            best={m,x,y,score}
-            break
+            if(!best||score<best.score)best={m,x,y,score}
           }
-          if(best)break
+          if(y%12===0)await nextFrame()
         }
       }
     }
-
     if(!best)return false
-    state.rects.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
+
+    maskStamp(state.occ,best.m,best.x,best.y)
+    state.boxes.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
     state.placed.push({
       ...part,
-      x:(best.x+best.m.pad)/PX_PER_CM,
-      y:(best.y+best.m.pad)/PX_PER_CM,
+      x:(best.x+best.m.pad)/PX_PER_CM,y:(best.y+best.m.pad)/PX_PER_CM,
       w:best.m.boxW,h:best.m.boxH,
       angle:best.m.angle,rotated:best.m.angle!==0,
-      _rectX:best.x,_rectY:best.y,_rectW:best.m.pw,_rectH:best.m.ph
+      _mx:best.x,_my:best.y,_pw:best.m.pw,_ph:best.m.ph
     })
     return true
   }
 
   async function tryKit(state,kit){
-    const trial={rects:state.rects.map(r=>({...r})),placed:state.placed.slice()}
-    // Primero coloca el componente de mayor área.
+    const trial={occ:state.occ.slice(),boxes:state.boxes.map(r=>({...r})),placed:state.placed.slice()}
     const parts=kit.parts.slice().sort((a,b)=>num(b.width)*num(b.height)-num(a.width)*num(a.height))
-    for(const part of parts){
-      if(!await placePart(trial,part))return false
-    }
-    state.rects=trial.rects;state.placed=trial.placed
+    for(const part of parts)if(!await placePart(trial,part))return false
+    state.occ=trial.occ;state.boxes=trial.boxes;state.placed=trial.placed
     return true
   }
 
   const kitArea=k=>k.parts.reduce((a,p)=>a+num(p.width)*num(p.height),0)
-  const prioritySort=(a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))
-  const base=kits.slice().sort((a,b)=>prioritySort(a,b)||kitArea(b)-kitArea(a))
+  const priority=(a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))
   const orders=[
-    base,
-    kits.slice().sort((a,b)=>prioritySort(a,b)||kitArea(a)-kitArea(b))
+    kits.slice().sort((a,b)=>priority(a,b)||kitArea(b)-kitArea(a)),
+    kits.slice().sort((a,b)=>priority(a,b)||kitArea(a)-kitArea(b))
   ]
-
   let best=null
   for(const ordered of orders){
-    const state={rects:[],placed:[]},skipped=[]
+    const state={occ:new Uint8Array(sw*sh),boxes:[],placed:[]},skipped=[]
     for(let i=0;i<ordered.length;i++){
       if(!await tryKit(state,ordered[i]))skipped.push(ordered[i])
-      if(i>0&&i%4===0)await nextFrame()
+      if(i%3===0)await nextFrame()
     }
     const used=state.placed.reduce((a,p)=>a+num(p.sourceWidth||p.width)*num(p.sourceHeight||p.height),0)
     const efficiency=sheetArea?100*used/sheetArea:0
     const sheet={number:1,placed:state.placed,used,efficiency}
     const completeFigures=kitCountOnSheet(sheet)
-    if(!best||completeFigures>best.completeFigures||(completeFigures===best.completeFigures&&efficiency>best.efficiency)){
+    if(!best||completeFigures>best.completeFigures||(completeFigures===best.completeFigures&&efficiency>best.efficiency))
       best={sheet,skipped,completeFigures,efficiency,used}
-    }
   }
-
   if(!best)return {sheets:[],rejected:kits,total:0,sheetArea,used:0,completeFigures:0,target}
-  // Validación final independiente sobre las cajas exportadas reales.
-  // Si dos cajas se cruzan aunque sea mínimamente, la placa no se acepta.
-  const finalRects=[]
-  const verified=[]
-  const finalGap=Math.max(.15,num(gap))
+
+  // Verificación final usando exactamente las mismas máscaras reales con las que se acomodó.
+  const verifyOcc=new Uint8Array(sw*sh)
   for(const piece of best.sheet.placed){
-    const x=num(piece.x),y=num(piece.y),w=num(piece.w),h=num(piece.h)
-    const rx=x-finalGap/2,ry=y-finalGap/2,rw=w+finalGap,rh=h+finalGap
-    const hit=finalRects.find(r=>rx<r.x+r.w&&rx+rw>r.x&&ry<r.y+r.h&&ry+rh>r.y)
-    if(hit){
-      throw new Error(`Seguridad de placa: ${piece.name} se superpone con ${hit.name}. La placa fue rechazada.`)
-    }
-    finalRects.push({x:rx,y:ry,w:rw,h:rh,name:piece.name})
-    verified.push(piece)
+    const m=await makeAngleMask(piece,num(piece.angle,0),safeGap)
+    const x=Math.round(num(piece.x)*PX_PER_CM-m.pad),y=Math.round(num(piece.y)*PX_PER_CM-m.pad)
+    if(maskCollides(verifyOcc,m,x,y))
+      throw new Error(`Seguridad de placa: se detectó una superposición real en ${piece.name}.`)
+    maskStamp(verifyOcc,m,x,y)
   }
 
-  best.sheet.placed=verified.map(({_rectX,_rectY,_rectW,_rectH,...piece})=>piece)
-  return {
-    sheets:best.sheet.placed.length?[best.sheet]:[],
-    rejected:best.skipped,
-    total:best.sheet.placed.length,
-    sheetArea,
-    used:best.used,
-    completeFigures:best.completeFigures,
-    target,
-    targetEfficiency
-  }
+  best.sheet.placed=best.sheet.placed.map(({_mx,_my,_pw,_ph,...piece})=>piece)
+  return {sheets:best.sheet.placed.length?[best.sheet]:[],rejected:best.skipped,total:best.sheet.placed.length,
+    sheetArea,used:best.used,completeFigures:best.completeFigures,target,targetEfficiency}
 }
-
 function usableModelComponents(model){
   const components=(model?.components||[]).filter(Boolean)
   if(!components.length)return {components:[],reason:'sin componentes SVG vinculados'}
@@ -733,8 +722,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático ninguna caja exterior rotada puede cruzarse con otra. Se mantiene una separación mínima de 1,5 mm y la placa se valida nuevamente antes de mostrarse o exportarse.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. La colisión se calcula sobre la silueta real del SVG y prueba rotaciones cada 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático la caja exterior se usa solo como filtro rápido: la decisión final de colisión se hace sobre la silueta sólida real. Prueba rotaciones cada 5° y mantiene 2 mm de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. Usa nesting híbrido por silueta real y rotaciones cada 5°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
