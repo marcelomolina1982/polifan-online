@@ -456,3 +456,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .auto-figure-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
 .auto-figure-row span{font-weight:700;color:#6d28d9;white-space:nowrap}
 @media(max-width:760px){.auto-figure-row{align-items:flex-start;flex-direction:column;gap:3px}.sheet-canvas-wrap{padding:6px}}
+
+.calc-progress-panel{display:grid;gap:10px}
+.calc-progress-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.calc-progress-head>div{display:flex;flex-direction:column;gap:3px}
+.calc-progress-bar{height:14px;border-radius:999px;background:#eef2f7;overflow:hidden;border:1px solid #d8dee9}
+.calc-progress-bar span{display:block;height:100%;background:linear-gradient(90deg,#14b8b8,#7b3dbb,#ec2c7c);transition:width .25s ease}
+.calc-progress-stats{display:flex;flex-wrap:wrap;gap:10px 22px;font-size:13px}
+@media(max-width:760px){.calc-progress-head{align-items:stretch;flex-direction:column}.calc-progress-stats{display:grid;gap:5px}}
