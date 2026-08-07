@@ -83,6 +83,8 @@ function rectCollides(rects,x,y,w,h,gapPx=0){
   })
 }
 
+function nextFrame(){return new Promise(resolve=>setTimeout(resolve,0))}
+
 async function pack(items,wCm,hCm,gap,{maxSheets=Infinity,strictRects=false}={}){
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM),pieces=[]
   for(const it of items){
@@ -92,23 +94,56 @@ async function pack(items,wCm,hCm,gap,{maxSheets=Infinity,strictRects=false}={})
     const rotated=it.allowRotate!==false&&num(it.width)!==num(it.height)?await makeMask(it,true,gap):null
     for(let i=0;i<q;i++)pieces.push({...it,instanceId:`${it.id}-${i}`,normal,rotated})
   }
+
   pieces.sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||b.normal.pw*b.normal.ph-a.normal.pw*a.normal.ph)
-
   const sheets=[],rejected=[]
-  const extraGapPx=Math.ceil(Math.max(0,num(gap))*PX_PER_CM/2)
 
-  function trySheet(sheet,p){
-    let best=null
+  function candidatePoints(sheet){
+    const points=[[0,0]]
+    for(const r of sheet.rects){
+      points.push([r.x+r.w,r.y],[r.x,r.y+r.h])
+    }
+    const seen=new Set()
+    return points
+      .filter(([x,y])=>x>=0&&y>=0&&x<=sw&&y<=sh)
+      .filter(([x,y])=>{const k=`${x}|${y}`;if(seen.has(k))return false;seen.add(k);return true})
+      .sort((a,b)=>a[1]-b[1]||a[0]-b[0])
+  }
+
+  function fitsRects(sheet,x,y,w,h){
+    if(x<0||y<0||x+w>sw||y+h>sh)return false
+    return !sheet.rects.some(r=>x<r.x+r.w&&x+w>r.x&&y<r.y+r.h&&y+h>r.y)
+  }
+
+  function trySheetFast(sheet,p){
     const variants=[{m:p.normal,rotated:false},...(p.rotated?[{m:p.rotated,rotated:true}]:[])]
+    const points=candidatePoints(sheet)
+    let best=null
     for(const v of variants){
-      for(let y=0;y<=sh-v.m.ph;y++){
-        for(let x=0;x<=sw-v.m.pw;x++){
-          if(collides(sheet.occ,sw,v.m,x,y))continue
-          if(strictRects&&rectCollides(sheet.rects,x,y,v.m.pw,v.m.ph,extraGapPx))continue
-          const score=y*sw+x
-          if(!best||score<best.score)best={...v,x,y,score}
-          break
-        }
+      for(const [x,y] of points){
+        if(!fitsRects(sheet,x,y,v.m.pw,v.m.ph))continue
+        const score=y*sw+x
+        if(!best||score<best.score)best={...v,x,y,score}
+        break
+      }
+    }
+    if(!best)return false
+    sheet.rects.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
+    sheet.placed.push({...p,x:(best.x+best.m.pad)/PX_PER_CM,y:(best.y+best.m.pad)/PX_PER_CM,w:best.m.w,h:best.m.h,rotated:best.rotated})
+    return true
+  }
+
+  function trySheetMask(sheet,p){
+    const variants=[{m:p.normal,rotated:false},...(p.rotated?[{m:p.rotated,rotated:true}]:[])]
+    const points=candidatePoints(sheet)
+    let best=null
+    for(const v of variants){
+      for(const [x,y] of points){
+        if(x+v.m.pw>sw||y+v.m.ph>sh)continue
+        if(collides(sheet.occ,sw,v.m,x,y))continue
+        const score=y*sw+x
+        if(!best||score<best.score)best={...v,x,y,score}
+        break
       }
     }
     if(!best)return false
@@ -118,16 +153,20 @@ async function pack(items,wCm,hCm,gap,{maxSheets=Infinity,strictRects=false}={})
     return true
   }
 
-  for(const piece of pieces){
+  const trySheet=(sheet,p)=>strictRects?trySheetFast(sheet,p):trySheetMask(sheet,p)
+
+  for(let index=0;index<pieces.length;index++){
+    const piece=pieces[index]
     let placed=false
     for(const sheet of sheets){
       if(trySheet(sheet,piece)){placed=true;break}
     }
-    if(!placed && sheets.length<maxSheets){
+    if(!placed&&sheets.length<maxSheets){
       const sheet={occ:new Uint8Array(sw*sh),rects:[],placed:[]}
       if(trySheet(sheet,piece)){sheets.push(sheet);placed=true}
     }
     if(!placed)rejected.push(piece)
+    if(index>0&&index%10===0)await nextFrame()
   }
 
   const area=wCm*hCm
@@ -140,8 +179,6 @@ async function pack(items,wCm,hCm,gap,{maxSheets=Infinity,strictRects=false}={})
   })
   return {sheets,rejected,total:pieces.length,sheetArea:area,used:sheets.reduce((a,s)=>a+s.used,0)}
 }
-
-
 
 function usableModelComponents(model){
   const components=(model?.components||[]).filter(Boolean)
@@ -223,7 +260,7 @@ export default function SheetPlanner({db,onSave}){
       if(useFillers&&packed.sheets.length){
         const ranking=bestSellerNames(db)
         let attempts=0
-        while(packed.sheets[0]&&packed.sheets[0].efficiency<threshold&&attempts<30&&ranking.length){
+        while(packed.sheets[0]&&packed.sheets[0].efficiency<threshold&&attempts<8&&ranking.length){
           attempts++
           const name=ranking[(attempts-1)%ranking.length]
           const built=componentsForRows([{figure:name,qty:1}],9999,'','relleno')
@@ -305,8 +342,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando…':'Generar cola automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez y usa puntos de apoyo seguros para evitar congelar la app mientras acomoda las piezas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.complete} placa(s) completas · {autoSummary.waiting} en espera · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}. Mínimo: {autoSummary.threshold}%.</span></div>}
