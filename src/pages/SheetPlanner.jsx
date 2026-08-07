@@ -279,6 +279,49 @@ function solidifyConnectedComponents(mask,w,h){
   return out
 }
 
+
+function convexHullMask(mask,w,h){
+  // Extrae puntos del borde de toda la silueta y crea una envolvente convexa.
+  // Es conservadora: jamás permite que otra pieza atraviese una zona ocupada
+  // entre trazos separados del mismo componente.
+  const pts=[]
+  const step=Math.max(1,Math.floor(Math.min(w,h)/80))
+  for(let y=0;y<h;y+=step)for(let x=0;x<w;x+=step){
+    if(!mask[y*w+x])continue
+    const edge=x===0||y===0||x===w-1||y===h-1||
+      !mask[y*w+x-1]||!mask[y*w+x+1]||!mask[(y-1)*w+x]||!mask[(y+1)*w+x]
+    if(edge)pts.push([x,y])
+  }
+  if(pts.length<3)return mask
+  pts.sort((a,b)=>a[0]-b[0]||a[1]-b[1])
+  const cross=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0])
+  const lower=[]
+  for(const pt of pts){while(lower.length>=2&&cross(lower[lower.length-2],lower[lower.length-1],pt)<=0)lower.pop();lower.push(pt)}
+  const upper=[]
+  for(let i=pts.length-1;i>=0;i--){const pt=pts[i];while(upper.length>=2&&cross(upper[upper.length-2],upper[upper.length-1],pt)<=0)upper.pop();upper.push(pt)}
+  const hull=lower.slice(0,-1).concat(upper.slice(0,-1))
+  if(hull.length<3)return mask
+
+  const out=new Uint8Array(w*h)
+  // Scanline polygon fill.
+  for(let y=0;y<h;y++){
+    const xs=[]
+    for(let i=0,j=hull.length-1;i<hull.length;j=i++){
+      const [xi,yi]=hull[i],[xj,yj]=hull[j]
+      if((yi>y)!==(yj>y)){
+        const x=xi+(y-yi)*(xj-xi)/(yj-yi)
+        xs.push(x)
+      }
+    }
+    xs.sort((a,b)=>a-b)
+    for(let k=0;k+1<xs.length;k+=2){
+      const a=Math.max(0,Math.floor(xs[k])),b=Math.min(w-1,Math.ceil(xs[k+1]))
+      for(let x=a;x<=b;x++)out[y*w+x]=1
+    }
+  }
+  return out
+}
+
 const angleMaskCache=new Map()
 async function makeAngleMask(part,angle=0,gapCm=0){
   const normalized=((num(angle)%360)+360)%360
@@ -321,6 +364,10 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   if(part.blockInterior!==false){
     mask=solidifyConnectedComponents(mask,pw,ph)
     mask=fillClosedHoles(mask,pw,ph)
+    // Seguridad final: usa la envolvente de la silueta completa. Esto evita
+    // definitivamente que dos dibujos se encimen aunque el SVG tenga trazos
+    // abiertos, componentes separados o huecos internos.
+    mask=convexHullMask(mask,pw,ph)
   }
 
   // Dilatación de la separación mínima.
@@ -341,6 +388,7 @@ async function makeAngleMask(part,angle=0,gapCm=0){
   return value
 }
 async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}={}){
+  const safeGap=Math.max(num(gap),.15)
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM)
   const sheetArea=wCm*hCm
 
@@ -379,7 +427,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
   async function variantsFor(part){
     const angles=part.allowRotate===false?[0]:Array.from({length:24},(_,i)=>i*15)
     const out=[]
-    for(const angle of angles)out.push(await makeAngleMask(part,angle,gap))
+    for(const angle of angles)out.push(await makeAngleMask(part,angle,safeGap))
     return out
   }
 
@@ -470,7 +518,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
   const verifyOcc=new Uint8Array(sw*sh)
   const verified=[]
   for(const piece of best.sheet.placed){
-    const m=await makeAngleMask(piece,num(piece.angle,0),gap)
+    const m=await makeAngleMask(piece,num(piece.angle,0),safeGap)
     const x=Math.round(num(piece.x)*PX_PER_CM-m.pad)
     const y=Math.round(num(piece.y)*PX_PER_CM-m.pad)
     if(maskCollides(verifyOcc,m,x,y)){
@@ -684,7 +732,7 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático las colisiones se calculan sobre una silueta sólida de cada componente y se validan una segunda vez antes de mostrar o exportar la placa.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada componente usa una envolvente sólida de seguridad y una separación mínima de 1,5 mm. La placa se valida otra vez antes de mostrarse o exportarse.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
     <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. La colisión se calcula sobre la silueta real del SVG y prueba rotaciones cada 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
