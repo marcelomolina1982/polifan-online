@@ -75,30 +75,80 @@ async function validateNoOverlap(sheets,wCm,hCm,gap){
   return problems
 }
 
-async function pack(items,wCm,hCm,gap){
+function rectCollides(rects,x,y,w,h,gapPx=0){
+  const ax1=x-gapPx,ay1=y-gapPx,ax2=x+w+gapPx,ay2=y+h+gapPx
+  return rects.some(r=>{
+    const bx1=r.x-gapPx,by1=r.y-gapPx,bx2=r.x+r.w+gapPx,by2=r.y+r.h+gapPx
+    return ax1<bx2 && ax2>bx1 && ay1<by2 && ay2>by1
+  })
+}
+
+async function pack(items,wCm,hCm,gap,{maxSheets=Infinity,strictRects=false}={}){
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM),pieces=[]
-  for(const it of items){const q=Math.max(0,Math.floor(num(it.qty)));if(!q||!num(it.width)||!num(it.height))continue;const normal=await makeMask(it,false,gap),rotated=it.allowRotate!==false&&num(it.width)!==num(it.height)?await makeMask(it,true,gap):null;for(let i=0;i<q;i++)pieces.push({...it,instanceId:`${it.id}-${i}`,normal,rotated})}
+  for(const it of items){
+    const q=Math.max(0,Math.floor(num(it.qty)))
+    if(!q||!num(it.width)||!num(it.height))continue
+    const normal=await makeMask(it,false,gap)
+    const rotated=it.allowRotate!==false&&num(it.width)!==num(it.height)?await makeMask(it,true,gap):null
+    for(let i=0;i<q;i++)pieces.push({...it,instanceId:`${it.id}-${i}`,normal,rotated})
+  }
   pieces.sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||b.normal.pw*b.normal.ph-a.normal.pw*a.normal.ph)
+
   const sheets=[],rejected=[]
-  function trySheet(sheet,p){let best=null;for(const v of [{m:p.normal,rotated:false},...(p.rotated?[{m:p.rotated,rotated:true}]:[])])for(let y=0;y<=sh-v.m.ph;y++)for(let x=0;x<=sw-v.m.pw;x++){if(!collides(sheet.occ,sw,v.m,x,y)){const score=y*sw+x;if(!best||score<best.score)best={...v,x,y,score};break}}if(!best)return false;stamp(sheet.occ,sw,best.m,best.x,best.y);sheet.placed.push({...p,x:(best.x+best.m.pad)/PX_PER_CM,y:(best.y+best.m.pad)/PX_PER_CM,w:best.m.w,h:best.m.h,rotated:best.rotated});return true}
-  for(const p of pieces){let ok=sheets.some(s=>trySheet(s,p));if(!ok){const s={occ:new Uint8Array(sw*sh),placed:[]};if(trySheet(s,p))sheets.push(s);else rejected.push(p)}}
-  const area=wCm*hCm;sheets.forEach((s,i)=>{s.number=i+1;s.used=s.placed.reduce((a,p)=>a+p.w*p.h,0);s.efficiency=area?100*s.used/area:0;delete s.occ})
-  const unsafe=await validateNoOverlap(sheets,wCm,hCm,gap)
-  if(unsafe.length)throw new Error(`Seguridad CNC: se detectó una posible superposición en ${unsafe.slice(0,6).join(', ')}${unsafe.length>6?'…':''}. La placa no fue generada.`)
+  const extraGapPx=Math.ceil(Math.max(0,num(gap))*PX_PER_CM/2)
+
+  function trySheet(sheet,p){
+    let best=null
+    const variants=[{m:p.normal,rotated:false},...(p.rotated?[{m:p.rotated,rotated:true}]:[])]
+    for(const v of variants){
+      for(let y=0;y<=sh-v.m.ph;y++){
+        for(let x=0;x<=sw-v.m.pw;x++){
+          if(collides(sheet.occ,sw,v.m,x,y))continue
+          if(strictRects&&rectCollides(sheet.rects,x,y,v.m.pw,v.m.ph,extraGapPx))continue
+          const score=y*sw+x
+          if(!best||score<best.score)best={...v,x,y,score}
+          break
+        }
+      }
+    }
+    if(!best)return false
+    stamp(sheet.occ,sw,best.m,best.x,best.y)
+    sheet.rects.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
+    sheet.placed.push({...p,x:(best.x+best.m.pad)/PX_PER_CM,y:(best.y+best.m.pad)/PX_PER_CM,w:best.m.w,h:best.m.h,rotated:best.rotated})
+    return true
+  }
+
+  for(const piece of pieces){
+    let placed=false
+    for(const sheet of sheets){
+      if(trySheet(sheet,piece)){placed=true;break}
+    }
+    if(!placed && sheets.length<maxSheets){
+      const sheet={occ:new Uint8Array(sw*sh),rects:[],placed:[]}
+      if(trySheet(sheet,piece)){sheets.push(sheet);placed=true}
+    }
+    if(!placed)rejected.push(piece)
+  }
+
+  const area=wCm*hCm
+  sheets.forEach((s,i)=>{
+    s.number=i+1
+    s.used=s.placed.reduce((a,p)=>a+p.w*p.h,0)
+    s.efficiency=area?100*s.used/area:0
+    delete s.occ
+    delete s.rects
+  })
   return {sheets,rejected,total:pieces.length,sheetArea:area,used:sheets.reduce((a,s)=>a+s.used,0)}
 }
 
 
 
 function usableModelComponents(model){
-  const components=model?.components||[]
-  const tapa=components.find(c=>c.role==='tapa'),base=components.find(c=>c.role==='base')
-  if(tapa&&base){
-    const manualAccepted=Boolean(tapa.manualSizeAcceptance||base.manualSizeAcceptance)
-    const exactMatch=sameSize(tapa.sourceWidthCm||tapa.widthCm,base.sourceWidthCm||base.widthCm,.001)&&sameSize(tapa.sourceHeightCm||tapa.heightCm,base.sourceHeightCm||base.heightCm,.001)
-    const compatible=manualAccepted||(tapa.pairCompatible!==false&&base.pairCompatible!==false&&exactMatch)
-    if(!compatible)return {components:[],reason:'tapa y base con medidas incompatibles. Revisalas en Biblioteca SVG o aceptá manualmente la diferencia.'}
-  }
+  const components=(model?.components||[]).filter(Boolean)
+  if(!components.length)return {components:[],reason:'sin componentes SVG vinculados'}
+  // El planificador nunca modifica tamaños y tampoco bloquea una figura porque
+  // tapa y base tengan pequeñas diferencias. Si ambas existen, usa cada SVG
+  // exactamente con las medidas que trae guardadas en la Biblioteca SVG.
   return {components,reason:''}
 }
 
@@ -156,31 +206,70 @@ export default function SheetPlanner({db,onSave}){
     setBusy(true);setError('');setActive(0);setAutoSummary(null)
     try{
       const groups=pendingGroupsByDelivery(db),automatic=[],missing=[]
-      groups.forEach((g,index)=>{const built=componentsForRows(g.rows,index,g.date,'pedido');automatic.push(...built.items);missing.push(...built.missing)})
+      groups.forEach((g,index)=>{
+        const built=componentsForRows(g.rows,index,g.date,'pedido')
+        automatic.push(...built.items)
+        missing.push(...built.missing)
+      })
       if(!automatic.length)throw new Error('No hay piezas pendientes con SVG vinculados para planificar.')
-      let working=automatic,packed=await pack(working,num(sheetW),num(sheetH),num(gap)),fillers=[]
+
+      // Una sola placa por ejecución. El orden ya viene priorizado por fecha de salida.
+      let working=automatic
+      let packed=await pack(working,num(sheetW),num(sheetH),num(gap),{maxSheets:1,strictRects:true})
       const threshold=Math.max(1,Math.min(100,num(minFill,85)))
-      if(useFillers&&missing.length===0&&packed.rejected.length===0&&packed.sheets.length){
-        const ranking=bestSellerNames(db),last=()=>packed.sheets[packed.sheets.length-1]
+      const fillers=[]
+
+      // Solo intenta completar ESTA MISMA placa. Nunca abre una segunda.
+      if(useFillers&&packed.sheets.length){
+        const ranking=bestSellerNames(db)
         let attempts=0
-        while(last()&&last().efficiency<threshold&&attempts<40){
+        while(packed.sheets[0]&&packed.sheets[0].efficiency<threshold&&attempts<30&&ranking.length){
           attempts++
-          const name=ranking[(attempts-1)%Math.max(1,ranking.length)]
+          const name=ranking[(attempts-1)%ranking.length]
           const built=componentsForRows([{figure:name,qty:1}],9999,'','relleno')
           if(!built.items.length)continue
-          const trialItems=[...working,...built.items],trial=await pack(trialItems,num(sheetW),num(sheetH),num(gap))
-          if(trial.rejected.length||trial.sheets.length>packed.sheets.length)continue
-          const oldEff=last()?.efficiency||0,newEff=trial.sheets[trial.sheets.length-1]?.efficiency||0
+          const trialItems=[...working,...built.items]
+          const trial=await pack(trialItems,num(sheetW),num(sheetH),num(gap),{maxSheets:1,strictRects:true})
+          // El relleno solo se acepta si todas sus nuevas piezas entran en la misma placa.
+          if(trial.rejected.length>packed.rejected.length)continue
+          const oldEff=packed.sheets[0]?.efficiency||0,newEff=trial.sheets[0]?.efficiency||0
           if(newEff>oldEff+.05){working=trialItems;packed=trial;fillers.push(name)}
           else if(attempts>ranking.length*2)break
         }
       }
-      const complete=[],waiting=[]
-      packed.sheets.forEach((s,i)=>{const isComplete=i<packed.sheets.length-1||s.efficiency>=threshold;(isComplete?complete:waiting).push(s)})
-      const finalResult={...packed,sheets:complete,waitingSheets:waiting,allSheets:packed.sheets,stale:false,automatic:true,threshold,fillers}
-      setItems(working);setResult(finalResult);setAutoSummary({groups,missing:[...new Set(missing)],fillers,complete:complete.length,waiting:waiting.length,threshold})
-      if(missing.length)alert(`No se incluyeron por falta de SVG: ${[...new Set(missing)].join(', ')}`)
-    }catch(e){setError(e.message||'No se pudo generar la cola automática')}finally{setBusy(false)}
+
+      const one=packed.sheets[0]
+      if(!one)throw new Error('No se pudo acomodar ninguna pieza en la placa.')
+      const finalResult={
+        ...packed,
+        sheets:[one],
+        waitingSheets:[],
+        allSheets:[one],
+        stale:false,
+        automatic:true,
+        threshold,
+        fillers
+      }
+      setItems(working)
+      setResult(finalResult)
+      setAutoSummary({
+        groups,
+        missing:[...new Set(missing)],
+        fillers,
+        complete:1,
+        waiting:0,
+        threshold,
+        rejected:packed.rejected.length
+      })
+
+      if(missing.length){
+        alert(`No se incluyeron por falta de SVG vinculado: ${[...new Set(missing)].join(', ')}`)
+      }
+    }catch(e){
+      setError(e.message||'No se pudo generar la placa automática')
+    }finally{
+      setBusy(false)
+    }
   }
   function addModelByName(){
     const wanted=String(modelSearch||'').trim().toLowerCase()
@@ -195,7 +284,7 @@ export default function SheetPlanner({db,onSave}){
     setItems(v=>[...v,...additions]);setModelSearch(model.name)
   }
   const update=(id,k,val)=>setItems(v=>v.map(x=>x.id===id?{...x,[k]:val}:x))
-  async function generate(){setBusy(true);setError('');setActive(0);try{const invalid=items.filter(x=>!num(x.sourceWidth||x.width)||!num(x.sourceHeight||x.height)||!sameSize(x.width,x.sourceWidth||x.width)||!sameSize(x.height,x.sourceHeight||x.height));if(invalid.length)throw new Error(`Medida alterada o faltante en: ${invalid.map(x=>x.name).join(', ')}. El motor solo acepta la medida exacta del SVG.`);setResult({...await pack(items,num(sheetW),num(sheetH),num(gap)),stale:false})}catch(e){setError(e.message||'No se pudo generar')}finally{setBusy(false)}}
+  async function generate(){setBusy(true);setError('');setActive(0);try{const invalid=items.filter(x=>!num(x.sourceWidth||x.width)||!num(x.sourceHeight||x.height)||!sameSize(x.width,x.sourceWidth||x.width)||!sameSize(x.height,x.sourceHeight||x.height));if(invalid.length)throw new Error(`Medida alterada o faltante en: ${invalid.map(x=>x.name).join(', ')}. El motor solo acepta la medida exacta del SVG.`);setResult({...await pack(items,num(sheetW),num(sheetH),num(gap),{strictRects:true}),stale:false})}catch(e){setError(e.message||'No se pudo generar')}finally{setBusy(false)}}
   function markup(p){const m=p.svgMeta;if(!m)return '';if(p.rotated)return `<g transform="translate(${p.x+p.w} ${p.y}) rotate(90)"><svg width="${p.h}" height="${p.w}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg></g>`;return `<svg x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg>`}
   function download(){if(!sheet)return;const altered=sheet.placed.filter(p=>!sameSize(p.w,p.rotated?p.sourceHeight||p.height:p.sourceWidth||p.width)||!sameSize(p.h,p.rotated?p.sourceWidth||p.width:p.sourceHeight||p.height));if(altered.length)return alert('No se puede exportar: se detectó una pieza con escala diferente al SVG original.');const metadata=esc(JSON.stringify({empresa:'Tu Vida en Tinta',regla:'medidas exactas del SVG',scaleX:1,scaleY:1,piezas:sheet.placed.map(p=>({nombre:p.name,svgId:p.svgId,anchoOrigen:p.sourceWidth||p.width,altoOrigen:p.sourceHeight||p.height,rotada:p.rotated}))}));const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${sheetW}cm" height="${sheetH}cm" viewBox="0 0 ${sheetW} ${sheetH}"><metadata>${metadata}</metadata>${sheet.placed.map(markup).join('')}</svg>`;const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),a=document.createElement('a');a.href=u;a.download=`placa-cnc-${sheet.number}.svg`;a.click();URL.revokeObjectURL(u)}
   async function savePlan(){if(!result.sheets.length)return;const plan={id:uid(),date:new Date().toISOString(),status:result.automatic?'Lista automática':'Diseñada',automatic:!!result.automatic,priorityRule:'fecha de salida ascendente',fillThreshold:result.threshold||null,fillers:result.fillers||[],sheetW:num(sheetW),sheetH:num(sheetH),gap:num(gap),sheets:result.sheets.map(s=>({number:s.number,multiplier:num(sheetMultipliers[s.number],1),efficiency:s.efficiency,pieces:s.placed.map(p=>({name:p.name,figure:p.figure,unitWeight:num(p.unitWeight,1),itemId:p.itemId||p.id,svgId:p.svgId,x:p.x,y:p.y,w:p.w,h:p.h,sourceWidth:p.sourceWidth||p.width,sourceHeight:p.sourceHeight||p.height,scaleX:1,scaleY:1,rotated:p.rotated}))}))};await onSave({...db,generatedSheets:[...(db.generatedSheets||[]),plan]});alert('Diseño guardado. No se descontaron piezas todavía.')}
@@ -216,8 +305,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas con validación doble de colisiones, sin superposición ni piezas dentro de huecos cerrados.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando…':'Generar cola automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Coloca primero las entregas más cercanas y completa cada placa con las figuras pendientes de las fechas siguientes. Solo usa modelos de alta venta cuando ya no queda ninguna pieza pendiente identificada.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando…':'Generar cola automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.complete} placa(s) completas · {autoSummary.waiting} en espera · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}. Mínimo: {autoSummary.threshold}%.</span></div>}
