@@ -439,3 +439,4 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .inventory-part-warning,.inventory-part-ok{display:block;margin-top:4px;font-size:11px;font-weight:800}
 .inventory-part-warning{color:#c2410c}.inventory-part-ok{color:#15803d}
 @media (max-width:700px){.stock-number-adjust select{width:100%;min-width:0}.inventory-table{min-width:1120px}}
+.inventory-duplicate-alert{border-color:#f2b84b;background:#fffaf0}.inventory-duplicate-alert button{margin-left:auto;white-space:nowrap}@media(max-width:700px){.inventory-duplicate-alert{align-items:flex-start}.inventory-duplicate-alert button{margin-left:0;margin-top:8px}}

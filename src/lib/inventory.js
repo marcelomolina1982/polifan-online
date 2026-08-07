@@ -1,5 +1,109 @@
 import { todayArgentinaISO } from './production'
 
+
+export function normalizeFigureKey(value){
+  return String(value||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLocaleLowerCase('es')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim().replace(/\s+/g,' ')
+}
+
+function allFigureNames(db){
+  const names=[]
+  ;(db.figures||[]).forEach(x=>x&&names.push(String(x)))
+  ;(db.customerCatalog||[]).forEach(x=>x?.name&&names.push(String(x.name)))
+  ;(db.orders||[]).forEach(o=>(o.items||[]).forEach(i=>i?.figure&&names.push(String(i.figure))))
+  ;(db.movements||[]).forEach(m=>m?.figure&&names.push(String(m.figure)))
+  ;(db.cutBatches||[]).forEach(b=>(b.items||[]).forEach(i=>i?.figure&&names.push(String(i.figure))))
+  Object.keys(db.stockMin||{}).forEach(x=>x&&names.push(String(x)))
+  ;(db.svgLibrary||[]).forEach(x=>{const n=x?.productName||x?.modelName;if(n)names.push(String(n))})
+  return names
+}
+
+export function duplicateFigureGroups(db){
+  const catalogByKey=new Map()
+  ;(db.customerCatalog||[]).forEach(p=>{const key=normalizeFigureKey(p?.name);if(key&&!catalogByKey.has(key))catalogByKey.set(key,p.name)})
+  const groups=new Map()
+  allFigureNames(db).forEach(name=>{
+    const clean=String(name||'').trim(),key=normalizeFigureKey(clean)
+    if(!key)return
+    if(!groups.has(key))groups.set(key,new Set())
+    groups.get(key).add(clean)
+  })
+  return [...groups.entries()].map(([key,set])=>{
+    const names=[...set]
+    const catalogName=catalogByKey.get(key)||''
+    const canonical=catalogName||names.slice().sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))[0]
+    return {key,names,canonical,fromCatalog:Boolean(catalogName)}
+  }).filter(g=>g.names.length>1)
+}
+
+function canonicalAliasMap(db){
+  const aliases=new Map()
+  duplicateFigureGroups(db).forEach(g=>g.names.forEach(name=>aliases.set(normalizeFigureKey(name),g.canonical)))
+  ;(db.customerCatalog||[]).forEach(p=>{const key=normalizeFigureKey(p?.name);if(key)aliases.set(key,p.name)})
+  return aliases
+}
+
+function mergeItemsByFigure(items,rename){
+  const out=[],byKey=new Map()
+  ;(items||[]).forEach(item=>{
+    if(!item?.figure){out.push(item);return}
+    const figure=rename(item.figure)
+    const key=normalizeFigureKey(figure)
+    if(!byKey.has(key)){
+      const next={...item,figure}
+      byKey.set(key,next);out.push(next)
+    }else{
+      const current=byKey.get(key)
+      current.qty=Number(current.qty||0)+Number(item.qty||0)
+    }
+  })
+  return out
+}
+
+export function mergeDuplicateFigures(db){
+  const groups=duplicateFigureGroups(db)
+  if(!groups.length)return {db,groups:[],changes:0}
+  const aliases=canonicalAliasMap(db)
+  const rename=value=>{
+    const clean=String(value||'').trim(),key=normalizeFigureKey(clean)
+    return aliases.get(key)||clean
+  }
+
+  const figureSet=new Map()
+  ;(db.figures||[]).forEach(name=>{const n=rename(name),k=normalizeFigureKey(n);if(k&&!figureSet.has(k))figureSet.set(k,n)})
+  ;(db.customerCatalog||[]).forEach(p=>{if(!p?.name)return;const k=normalizeFigureKey(p.name);figureSet.set(k,p.name)})
+
+  const stockMin={}
+  Object.entries(db.stockMin||{}).forEach(([name,value])=>{
+    const n=rename(name)
+    stockMin[n]=Math.max(Number(stockMin[n]||0),Number(value||0))
+  })
+
+  const svgLibrary=(db.svgLibrary||[]).map(item=>{
+    const current=item.productName||item.modelName||''
+    if(!current)return item
+    const name=rename(current)
+    if(name===current)return item
+    return {...item,productName:name,modelName:name,name:item.role?`${name} · ${item.role}`:name}
+  })
+
+  const next={
+    ...db,
+    figures:[...figureSet.values()].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),
+    stockMin,
+    orders:(db.orders||[]).map(o=>({...o,items:mergeItemsByFigure(o.items,rename)})),
+    movements:(db.movements||[]).map(m=>m.figure?{...m,figure:rename(m.figure)}:m),
+    cutBatches:(db.cutBatches||[]).map(b=>({...b,items:mergeItemsByFigure(b.items,rename)})),
+    generatedSheets:(db.generatedSheets||[]).map(plan=>({...plan,sheets:(plan.sheets||[]).map(sheet=>({...sheet,pieces:(sheet.pieces||[]).map(piece=>piece.figure?{...piece,figure:rename(piece.figure),name:String(piece.name||'').replace(String(piece.figure),rename(piece.figure))}:piece)}))})),
+    svgLibrary
+  }
+  return {db:next,groups,changes:groups.reduce((n,g)=>n+g.names.length-1,0)}
+}
+
+
 function orderDate(order){
   return String(order?.delivery||'').slice(0,10)
 }
