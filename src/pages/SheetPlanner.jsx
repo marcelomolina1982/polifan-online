@@ -407,14 +407,14 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
     }
   }
 
-  function edgeCandidates(placed,m){
+  function edgeCandidates(rects,m){
     const pts=[[0,0],[sw-m.pw,0],[0,sh-m.ph],[sw-m.pw,sh-m.ph]]
-    placed.forEach(r=>{
+    rects.forEach(r=>{
       pts.push(
-        [r.x+r.pw,r.y],[r.x-m.pw,r.y],
-        [r.x,r.y+r.ph],[r.x,r.y-m.ph],
-        [r.x+r.pw,r.y+r.ph-m.ph],
-        [r.x+r.pw-m.pw,r.y+r.ph]
+        [r.x+r.w,r.y],[r.x-m.pw,r.y],
+        [r.x,r.y+r.h],[r.x,r.y-m.ph],
+        [r.x+r.w,r.y+r.h-m.ph],
+        [r.x+r.w-m.pw,r.y+r.h]
       )
     })
     const seen=new Set()
@@ -422,6 +422,10 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
       .map(([x,y])=>[Math.round(x),Math.round(y)])
       .filter(([x,y])=>x>=0&&y>=0&&x+m.pw<=sw&&y+m.ph<=sh)
       .filter(([x,y])=>{const k=`${x}|${y}`;if(seen.has(k))return false;seen.add(k);return true})
+  }
+
+  function rectCollidesStrict(rects,x,y,w,h){
+    return rects.some(r=>x<r.x+r.w&&x+w>r.x&&y<r.y+r.h&&y+h>r.y)
   }
 
   async function variantsFor(part){
@@ -436,23 +440,21 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
     let best=null
 
     for(const m of variants){
-      // Primero prueba puntos creados por los bordes de las piezas existentes.
-      const candidates=edgeCandidates(state.placed,m)
+      const candidates=edgeCandidates(state.rects,m)
       for(const [x,y] of candidates){
-        if(maskCollides(state.occ,m,x,y))continue
-        const maxX=Math.max(x+m.pw,...state.placed.map(r=>r.x+r.pw),0)
-        const maxY=Math.max(y+m.ph,...state.placed.map(r=>r.y+r.ph),0)
+        // Regla definitiva: ni siquiera las cajas exteriores de seguridad pueden cruzarse.
+        if(rectCollidesStrict(state.rects,x,y,m.pw,m.ph))continue
+        const maxX=Math.max(x+m.pw,...state.rects.map(r=>r.x+r.w),0)
+        const maxY=Math.max(y+m.ph,...state.rects.map(r=>r.y+r.h),0)
         const score=maxX*maxY*1000+y*sw+x
         if(!best||score<best.score)best={m,x,y,score}
       }
 
-      // Si esos puntos no encuentran una buena posición, hace un barrido grueso
-      // de 1 cm aprox. usando la SILUETA, no el rectángulo.
       if(!best){
         const step=3
         for(let y=0;y<=sh-m.ph;y+=step){
           for(let x=0;x<=sw-m.pw;x+=step){
-            if(maskCollides(state.occ,m,x,y))continue
+            if(rectCollidesStrict(state.rects,x,y,m.pw,m.ph))continue
             const score=y*sw+x
             best={m,x,y,score}
             break
@@ -463,27 +465,26 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
     }
 
     if(!best)return false
-    maskStamp(state.occ,best.m,best.x,best.y)
+    state.rects.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
     state.placed.push({
       ...part,
       x:(best.x+best.m.pad)/PX_PER_CM,
       y:(best.y+best.m.pad)/PX_PER_CM,
-      // Caja visual de la silueta rotada; el SVG conserva srcW/srcH sin escala.
       w:best.m.boxW,h:best.m.boxH,
       angle:best.m.angle,rotated:best.m.angle!==0,
-      _maskX:best.x,_maskY:best.y,_pw:best.m.pw,_ph:best.m.ph
+      _rectX:best.x,_rectY:best.y,_rectW:best.m.pw,_rectH:best.m.ph
     })
     return true
   }
 
   async function tryKit(state,kit){
-    const trial={occ:state.occ.slice(),placed:state.placed.slice()}
+    const trial={rects:state.rects.map(r=>({...r})),placed:state.placed.slice()}
     // Primero coloca el componente de mayor área.
     const parts=kit.parts.slice().sort((a,b)=>num(b.width)*num(b.height)-num(a.width)*num(a.height))
     for(const part of parts){
       if(!await placePart(trial,part))return false
     }
-    state.occ=trial.occ;state.placed=trial.placed
+    state.rects=trial.rects;state.placed=trial.placed
     return true
   }
 
@@ -497,7 +498,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
 
   let best=null
   for(const ordered of orders){
-    const state={occ:new Uint8Array(sw*sh),placed:[]},skipped=[]
+    const state={rects:[],placed:[]},skipped=[]
     for(let i=0;i<ordered.length;i++){
       if(!await tryKit(state,ordered[i]))skipped.push(ordered[i])
       if(i>0&&i%4===0)await nextFrame()
@@ -512,23 +513,23 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}
   }
 
   if(!best)return {sheets:[],rejected:kits,total:0,sheetArea,used:0,completeFigures:0,target}
-  // Limpia datos internos antes de guardar/exportar.
-  // Segunda validación: vuelve a estampar todas las piezas elegidas desde cero.
-  // Si alguna colisión escapó durante el acomodo, la placa se rechaza antes de mostrar/exportar.
-  const verifyOcc=new Uint8Array(sw*sh)
+  // Validación final independiente sobre las cajas exportadas reales.
+  // Si dos cajas se cruzan aunque sea mínimamente, la placa no se acepta.
+  const finalRects=[]
   const verified=[]
+  const finalGap=Math.max(.15,num(gap))
   for(const piece of best.sheet.placed){
-    const m=await makeAngleMask(piece,num(piece.angle,0),safeGap)
-    const x=Math.round(num(piece.x)*PX_PER_CM-m.pad)
-    const y=Math.round(num(piece.y)*PX_PER_CM-m.pad)
-    if(maskCollides(verifyOcc,m,x,y)){
-      throw new Error(`Seguridad de placa: se detectó una superposición real en ${piece.name}. Volvé a generar la placa.`)
+    const x=num(piece.x),y=num(piece.y),w=num(piece.w),h=num(piece.h)
+    const rx=x-finalGap/2,ry=y-finalGap/2,rw=w+finalGap,rh=h+finalGap
+    const hit=finalRects.find(r=>rx<r.x+r.w&&rx+rw>r.x&&ry<r.y+r.h&&ry+rh>r.y)
+    if(hit){
+      throw new Error(`Seguridad de placa: ${piece.name} se superpone con ${hit.name}. La placa fue rechazada.`)
     }
-    maskStamp(verifyOcc,m,x,y)
+    finalRects.push({x:rx,y:ry,w:rw,h:rh,name:piece.name})
     verified.push(piece)
   }
 
-  best.sheet.placed=verified.map(({_maskX,_maskY,_pw,_ph,...piece})=>piece)
+  best.sheet.placed=verified.map(({_rectX,_rectY,_rectW,_rectH,...piece})=>piece)
   return {
     sheets:best.sheet.placed.length?[best.sheet]:[],
     rejected:best.skipped,
@@ -732,7 +733,7 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada componente usa una envolvente sólida de seguridad y una separación mínima de 1,5 mm. La placa se valida otra vez antes de mostrarse o exportarse.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático ninguna caja exterior rotada puede cruzarse con otra. Se mantiene una separación mínima de 1,5 mm y la placa se valida nuevamente antes de mostrarse o exportarse.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
     <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. La colisión se calcula sobre la silueta real del SVG y prueba rotaciones cada 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
