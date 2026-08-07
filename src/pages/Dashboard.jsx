@@ -1,7 +1,7 @@
 import React from 'react'
 import { Title, Badge } from '../components/UI'
 import { money } from '../lib/format'
-import { stockRows } from '../lib/inventory'
+import { stockRows, isOrderCommitted } from '../lib/inventory'
 import { DAILY_PIECE_LIMIT, orderPieces, productionStatus, sheetsForPieces, todayArgentinaISO, argentinaNow } from '../lib/production'
 
 const pct=(value,total)=>Math.max(0,Math.min(100,total?Math.round((value/total)*100):0))
@@ -16,7 +16,7 @@ function StatCard({icon,label,value,detail,tone='purple',onClick}){
 
 export default function Dashboard({db,go}){
   const today=todayArgentinaISO()
-  const activeOrders=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status))
+  const activeOrders=db.orders.filter(o=>isOrderCommitted(o,today))
   const todayOrders=db.orders.filter(o=>o.delivery===today && o.status!=='Cancelado')
   const pendingPieces=activeOrders.reduce((sum,o)=>sum+orderPieces(o),0)
   const todayRevenue=db.orders.filter(o=>(o.date||'')===today && o.status!=='Cancelado').reduce((a,o)=>a+Number(o.total||0),0)
@@ -41,7 +41,7 @@ export default function Dashboard({db,go}){
   const todayPieces=todayOrders.reduce((sum,o)=>sum+orderPieces(o),0)
   const webPending=Number(db.webRequests?.filter?.(r=>r.status==='Pendiente de pago').length||0)
   const packed=db.orders.filter(o=>['Listo','Embalado'].includes(o.status)).length
-  const unpaid=db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status) && Number(o.paid||0)<Number(o.total||0)).length
+  const unpaid=db.orders.filter(o=>isOrderCommitted(o,today) && Number(o.paid||0)<Number(o.total||0)).length
   const todayProgress=pct(todayPieces,DAILY_PIECE_LIMIT)
   const todayFree=Math.max(0,DAILY_PIECE_LIMIT-todayPieces)
   const monthlyOrders=monthly.length

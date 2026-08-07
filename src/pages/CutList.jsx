@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { today } from '../lib/format'
-import { activeCutQty, manualBalance, pendingCutRows } from '../lib/inventory'
+import { activeCutQty, physicalStockBalance, pendingCutRows, isOrderCommitted } from '../lib/inventory'
 
 function dateLabel(value){
   if(!value) return 'Sin fecha de entrega'
@@ -10,7 +10,7 @@ function dateLabel(value){
 }
 
 function groupedPendingByDelivery(db){
-  const stock=manualBalance(db)
+  const stock=physicalStockBalance(db)
   const inCut=activeCutQty(db)
   const available={}
   const names=new Set([...(db.figures||[]),...Object.keys(stock),...Object.keys(inCut)])
@@ -18,7 +18,7 @@ function groupedPendingByDelivery(db){
 
   const groups={}
   ;(db.orders||[])
-    .filter(o=>o.status!=='Cancelado')
+    .filter(o=>isOrderCommitted(o))
     .slice()
     .sort((a,b)=>(a.delivery||'9999-12-31').localeCompare(b.delivery||'9999-12-31') || String(a.number||'').localeCompare(String(b.number||'')))
     .forEach(o=>{
