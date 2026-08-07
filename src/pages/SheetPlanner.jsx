@@ -237,111 +237,201 @@ function buildCompleteKits(rows,priority,date,source,modelResolver){
   return {kits,missing}
 }
 
-async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
-  const scalePx=PX_PER_CM,sw=Math.floor(wCm*scalePx),sh=Math.floor(hCm*scalePx)
-  const gapPx=Math.max(0,Math.ceil(num(gap)*scalePx))
-  const sheet={number:1,rects:[],placed:[]}
-  const skipped=[]
 
-  function candidates(rects,w,h){
-    const pts=[[0,0],[sw-w,0],[0,sh-h],[sw-w,sh-h]]
-    const xs=new Set([0,sw-w]),ys=new Set([0,sh-h])
-    rects.forEach(r=>{
-      xs.add(r.x+r.w+gapPx);xs.add(r.x-w-gapPx);xs.add(r.x);xs.add(r.x+r.w-w)
-      ys.add(r.y+r.h+gapPx);ys.add(r.y-h-gapPx);ys.add(r.y);ys.add(r.y+r.h-h)
-      pts.push([r.x+r.w+gapPx,r.y],[r.x,r.y+r.h+gapPx])
-      pts.push([r.x-w-gapPx,r.y],[r.x,r.y-h-gapPx])
-      pts.push([r.x+r.w+gapPx,r.y+r.h-h],[r.x+r.w-w,r.y+r.h+gapPx])
-    })
-    // Cruza bordes relevantes de piezas ya colocadas: da muchas más opciones de
-    // compactación sin volver al barrido píxel por píxel que congelaba la app.
-    for(const x of xs)for(const y of ys)pts.push([x,y])
-    const seen=new Set()
-    return pts.filter(([x,y])=>x>=0&&y>=0&&x+w<=sw&&y+h<=sh)
-      .filter(([x,y])=>{const k=`${Math.round(x)}|${Math.round(y)}`;if(seen.has(k))return false;seen.add(k);return true})
-      .sort((a,b)=>a[1]-b[1]||a[0]-b[0])
+const angleMaskCache=new Map()
+async function makeAngleMask(part,angle=0,gapCm=0){
+  const normalized=((num(angle)%360)+360)%360
+  const key=`${part.svgId||part.id}|${normalized}|${num(gapCm)}|${part.blockInterior!==false?'1':'0'}`
+  if(angleMaskCache.has(key))return angleMaskCache.get(key)
+
+  const srcW=Math.max(.1,num(part.width)),srcH=Math.max(.1,num(part.height))
+  const rad=normalized*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
+  const corners=[[0,0],[srcW,0],[0,srcH],[srcW,srcH]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
+  const minX=Math.min(...corners.map(q=>q[0])),maxX=Math.max(...corners.map(q=>q[0]))
+  const minY=Math.min(...corners.map(q=>q[1])),maxY=Math.max(...corners.map(q=>q[1]))
+  const boxW=maxX-minX,boxH=maxY-minY
+  const pad=Math.ceil(Math.max(0,num(gapCm))*PX_PER_CM/2)
+  const pw=Math.max(1,Math.ceil(boxW*PX_PER_CM))+pad*2
+  const ph=Math.max(1,Math.ceil(boxH*PX_PER_CM))+pad*2
+  const canvas=document.createElement('canvas');canvas.width=pw;canvas.height=ph
+  const ctx=canvas.getContext('2d',{willReadFrequently:true})
+  ctx.fillStyle='#000'
+
+  if(part.svgText){
+    const doc=new DOMParser().parseFromString(part.svgText,'image/svg+xml'),svg=doc.documentElement
+    if(part.blockInterior!==false){
+      svg.querySelectorAll('path,polygon,polyline,circle,ellipse,rect').forEach(el=>{
+        el.setAttribute('fill','#000');el.setAttribute('stroke','#000')
+      })
+    }
+    const im=await loadImage(svgDataUrl(new XMLSerializer().serializeToString(svg)))
+    ctx.save()
+    ctx.translate(pad-minX*PX_PER_CM,pad-minY*PX_PER_CM)
+    ctx.rotate(rad)
+    ctx.drawImage(im,0,0,srcW*PX_PER_CM,srcH*PX_PER_CM)
+    ctx.restore()
+  }else{
+    ctx.fillRect(pad,pad,Math.ceil(boxW*PX_PER_CM),Math.ceil(boxH*PX_PER_CM))
   }
-  function overlaps(rects,x,y,w,h){
-    return rects.some(r=>x<r.x+r.w+gapPx&&x+w+gapPx>r.x&&y<r.y+r.h+gapPx&&y+h+gapPx>r.y)
-  }
-  function placePart(state,part){
-    // Rotación fina: prueba cada 15°. La pieza conserva siempre su ancho/alto
-    // originales; lo único que cambia es el rectángulo exterior ocupado al rotarla.
-    const angles=part.allowRotate===false?[0]:Array.from({length:24},(_,i)=>i*15)
-    const variants=angles.map(angle=>{
-      const rad=angle*Math.PI/180
-      const cw=Math.abs(Math.cos(rad)),sw2=Math.abs(Math.sin(rad))
-      const exactBoxW=part.width*cw+part.height*sw2
-      const exactBoxH=part.width*sw2+part.height*cw
-      return {angle,w:Math.ceil(exactBoxW*scalePx),h:Math.ceil(exactBoxH*scalePx),boxW:exactBoxW,boxH:exactBoxH}
-    })
-    let best=null
-    for(const v of variants){
-      for(const [x,y] of candidates(state.rects,v.w,v.h)){
-        if(overlaps(state.rects,x,y,v.w,v.h))continue
-        const maxX=Math.max(x+v.w,...state.rects.map(r=>r.x+r.w),0)
-        const maxY=Math.max(y+v.h,...state.rects.map(r=>r.y+r.h),0)
-        const compact=maxX*maxY
-        const score=compact*100000+y*sw+x
-        if(!best||score<best.score)best={...v,x,y,score}
+
+  const alpha=ctx.getImageData(0,0,pw,ph).data
+  let mask=new Uint8Array(pw*ph)
+  for(let i=0;i<mask.length;i++)if(alpha[i*4+3]>20)mask[i]=1
+  if(part.blockInterior!==false)mask=fillClosedHoles(mask,pw,ph)
+
+  // Dilatación de la separación mínima.
+  if(pad){
+    const d=new Uint8Array(mask.length)
+    for(let y=0;y<ph;y++)for(let x=0;x<pw;x++)if(mask[y*pw+x]){
+      for(let dy=-pad;dy<=pad;dy++)for(let dx=-pad;dx<=pad;dx++){
+        if(dx*dx+dy*dy>pad*pad)continue
+        const xx=x+dx,yy=y+dy
+        if(xx>=0&&xx<pw&&yy>=0&&yy<ph)d[yy*pw+xx]=1
       }
     }
+    mask=d
+  }
+
+  const value={mask,pw,ph,angle:normalized,boxW,boxH,pad,minX,minY,srcW,srcH}
+  angleMaskCache.set(key,value)
+  return value
+}
+async function packCompleteKits(kits,wCm,hCm,gap,{target=10,targetEfficiency=90}={}){
+  const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM)
+  const sheetArea=wCm*hCm
+
+  function maskCollides(occ,m,x,y){
+    if(x<0||y<0||x+m.pw>sw||y+m.ph>sh)return true
+    for(let my=0;my<m.ph;my++){
+      const mo=my*m.pw,oo=(y+my)*sw+x
+      for(let mx=0;mx<m.pw;mx++)if(m.mask[mo+mx]&&occ[oo+mx])return true
+    }
+    return false
+  }
+  function maskStamp(occ,m,x,y){
+    for(let my=0;my<m.ph;my++){
+      const mo=my*m.pw,oo=(y+my)*sw+x
+      for(let mx=0;mx<m.pw;mx++)if(m.mask[mo+mx])occ[oo+mx]=1
+    }
+  }
+
+  function edgeCandidates(placed,m){
+    const pts=[[0,0],[sw-m.pw,0],[0,sh-m.ph],[sw-m.pw,sh-m.ph]]
+    placed.forEach(r=>{
+      pts.push(
+        [r.x+r.pw,r.y],[r.x-m.pw,r.y],
+        [r.x,r.y+r.ph],[r.x,r.y-m.ph],
+        [r.x+r.pw,r.y+r.ph-m.ph],
+        [r.x+r.pw-m.pw,r.y+r.ph]
+      )
+    })
+    const seen=new Set()
+    return pts
+      .map(([x,y])=>[Math.round(x),Math.round(y)])
+      .filter(([x,y])=>x>=0&&y>=0&&x+m.pw<=sw&&y+m.ph<=sh)
+      .filter(([x,y])=>{const k=`${x}|${y}`;if(seen.has(k))return false;seen.add(k);return true})
+  }
+
+  async function variantsFor(part){
+    const angles=part.allowRotate===false?[0]:Array.from({length:24},(_,i)=>i*15)
+    const out=[]
+    for(const angle of angles)out.push(await makeAngleMask(part,angle,gap))
+    return out
+  }
+
+  async function placePart(state,part){
+    const variants=await variantsFor(part)
+    let best=null
+
+    for(const m of variants){
+      // Primero prueba puntos creados por los bordes de las piezas existentes.
+      const candidates=edgeCandidates(state.placed,m)
+      for(const [x,y] of candidates){
+        if(maskCollides(state.occ,m,x,y))continue
+        const maxX=Math.max(x+m.pw,...state.placed.map(r=>r.x+r.pw),0)
+        const maxY=Math.max(y+m.ph,...state.placed.map(r=>r.y+r.ph),0)
+        const score=maxX*maxY*1000+y*sw+x
+        if(!best||score<best.score)best={m,x,y,score}
+      }
+
+      // Si esos puntos no encuentran una buena posición, hace un barrido grueso
+      // de 1 cm aprox. usando la SILUETA, no el rectángulo.
+      if(!best){
+        const step=3
+        for(let y=0;y<=sh-m.ph;y+=step){
+          for(let x=0;x<=sw-m.pw;x+=step){
+            if(maskCollides(state.occ,m,x,y))continue
+            const score=y*sw+x
+            best={m,x,y,score}
+            break
+          }
+          if(best)break
+        }
+      }
+    }
+
     if(!best)return false
-    state.rects.push({x:best.x,y:best.y,w:best.w,h:best.h})
+    maskStamp(state.occ,best.m,best.x,best.y)
     state.placed.push({
       ...part,
-      x:best.x/scalePx,y:best.y/scalePx,
-      // w/h son la caja exterior de la pieza rotada, NO una escala del SVG.
-      w:best.boxW,h:best.boxH,
-      angle:best.angle,rotated:best.angle!==0
+      x:(best.x+best.m.pad)/PX_PER_CM,
+      y:(best.y+best.m.pad)/PX_PER_CM,
+      // Caja visual de la silueta rotada; el SVG conserva srcW/srcH sin escala.
+      w:best.m.boxW,h:best.m.boxH,
+      angle:best.m.angle,rotated:best.m.angle!==0,
+      _maskX:best.x,_maskY:best.y,_pw:best.m.pw,_ph:best.m.ph
     })
     return true
   }
-  function tryKit(kit){
-    const state={rects:sheet.rects.map(r=>({...r})),placed:sheet.placed.slice()}
-    const parts=kit.parts.slice().sort((a,b)=>b.width*b.height-a.width*a.height)
-    for(const part of parts)if(!placePart(state,part))return false
-    sheet.rects=state.rects;sheet.placed=state.placed
+
+  async function tryKit(state,kit){
+    const trial={occ:state.occ.slice(),placed:state.placed.slice()}
+    // Primero coloca el componente de mayor área.
+    const parts=kit.parts.slice().sort((a,b)=>num(b.width)*num(b.height)-num(a.width)*num(a.height))
+    for(const part of parts){
+      if(!await placePart(trial,part))return false
+    }
+    state.occ=trial.occ;state.placed=trial.placed
     return true
   }
 
   const kitArea=k=>k.parts.reduce((a,p)=>a+num(p.width)*num(p.height),0)
-  const baseOrdered=kits.slice().sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))||kitArea(b)-kitArea(a))
-  const orderings=[
-    baseOrdered,
-    baseOrdered.slice().sort((a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))||kitArea(a)-kitArea(b))
+  const prioritySort=(a,b)=>num(a.priority,999999)-num(b.priority,999999)||String(a.date).localeCompare(String(b.date))
+  const base=kits.slice().sort((a,b)=>prioritySort(a,b)||kitArea(b)-kitArea(a))
+  const orders=[
+    base,
+    kits.slice().sort((a,b)=>prioritySort(a,b)||kitArea(a)-kitArea(b))
   ]
-  let bestSheet=null,bestSkipped=null,bestCount=-1,bestEff=-1
 
-  for(const ordered of orderings){
-    sheet.rects=[];sheet.placed=[];skipped.length=0
+  let best=null
+  for(const ordered of orders){
+    const state={occ:new Uint8Array(sw*sh),placed:[]},skipped=[]
     for(let i=0;i<ordered.length;i++){
-      const kit=ordered[i]
-      if(!tryKit(kit))skipped.push(kit)
-      if(i>0&&i%8===0)await nextFrame()
+      if(!await tryKit(state,ordered[i]))skipped.push(ordered[i])
+      if(i>0&&i%4===0)await nextFrame()
     }
-    const area=wCm*hCm
-    const used=sheet.placed.reduce((a,p)=>a+p.w*p.h,0)
-    const eff=area?100*used/area:0
-    const count=kitCountOnSheet(sheet)
-    if(count>bestCount||(count===bestCount&&eff>bestEff)){
-      bestCount=count;bestEff=eff
-      bestSheet={number:1,placed:sheet.placed.map(x=>({...x})),used,efficiency:eff}
-      bestSkipped=skipped.slice()
+    const used=state.placed.reduce((a,p)=>a+num(p.sourceWidth||p.width)*num(p.sourceHeight||p.height),0)
+    const efficiency=sheetArea?100*used/sheetArea:0
+    const sheet={number:1,placed:state.placed,used,efficiency}
+    const completeFigures=kitCountOnSheet(sheet)
+    if(!best||completeFigures>best.completeFigures||(completeFigures===best.completeFigures&&efficiency>best.efficiency)){
+      best={sheet,skipped,completeFigures,efficiency,used}
     }
   }
 
-  sheet.number=bestSheet?.number||1
-  sheet.placed=bestSheet?.placed||[]
-  sheet.used=bestSheet?.used||0
-  sheet.efficiency=bestSheet?.efficiency||0
-  skipped.length=0
-  ;(bestSkipped||[]).forEach(x=>skipped.push(x))
-
-  const area=wCm*hCm
-  const completeFigures=kitCountOnSheet(sheet)
-  delete sheet.rects
-  return {sheets:sheet.placed.length?[sheet]:[],rejected:skipped,total:sheet.placed.length,sheetArea:area,used:sheet.used,completeFigures,target}
+  if(!best)return {sheets:[],rejected:kits,total:0,sheetArea,used:0,completeFigures:0,target}
+  // Limpia datos internos antes de guardar/exportar.
+  best.sheet.placed=best.sheet.placed.map(({_maskX,_maskY,_pw,_ph,...piece})=>piece)
+  return {
+    sheets:best.sheet.placed.length?[best.sheet]:[],
+    rejected:best.skipped,
+    total:best.sheet.placed.length,
+    sheetArea,
+    used:best.used,
+    completeFigures:best.completeFigures,
+    target,
+    targetEfficiency
+  }
 }
 
 function usableModelComponents(model){
@@ -416,7 +506,7 @@ export default function SheetPlanner({db,onSave}){
       const targetComplete=10
       const targetEfficiency=90
       let workingKits=kits
-      let packed=await packCompleteKits(workingKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete})
+      let packed=await packCompleteKits(workingKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete,targetEfficiency})
       const fillers=[]
 
       // Objetivo doble:
@@ -432,7 +522,7 @@ export default function SheetPlanner({db,onSave}){
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
           if(!built.kits.length){stagnant++;continue}
           const trialKits=[...workingKits,...built.kits]
-          const trial=await packCompleteKits(trialKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete})
+          const trial=await packCompleteKits(trialKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete,targetEfficiency})
           const betterCount=trial.completeFigures>packed.completeFigures
           const betterFill=trial.efficiency>packed.efficiency+.05
           if(betterCount||betterFill){
@@ -535,8 +625,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90% de aprovechamiento, únicamente trasladando o rotando en pasos de 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático las colisiones se calculan sobre la silueta real de cada SVG.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90%. La colisión se calcula sobre la silueta real del SVG y prueba rotaciones cada 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
