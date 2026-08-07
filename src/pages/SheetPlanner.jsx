@@ -265,10 +265,16 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
     return rects.some(r=>x<r.x+r.w+gapPx&&x+w+gapPx>r.x&&y<r.y+r.h+gapPx&&y+h+gapPx>r.y)
   }
   function placePart(state,part){
-    const variants=[
-      {rotated:false,w:Math.ceil(part.width*scalePx),h:Math.ceil(part.height*scalePx)},
-      ...(part.allowRotate!==false&&Math.abs(part.width-part.height)>.001?[{rotated:true,w:Math.ceil(part.height*scalePx),h:Math.ceil(part.width*scalePx)}]:[])
-    ]
+    // Rotación fina: prueba cada 15°. La pieza conserva siempre su ancho/alto
+    // originales; lo único que cambia es el rectángulo exterior ocupado al rotarla.
+    const angles=part.allowRotate===false?[0]:Array.from({length:24},(_,i)=>i*15)
+    const variants=angles.map(angle=>{
+      const rad=angle*Math.PI/180
+      const cw=Math.abs(Math.cos(rad)),sw2=Math.abs(Math.sin(rad))
+      const exactBoxW=part.width*cw+part.height*sw2
+      const exactBoxH=part.width*sw2+part.height*cw
+      return {angle,w:Math.ceil(exactBoxW*scalePx),h:Math.ceil(exactBoxH*scalePx),boxW:exactBoxW,boxH:exactBoxH}
+    })
     let best=null
     for(const v of variants){
       for(const [x,y] of candidates(state.rects,v.w,v.h)){
@@ -282,11 +288,13 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
     }
     if(!best)return false
     state.rects.push({x:best.x,y:best.y,w:best.w,h:best.h})
-    // La grilla en píxeles sirve solo para buscar una posición segura.
-    // Las dimensiones guardadas/exportadas permanecen EXACTAMENTE iguales al SVG.
-    const exactW=best.rotated?num(part.height):num(part.width)
-    const exactH=best.rotated?num(part.width):num(part.height)
-    state.placed.push({...part,x:best.x/scalePx,y:best.y/scalePx,w:exactW,h:exactH,rotated:best.rotated})
+    state.placed.push({
+      ...part,
+      x:best.x/scalePx,y:best.y/scalePx,
+      // w/h son la caja exterior de la pieza rotada, NO una escala del SVG.
+      w:best.boxW,h:best.boxH,
+      angle:best.angle,rotated:best.angle!==0
+    })
     return true
   }
   function tryKit(kit){
@@ -480,42 +488,36 @@ export default function SheetPlanner({db,onSave}){
     return Object.values(totals).map(x=>({figure:x.figure,qty:x.kits.size||Math.round(x.parts)}))
   },[items])
   async function generate(){setBusy(true);setError('');setActive(0);try{const invalid=items.filter(x=>!num(x.sourceWidth||x.width)||!num(x.sourceHeight||x.height)||!sameSize(x.width,x.sourceWidth||x.width)||!sameSize(x.height,x.sourceHeight||x.height));if(invalid.length)throw new Error(`Medida alterada o faltante en: ${invalid.map(x=>x.name).join(', ')}. El motor solo acepta la medida exacta del SVG.`);setResult({...await pack(items,num(sheetW),num(sheetH),num(gap),{strictRects:true}),stale:false})}catch(e){setError(e.message||'No se pudo generar')}finally{setBusy(false)}}
-  function markup(p){const m=p.svgMeta;if(!m)return '';if(p.rotated)return `<g transform="translate(${p.x+p.w} ${p.y}) rotate(90)"><svg width="${p.h}" height="${p.w}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg></g>`;return `<svg x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg>`}
+  function markup(p){
+    const m=p.svgMeta;if(!m)return ''
+    const angle=((num(p.angle, p.rotated?90:0)%360)+360)%360
+    const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
+    if(!angle)return `<svg x="${p.x}" y="${p.y}" width="${srcW}" height="${srcH}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="none">${m.inner}</svg>`
+    const rad=angle*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
+    const corners=[[0,0],[srcW,0],[0,srcH],[srcW,srcH]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
+    const minX=Math.min(...corners.map(q=>q[0])),minY=Math.min(...corners.map(q=>q[1]))
+    return `<g transform="translate(${p.x-minX} ${p.y-minY}) rotate(${angle})"><svg width="${srcW}" height="${srcH}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="none">${m.inner}</svg></g>`
+  }
   function download(){
     if(!sheet)return
-    const tol=.001
-    const altered=sheet.placed.filter(p=>{
-      const srcW=num(p.sourceWidth||p.width)
-      const srcH=num(p.sourceHeight||p.height)
-      if(!srcW||!srcH)return true
-      const expectedW=p.rotated?srcH:srcW
-      const expectedH=p.rotated?srcW:srcH
-      return Math.abs(num(p.w)-expectedW)>tol||Math.abs(num(p.h)-expectedH)>tol
-    })
-    if(altered.length){
-      return alert(`No se puede exportar: ${altered.length} pieza(s) tienen una modificación real de tamaño. Revisá: ${altered.slice(0,5).map(x=>x.name).join(', ')}${altered.length>5?'…':''}`)
-    }
+    // La rotación cambia la caja exterior, pero nunca las medidas internas del SVG.
+    // Por eso validamos las medidas fuente, no w/h de la caja rotada.
+    const invalid=sheet.placed.filter(p=>!num(p.sourceWidth||p.width)||!num(p.sourceHeight||p.height))
+    if(invalid.length)return alert(`No se puede exportar: faltan medidas originales en ${invalid.slice(0,5).map(x=>x.name).join(', ')}`)
     const metadata=esc(JSON.stringify({
-      empresa:'Tu Vida en Tinta',
-      regla:'medidas exactas del SVG',
-      rotacionPermitida:true,
-      escalaPermitida:false,
+      empresa:'Tu Vida en Tinta',regla:'medidas exactas del SVG',
+      rotacionPermitida:true,rotacionPasoGrados:15,escalaPermitida:false,
       piezas:sheet.placed.map(p=>({
         nombre:p.name,svgId:p.svgId,
-        anchoOrigen:p.sourceWidth||p.width,
-        altoOrigen:p.sourceHeight||p.height,
-        anchoExportado:p.w,altoExportado:p.h,
-        rotada:!!p.rotated,scaleX:1,scaleY:1
+        anchoOrigen:p.sourceWidth||p.width,altoOrigen:p.sourceHeight||p.height,
+        angulo:num(p.angle,p.rotated?90:0),scaleX:1,scaleY:1
       }))
     }))
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${sheetW}cm" height="${sheetH}cm" viewBox="0 0 ${sheetW} ${sheetH}"><metadata>${metadata}</metadata>${sheet.placed.map(markup).join('')}</svg>`
     const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),a=document.createElement('a')
-    a.href=u
-    a.download=`placa-cnc-${sheet.number}.svg`
-    a.click()
-    URL.revokeObjectURL(u)
+    a.href=u;a.download=`placa-cnc-${sheet.number}.svg`;a.click();URL.revokeObjectURL(u)
   }
-  async function savePlan(){if(!result.sheets.length)return;const plan={id:uid(),date:new Date().toISOString(),status:result.automatic?'Lista automática':'Diseñada',automatic:!!result.automatic,priorityRule:'fecha de salida ascendente',fillThreshold:result.threshold||null,fillers:result.fillers||[],sheetW:num(sheetW),sheetH:num(sheetH),gap:num(gap),sheets:result.sheets.map(s=>({number:s.number,multiplier:num(sheetMultipliers[s.number],1),efficiency:s.efficiency,pieces:s.placed.map(p=>({name:p.name,figure:p.figure,unitWeight:num(p.unitWeight,1),itemId:p.itemId||p.id,svgId:p.svgId,x:p.x,y:p.y,w:p.w,h:p.h,sourceWidth:p.sourceWidth||p.width,sourceHeight:p.sourceHeight||p.height,scaleX:1,scaleY:1,rotated:p.rotated}))}))};await onSave({...db,generatedSheets:[...(db.generatedSheets||[]),plan]});alert('Diseño guardado. No se descontaron piezas todavía.')}
+  async function savePlan(){if(!result.sheets.length)return;const plan={id:uid(),date:new Date().toISOString(),status:result.automatic?'Lista automática':'Diseñada',automatic:!!result.automatic,priorityRule:'fecha de salida ascendente',fillThreshold:result.threshold||null,fillers:result.fillers||[],sheetW:num(sheetW),sheetH:num(sheetH),gap:num(gap),sheets:result.sheets.map(s=>({number:s.number,multiplier:num(sheetMultipliers[s.number],1),efficiency:s.efficiency,pieces:s.placed.map(p=>({name:p.name,figure:p.figure,unitWeight:num(p.unitWeight,1),itemId:p.itemId||p.id,svgId:p.svgId,x:p.x,y:p.y,w:p.w,h:p.h,sourceWidth:p.sourceWidth||p.width,sourceHeight:p.sourceHeight||p.height,scaleX:1,scaleY:1,angle:num(p.angle,p.rotated?90:0),rotated:p.rotated}))}))};await onSave({...db,generatedSheets:[...(db.generatedSheets||[]),plan]});alert('Diseño guardado. No se descontaron piezas todavía.')}
   function setMultiplier(number,value){setSheetMultipliers(v=>({...v,[number]:Math.max(1,Math.min(2,Number(value)||1))}))}
   async function sendSheetToCut(){
     if(!sheet)return
@@ -534,7 +536,7 @@ export default function SheetPlanner({db,onSave}){
 
   return <div className="sheet-planner-page">
     <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90% de aprovechamiento, únicamente trasladando o rotando; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 15°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90% de aprovechamiento, únicamente trasladando o rotando en pasos de 15°; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
