@@ -445,3 +445,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 
 /* v18.6.9 · Presupuestos */
 .quote-button{border-color:#b692f6!important;background:#f4efff!important;color:#5f36b4!important;font-weight:800!important}.quote-status{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:900}.quote-status.pending{background:#fff3cf;color:#8b5e00}.quote-status.approved{background:#dcf7e7;color:#147a43}.quote-status.cancelled{background:#fde2e2;color:#a22}@media(max-width:700px){.request-actions{min-width:220px}.request-actions button{flex:1 1 auto}}
+
+
+/* Diseñador de placas: vista previa real y resumen automático */
+.sheet-canvas-wrap{width:100%;overflow:auto;padding:12px;background:#f8fafc;border-radius:12px}
+.sheet-canvas{position:relative!important;display:block;flex:none;background:#fff;border:2px solid #475569;box-sizing:content-box;overflow:hidden;margin:0 auto;min-width:0}
+.placed-piece{position:absolute!important;display:block;box-sizing:border-box;overflow:visible}
+.placed-piece img{pointer-events:none;max-width:none}
+.auto-figure-summary{display:grid;gap:8px}
+.auto-figure-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+.auto-figure-row span{font-weight:700;color:#6d28d9;white-space:nowrap}
+@media(max-width:760px){.auto-figure-row{align-items:flex-start;flex-direction:column;gap:3px}.sheet-canvas-wrap{padding:6px}}
