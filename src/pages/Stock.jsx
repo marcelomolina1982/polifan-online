@@ -58,14 +58,64 @@ export default function Stock({db,onSave}){
     if(!qty)return alert('Ingresá una cantidad mayor a 0.')
     const positive=direction==='add'
     const component=quickPart[figure]||'complete'
-    const isLoose=component==='tapa'||component==='base'
-    const movement={id:crypto.randomUUID(),date:today(),figure,component:isLoose?component:undefined,type:isLoose?(positive?'Ajuste componente positivo':'Ajuste componente negativo'):(positive?'Ajuste positivo':'Ajuste negativo'),qty,detail:isLoose?`${positive?'Agregar':'Quitar'} ${component}${qty===1?'':'s'} suelta${component==='tapa'&&qty!==1?'s':''}`:(positive?'Ajuste manual: agregar figuras completas':'Ajuste manual: quitar figuras completas'),createdAt:new Date().toISOString()}
+    const isPart=component==='tapa'||component==='base'
+
+    if(!positive&&isPart){
+      const row=rowByFigure[figure]||{}
+      const looseAvailable=component==='tapa'?Number(row.looseTapa||0):Number(row.looseBase||0)
+      const fromLoose=Math.min(qty,looseAvailable)
+      const remaining=qty-fromLoose
+      const completeAvailable=Math.max(0,Number(row.cut||0))
+      if(remaining>completeAvailable){
+        return alert(`No hay suficientes ${component}s para quitar. Tenés ${looseAvailable} ${component}${looseAvailable===1?'':'s'} suelta${looseAvailable===1?'':'s'} y ${completeAvailable} figura${completeAvailable===1?'':'s'} completa${completeAvailable===1?'':'s'} disponible${completeAvailable===1?'':'s'}.`)
+      }
+
+      const now=new Date().toISOString()
+      const movements=[]
+      if(fromLoose>0){
+        movements.push({
+          id:crypto.randomUUID(),date:today(),figure,component,
+          type:'Ajuste componente negativo',qty:fromLoose,
+          detail:`Quitar ${fromLoose} ${component}${fromLoose===1?'':'s'} suelta${fromLoose===1?'':'s'}`,
+          createdAt:now
+        })
+      }
+      if(remaining>0){
+        const opposite=component==='tapa'?'base':'tapa'
+        // Desarmar una figura completa: baja una completa y deja la otra mitad como pieza suelta.
+        movements.push({
+          id:crypto.randomUUID(),date:today(),figure,
+          type:'Ajuste negativo',qty:remaining,
+          detail:`Desarmado: se quitaron ${remaining} ${component}${remaining===1?'':'s'} de figura${remaining===1?'':'s'} completa${remaining===1?'':'s'}`,
+          createdAt:now
+        })
+        movements.push({
+          id:crypto.randomUUID(),date:today(),figure,component:opposite,
+          type:'Ajuste componente positivo',qty:remaining,
+          detail:`Parte recuperada al quitar ${component}: ${remaining} ${opposite}${remaining===1?'':'s'} suelta${remaining===1?'':'s'}`,
+          createdAt:now
+        })
+      }
+      await onSave({...db,movements:[...(db.movements||[]),...movements]})
+      setQuickQty(v=>({...v,[figure]:''}))
+      return
+    }
+
+    const movement={
+      id:crypto.randomUUID(),date:today(),figure,
+      component:isPart?component:undefined,
+      type:isPart?(positive?'Ajuste componente positivo':'Ajuste componente negativo'):(positive?'Ajuste positivo':'Ajuste negativo'),
+      qty,
+      detail:isPart?`${positive?'Agregar':'Quitar'} ${component}${qty===1?'':'s'} suelta${qty===1?'':'s'}`:(positive?'Ajuste manual: agregar figuras completas':'Ajuste manual: quitar figuras completas'),
+      createdAt:new Date().toISOString()
+    }
     await onSave({...db,movements:[...(db.movements||[]),movement]})
     setQuickQty(v=>({...v,[figure]:''}))
   }
 
   return <>
     <Title title="Inventario en tiempo real" sub="Muestra lo que ya está cortado, lo pedido, lo que está en máquina y si sobra o falta producir."/>
+    <div className="notice inventory-explanation"><b>Quitar una tapa o base</b><span>Si la parte está suelta, se descuenta directamente. Si ya forma parte de una figura completa, la app desarma esa figura: por ejemplo, quitar 1 tapa descuenta 1 figura completa y deja 1 base suelta.</span></div>
     <div className="notice inventory-explanation"><b>Armado automático de tapa + base</b><span>Cuando una figura tiene 1 tapa y 1 base sueltas, el inventario las convierte automáticamente en 1 figura completa. Las dos partes dejan de mostrarse como sueltas. La Proyección también tiene en cuenta las tapas y bases que todavía están En corte.</span></div>
     <div className="inventory-kpis">
       <div className="panel"><small>CORTADAS AHORA</small><b>{totals.cut}</b><span>Piezas físicas registradas</span></div>
