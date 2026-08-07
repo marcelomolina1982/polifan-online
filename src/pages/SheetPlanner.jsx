@@ -282,7 +282,11 @@ async function packCompleteKits(kits,wCm,hCm,gap,{target=10}={}){
     }
     if(!best)return false
     state.rects.push({x:best.x,y:best.y,w:best.w,h:best.h})
-    state.placed.push({...part,x:best.x/scalePx,y:best.y/scalePx,w:best.w/scalePx,h:best.h/scalePx,rotated:best.rotated})
+    // La grilla en píxeles sirve solo para buscar una posición segura.
+    // Las dimensiones guardadas/exportadas permanecen EXACTAMENTE iguales al SVG.
+    const exactW=best.rotated?num(part.height):num(part.width)
+    const exactH=best.rotated?num(part.width):num(part.height)
+    state.placed.push({...part,x:best.x/scalePx,y:best.y/scalePx,w:exactW,h:exactH,rotated:best.rotated})
     return true
   }
   function tryKit(kit){
@@ -363,7 +367,7 @@ function sheetProductionRows(sheet,multiplier=1){
 
 export default function SheetPlanner({db,onSave}){
   const [sheetW,setSheetW]=useState(122),[sheetH,setSheetH]=useState(58),[gap,setGap]=useState(.2)
-  const [items,setItems]=useState([]),[result,setResult]=useState({sheets:[],rejected:[],total:0,used:0,sheetArea:0}),[active,setActive]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[minFill,setMinFill]=useState(85),[useFillers,setUseFillers]=useState(true),[autoSummary,setAutoSummary]=useState(null),[sheetMultipliers,setSheetMultipliers]=useState({}),[modelSearch,setModelSearch]=useState(''),[modelQty,setModelQty]=useState(1)
+  const [items,setItems]=useState([]),[result,setResult]=useState({sheets:[],rejected:[],total:0,used:0,sheetArea:0}),[active,setActive]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[minFill,setMinFill]=useState(90),[useFillers,setUseFillers]=useState(true),[autoSummary,setAutoSummary]=useState(null),[sheetMultipliers,setSheetMultipliers]=useState({}),[modelSearch,setModelSearch]=useState(''),[modelQty,setModelQty]=useState(1)
   const library=db.svgLibrary||[],products=normalizeCatalogProducts(db.customerCatalog?.length?db.customerCatalog:catalogProducts),pending=pendingCutRows(db).filter(x=>x.pending>0),sheet=result.sheets[active]||result.sheets[0]
   const libraryModels=useMemo(()=>{const map=new Map();library.forEach(c=>{const id=componentModelId(c),name=componentModelName(c);if(!map.has(id))map.set(id,{id,name,productId:c.productId||'',components:[]});map.get(id).components.push(c)});return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,'es'))},[library])
   function modelForFigure(figure){const key=normalizedName(figure);const product=products.find(p=>normalizedName(p.name)===key)||products.find(p=>normalizedName(p.name).includes(key)||key.includes(normalizedName(p.name)));const model=libraryModels.find(m=>(product?.id&&m.productId===product.id)||normalizedName(m.name)===key)||libraryModels.find(m=>normalizedName(m.name).includes(key)||key.includes(normalizedName(m.name)));return {product,model}}
@@ -402,25 +406,34 @@ export default function SheetPlanner({db,onSave}){
       if(!kits.length)throw new Error('No hay figuras completas pendientes con SVG vinculados para planificar.')
 
       const targetComplete=10
+      const targetEfficiency=90
       let workingKits=kits
       let packed=await packCompleteKits(workingKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete})
       const fillers=[]
 
-      // Primero se prueban TODOS los pedidos pendientes. Solo si siguen faltando figuras
-      // completas para llegar a 10 se prueban modelos de alta rotación como relleno.
-      if(useFillers&&packed.completeFigures<targetComplete){
+      // Objetivo doble:
+      // 1) mínimo 10 figuras completas;
+      // 2) seguir aprovechando huecos hasta intentar llegar al 90%.
+      // Nunca se escala ni deforma: solo se agregan juegos completos que entren.
+      if(useFillers&&(packed.completeFigures<targetComplete||packed.efficiency<targetEfficiency)){
         const ranking=bestSellerNames(db)
-        let attempts=0
-        while(packed.completeFigures<targetComplete&&attempts<35&&ranking.length){
-          const name=ranking[attempts%ranking.length];attempts++
+        let attempts=0,stagnant=0
+        while((packed.completeFigures<targetComplete||packed.efficiency<targetEfficiency)&&attempts<70&&ranking.length&&stagnant<Math.max(12,ranking.length*2)){
+          const name=ranking[attempts%ranking.length]
+          attempts++
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
-          if(!built.kits.length)continue
+          if(!built.kits.length){stagnant++;continue}
           const trialKits=[...workingKits,...built.kits]
           const trial=await packCompleteKits(trialKits,num(sheetW),num(sheetH),num(gap),{target:targetComplete})
-          if(trial.completeFigures>packed.completeFigures||trial.efficiency>packed.efficiency){
-            workingKits=trialKits;packed=trial;fillers.push(name)
-          }
-          if(attempts%5===0)await nextFrame()
+          const betterCount=trial.completeFigures>packed.completeFigures
+          const betterFill=trial.efficiency>packed.efficiency+.05
+          if(betterCount||betterFill){
+            workingKits=trialKits
+            packed=trial
+            fillers.push(name)
+            stagnant=0
+          }else stagnant++
+          if(attempts%4===0)await nextFrame()
         }
       }
 
@@ -433,12 +446,12 @@ export default function SheetPlanner({db,onSave}){
         if(placedIds.has(part.instanceId))visibleItems.push({...part,qty:1})
       }))
 
-      const finalResult={...packed,sheets:[one],waitingSheets:[],allSheets:[one],stale:false,automatic:true,threshold:Math.max(1,Math.min(100,num(minFill,85))),fillers}
+      const finalResult={...packed,sheets:[one],waitingSheets:[],allSheets:[one],stale:false,automatic:true,threshold:Math.max(1,Math.min(100,num(minFill,90))),fillers}
       setItems(visibleItems);setResult(finalResult)
       setAutoSummary({
         groups,missing:[...new Set(missing)],fillers,complete:1,waiting:0,
         threshold:finalResult.threshold,rejected:packed.rejected.length,
-        completeFigures:packed.completeFigures,targetComplete
+        completeFigures:packed.completeFigures,targetComplete,targetEfficiency:90
       })
       if(missing.length)alert(`No se incluyeron porque falta completar su Biblioteca SVG: ${[...new Set(missing)].join(', ')}`)
     }catch(e){setError(e.message||'No se pudo generar la placa automática')}finally{setBusy(false)}
@@ -470,14 +483,18 @@ export default function SheetPlanner({db,onSave}){
   function markup(p){const m=p.svgMeta;if(!m)return '';if(p.rotated)return `<g transform="translate(${p.x+p.w} ${p.y}) rotate(90)"><svg width="${p.h}" height="${p.w}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg></g>`;return `<svg x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="xMinYMin meet">${m.inner}</svg>`}
   function download(){
     if(!sheet)return
-    const tol=.05
+    const tol=.001
     const altered=sheet.placed.filter(p=>{
-      const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
+      const srcW=num(p.sourceWidth||p.width)
+      const srcH=num(p.sourceHeight||p.height)
+      if(!srcW||!srcH)return true
       const expectedW=p.rotated?srcH:srcW
       const expectedH=p.rotated?srcW:srcH
       return Math.abs(num(p.w)-expectedW)>tol||Math.abs(num(p.h)-expectedH)>tol
     })
-    if(altered.length)return alert(`No se puede exportar: se detectó una pieza realmente escalada o deformada: ${altered.slice(0,5).map(x=>x.name).join(', ')}${altered.length>5?'…':''}`)
+    if(altered.length){
+      return alert(`No se puede exportar: ${altered.length} pieza(s) tienen una modificación real de tamaño. Revisá: ${altered.slice(0,5).map(x=>x.name).join(', ')}${altered.length>5?'…':''}`)
+    }
     const metadata=esc(JSON.stringify({
       empresa:'Tu Vida en Tinta',
       regla:'medidas exactas del SVG',
@@ -487,13 +504,16 @@ export default function SheetPlanner({db,onSave}){
         nombre:p.name,svgId:p.svgId,
         anchoOrigen:p.sourceWidth||p.width,
         altoOrigen:p.sourceHeight||p.height,
-        anchoColocado:p.w,altoColocado:p.h,
+        anchoExportado:p.w,altoExportado:p.h,
         rotada:!!p.rotated,scaleX:1,scaleY:1
       }))
     }))
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${sheetW}cm" height="${sheetH}cm" viewBox="0 0 ${sheetW} ${sheetH}"><metadata>${metadata}</metadata>${sheet.placed.map(markup).join('')}</svg>`
     const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),a=document.createElement('a')
-    a.href=u;a.download=`placa-cnc-${sheet.number}.svg`;a.click();URL.revokeObjectURL(u)
+    a.href=u
+    a.download=`placa-cnc-${sheet.number}.svg`
+    a.click()
+    URL.revokeObjectURL(u)
   }
   async function savePlan(){if(!result.sheets.length)return;const plan={id:uid(),date:new Date().toISOString(),status:result.automatic?'Lista automática':'Diseñada',automatic:!!result.automatic,priorityRule:'fecha de salida ascendente',fillThreshold:result.threshold||null,fillers:result.fillers||[],sheetW:num(sheetW),sheetH:num(sheetH),gap:num(gap),sheets:result.sheets.map(s=>({number:s.number,multiplier:num(sheetMultipliers[s.number],1),efficiency:s.efficiency,pieces:s.placed.map(p=>({name:p.name,figure:p.figure,unitWeight:num(p.unitWeight,1),itemId:p.itemId||p.id,svgId:p.svgId,x:p.x,y:p.y,w:p.w,h:p.h,sourceWidth:p.sourceWidth||p.width,sourceHeight:p.sourceHeight||p.height,scaleX:1,scaleY:1,rotated:p.rotated}))}))};await onSave({...db,generatedSheets:[...(db.generatedSheets||[]),plan]});alert('Diseño guardado. No se descontaron piezas todavía.')}
   function setMultiplier(number,value){setSheetMultipliers(v=>({...v,[number]:Math.max(1,Math.min(2,Number(value)||1))}))}
@@ -514,10 +534,10 @@ export default function SheetPlanner({db,onSave}){
 
   return <div className="sheet-planner-page">
     <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Lee los SVG del catálogo y genera placas sin superposición. En modo automático cada pieza reserva además su rectángulo exterior de seguridad.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez y usa puntos de apoyo seguros para evitar congelar la app mientras acomoda las piezas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El modo automático genera una sola placa por vez. Busca un mínimo de 10 figuras completas y luego intenta acercarse al 90% de aprovechamiento, únicamente trasladando o rotando; nunca escala ni deforma.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Placa completa desde (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
-    {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) en esta placa · objetivo: {autoSummary.targetComplete??10} · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
+    {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
     {error&&<div className="notice">{error}</div>}
     <div className="planner-layout"><section className="panel planner-items"><div className="panel-heading"><h3>{result.automatic?'Figuras completas de esta placa':`Piezas físicas (${items.reduce((a,x)=>a+num(x.qty),0)})`}</h3><button className="ghost" onClick={()=>setItems([])}>Limpiar</button></div>
       {result.automatic?<>
@@ -532,7 +552,7 @@ export default function SheetPlanner({db,onSave}){
       </>}
     </section><section className="planner-preview"><div className="planner-kpis"><div className="metric-card"><small>Placas</small><b className="viz-stat-value">{result.sheets.length}</b></div><div className="metric-card"><small>Piezas</small><b className="viz-stat-value">{result.total}</b></div><div className="metric-card"><small>Aprovechamiento</small><b className="viz-stat-value">{result.sheets.length?Math.round(100*result.used/(result.sheetArea*result.sheets.length)):0}%</b></div></div>
       {result.rejected.length>0&&<div className="notice">{result.rejected.length} pieza(s) no entraron.</div>}{result.waitingSheets?.length>0&&<div className="notice"><b>{result.waitingSheets.length} placa(s) en espera</b><span>No se guardan como listas para cortar hasta alcanzar {result.threshold}% o recibir más piezas pendientes.</span></div>}
-      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% aproximado {kitCountOnSheet(sheet)>=10?'· ✓ Meta 10 alcanzada':'· faltan '+(10-kitCountOnSheet(sheet))+' para la meta'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=><div key={p.instanceId} className="placed-piece silhouette" title={p.name} style={{left:p.x*scale,top:p.y*scale,width:p.w*scale,height:p.h*scale}}>{p.rotated?<img src={svgDataUrl(p.svgText)} alt={p.name} style={{position:'absolute',left:'50%',top:'50%',width:p.h*scale,height:p.w*scale,objectFit:'contain',transform:'translate(-50%,-50%) rotate(90deg)',transformOrigin:'center'}}/>:<img src={svgDataUrl(p.svgText)} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}</div>)}</div></div></>}</div>
+      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% aprovechamiento {kitCountOnSheet(sheet)>=10?'· ✓ mínimo 10':'· faltan '+(10-kitCountOnSheet(sheet))+' para mínimo 10'} {sheet.efficiency>=90?'· ✓ meta 90%':'· intentando llegar al 90%'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=><div key={p.instanceId} className="placed-piece silhouette" title={p.name} style={{left:p.x*scale,top:p.y*scale,width:p.w*scale,height:p.h*scale}}>{p.rotated?<img src={svgDataUrl(p.svgText)} alt={p.name} style={{position:'absolute',left:'50%',top:'50%',width:p.h*scale,height:p.w*scale,objectFit:'contain',transform:'translate(-50%,-50%) rotate(90deg)',transformOrigin:'center'}}/>:<img src={svgDataUrl(p.svgText)} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}</div>)}</div></div></>}</div>
     </section></div>
   </div>
 }
