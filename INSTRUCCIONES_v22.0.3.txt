@@ -1,0 +1,13 @@
+v22.0.3 - Solver rápido
+Reemplazar:
+- solver-service/app.py
+- src/version.js
+- src/pages/SheetPlanner.jsx
+
+Cambios:
+- Simplificación SOLO para cálculo; el SVG original de corte no se modifica.
+- Se restauran las dimensiones exteriores exactas del modelo.
+- Búsqueda 90° -> 30° -> 15° -> 5° por etapas.
+- Intentos internos cortos para evitar el timeout duro de 45 segundos.
+- Siempre conserva la mejor solución ya encontrada.
+- Mantiene placa 122x58 cm, separación 0,2 cm y tapa+base completas.

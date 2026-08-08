@@ -742,7 +742,7 @@ export default function SheetPlanner({db,onSave}){
       timer=setInterval(()=>{
         const elapsed=(Date.now()-started)/1000
         const percent=Math.min(94,5+Math.round(elapsed/50*88))
-        setCalcProgress(v=>v?{...v,stage:elapsed<12?'Motor CNC externo · vectorizando SVG…':elapsed<30?'Motor CNC externo · buscando encastres…':'Motor CNC externo · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
+        setCalcProgress(v=>v?{...v,stage:elapsed<12?'Motor CNC externo · vectorizando SVG…':elapsed<30?'Motor CNC externo · búsqueda rápida por etapas…':'Motor CNC externo · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
       },1000)
 
       const payload={

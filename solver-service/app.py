@@ -3,7 +3,7 @@ from xml.etree import ElementTree as ET
 
 from shapely.geometry import Polygon, Point, box
 from shapely.ops import unary_union
-from shapely.affinity import translate
+from shapely.affinity import translate, scale as affinity_scale
 from svgpathtools import parse_path
 from pyckingsolver import InstanceBuilder, Objective, Solver
 
@@ -62,7 +62,7 @@ def _sample_path(d, transform):
             for seg in sub:
                 try: L=max(1.0,float(seg.length(error=1e-3)))
                 except: L=20.0
-                steps=max(2,min(80,int(math.ceil(L/3.0))))
+                steps=max(2,min(36,int(math.ceil(L/8.0))))
                 for i in range(steps):
                     z=seg.point(i/steps); pts.append(_apply((z.real,z.imag),transform))
             z=sub[-1].end; pts.append(_apply((z.real,z.imag),transform))
@@ -72,56 +72,153 @@ def _sample_path(d, transform):
     return out
 
 
-def svg_to_geometry(svg_text, width_cm, height_cm):
+def _cap_ring_vertices(coords, max_vertices=180):
+    pts=list(coords)
+    if len(pts)<=max_vertices:
+        return pts
+    # Mantiene una distribución uniforme de puntos y fuerza conservar extremos.
+    n=len(pts)
+    selected={0,n-1}
+    step=max(1,(n-1)//max(4,max_vertices-8))
+    selected.update(range(0,n,step))
+    xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
+    selected.update([xs.index(min(xs)),xs.index(max(xs)),ys.index(min(ys)),ys.index(max(ys))])
+    out=[pts[i] for i in sorted(selected)]
+    if out[0]!=out[-1]:
+        out.append(out[0])
+    return out
+
+
+def _solver_simplify_polygon(poly, original_bounds, tolerance_mm=0.35, max_vertices=180):
+    """
+    Simplificación EXCLUSIVA para PackingSolver.
+    El SVG original no se modifica nunca. Restauramos el bounding box físico
+    exacto y usamos un pequeño margen conservador.
+    """
+    if poly.is_empty:
+        return poly
+
+    simp=poly.simplify(max(0.05,float(tolerance_mm)), preserve_topology=True)
+    if simp.is_empty:
+        simp=poly
+
+    if simp.geom_type=="Polygon":
+        ext=_cap_ring_vertices(simp.exterior.coords,max_vertices)
+        simp=Polygon(ext)
+    elif simp.geom_type=="MultiPolygon":
+        reduced=[]
+        for g in simp.geoms:
+            ext=_cap_ring_vertices(g.exterior.coords,max_vertices)
+            p=Polygon(ext)
+            if not p.is_empty and p.area>0:
+                reduced.append(p)
+        if reduced:
+            simp=unary_union(reduced)
+
+    if not simp.is_valid:
+        simp=simp.buffer(0)
+    if simp.is_empty:
+        simp=poly
+
+    # Restaurar medidas exteriores exactas del original.
+    ominx,ominy,omaxx,omaxy=original_bounds
+    target_w=max(1e-9,omaxx-ominx)
+    target_h=max(1e-9,omaxy-ominy)
+    minx,miny,maxx,maxy=simp.bounds
+    sw=max(1e-9,maxx-minx)
+    sh=max(1e-9,maxy-miny)
+    simp=translate(simp,xoff=-minx,yoff=-miny)
+    simp=affinity_scale(simp,xfact=target_w/sw,yfact=target_h/sh,origin=(0,0))
+
+    # Buffer muy pequeño y conservador para que la simplificación nunca "meta"
+    # una pieza dentro de otra. Es geometría de cálculo, no de corte.
+    safe=simp.buffer(0.08,join_style=2)
+    if safe.is_valid and not safe.is_empty:
+        simp=safe
+
+    minx,miny,maxx,maxy=simp.bounds
+    simp=translate(simp,xoff=-minx,yoff=-miny)
+    return simp
+
+
+def svg_to_geometry(svg_text, width_cm, height_cm, solver_tolerance_mm=0.35, max_vertices=180):
     root=ET.fromstring(svg_text)
     vb=[_n(x) for x in re.split(r'[ ,]+',root.attrib.get('viewBox','').strip()) if x!='']
-    if len(vb)!=4: vb=[0,0,max(1,width_cm*100),max(1,height_cm*100)]
+    if len(vb)!=4:
+        vb=[0,0,max(1,width_cm*100),max(1,height_cm*100)]
     vx,vy,vw,vh=vb
-    sx=width_cm*10.0/max(vw,1e-9); sy=height_cm*10.0/max(vh,1e-9)
+    sx=width_cm*10.0/max(vw,1e-9)
+    sy=height_cm*10.0/max(vh,1e-9)
     polys=[]
 
     def walk(el,parent_m=(1,0,0,1,0,0)):
         local=_mat_mul(parent_m,_transform_matrix(el.attrib.get('transform')))
         tag=el.tag.split('}')[-1].lower()
         rings=[]
-        if tag=='path': rings=_sample_path(el.attrib.get('d',''),local)
+        if tag=='path':
+            rings=_sample_path(el.attrib.get('d',''),local)
         elif tag in ('polygon','polyline'):
             pts=[_apply(p,local) for p in _points_attr(el.attrib.get('points',''))]
-            if tag=='polygon' and len(pts)>=3: rings=[pts+[pts[0]]]
+            if tag=='polygon' and len(pts)>=3:
+                rings=[pts+[pts[0]]]
         elif tag=='rect':
-            x=_n(el.attrib.get('x')); y=_n(el.attrib.get('y')); w=_n(el.attrib.get('width')); h=_n(el.attrib.get('height'))
+            x=_n(el.attrib.get('x')); y=_n(el.attrib.get('y'))
+            w=_n(el.attrib.get('width')); h=_n(el.attrib.get('height'))
             if w>0 and h>0:
                 pts=[(x,y),(x+w,y),(x+w,y+h),(x,y+h),(x,y)]
                 rings=[[_apply(q,local) for q in pts]]
         elif tag=='circle':
-            cx=_n(el.attrib.get('cx'));cy=_n(el.attrib.get('cy'));r=_n(el.attrib.get('r'))
+            cx=_n(el.attrib.get('cx')); cy=_n(el.attrib.get('cy')); r=_n(el.attrib.get('r'))
             if r>0:
-                pts=[(cx+r*math.cos(i*2*math.pi/64),cy+r*math.sin(i*2*math.pi/64)) for i in range(65)]
+                pts=[(cx+r*math.cos(i*2*math.pi/36),cy+r*math.sin(i*2*math.pi/36)) for i in range(37)]
                 rings=[[_apply(q,local) for q in pts]]
         elif tag=='ellipse':
-            cx=_n(el.attrib.get('cx'));cy=_n(el.attrib.get('cy'));rx=_n(el.attrib.get('rx'));ry=_n(el.attrib.get('ry'))
+            cx=_n(el.attrib.get('cx')); cy=_n(el.attrib.get('cy'))
+            rx=_n(el.attrib.get('rx')); ry=_n(el.attrib.get('ry'))
             if rx>0 and ry>0:
-                pts=[(cx+rx*math.cos(i*2*math.pi/64),cy+ry*math.sin(i*2*math.pi/64)) for i in range(65)]
+                pts=[(cx+rx*math.cos(i*2*math.pi/36),cy+ry*math.sin(i*2*math.pi/36)) for i in range(37)]
                 rings=[[_apply(q,local) for q in pts]]
+
         for ring in rings:
             physical=[((x-vx)*sx,(y-vy)*sy) for x,y in ring]
             try:
                 poly=Polygon(physical)
-                if not poly.is_valid: poly=poly.buffer(0)
-                if not poly.is_empty and poly.area>0.2: polys.append(poly)
-            except: pass
-        for ch in list(el): walk(ch,local)
+                if not poly.is_valid:
+                    poly=poly.buffer(0)
+                if not poly.is_empty and poly.area>0.2:
+                    polys.append(poly)
+            except Exception:
+                pass
+        for ch in list(el):
+            walk(ch,local)
+
     walk(root)
-    if not polys: raise ValueError('SVG sin contorno cerrado utilizable')
+    if not polys:
+        raise ValueError('SVG sin contorno cerrado utilizable')
+
     geom=unary_union(polys)
-    if not geom.is_valid: geom=geom.buffer(0)
-    # Fill interior holes deliberately: user requested interior blocked for nesting safety.
-    if geom.geom_type=='Polygon': geom=Polygon(geom.exterior)
-    elif geom.geom_type=='MultiPolygon': geom=unary_union([Polygon(g.exterior) for g in geom.geoms])
-    minx,miny,maxx,maxy=geom.bounds
+    if not geom.is_valid:
+        geom=geom.buffer(0)
+
+    # Interior bloqueado: PackingSolver trata la silueta exterior como sólida.
+    if geom.geom_type=='Polygon':
+        geom=Polygon(geom.exterior)
+    elif geom.geom_type=='MultiPolygon':
+        geom=unary_union([Polygon(g.exterior) for g in geom.geoms])
+
+    original_bounds=geom.bounds
+    minx,miny,maxx,maxy=original_bounds
     geom=translate(geom,xoff=-minx,yoff=-miny)
-    # tiny simplification, far below cutting tolerance, to keep solver fast
-    geom=geom.simplify(0.08,preserve_topology=True)
+    normalized_bounds=geom.bounds
+
+    # Simplificación sólo para el motor de nesting.
+    geom=_solver_simplify_polygon(
+        geom,
+        normalized_bounds,
+        tolerance_mm=solver_tolerance_mm,
+        max_vertices=max_vertices,
+    )
+
     return geom, minx, miny
 
 
@@ -132,15 +229,18 @@ def geom_parts(geom):
     return ps
 
 
-def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotation_step=15):
-    """
-    Resuelve EXACTAMENTE los primeros `target` kits dentro de UNA placa fija.
-    Cada kit conserva tapa+base como requisito lógico: la solución sólo se
-    acepta si entraron todos sus componentes.
-    """
+def solve_prefix(
+    kits,
+    target,
+    width_mm,
+    height_mm,
+    spacing_mm,
+    seconds,
+    rotation_step=30,
+    simplify_mm=0.35,
+    max_vertices=180,
+):
     selected=kits[:target]
-
-    # Para una placa física fija corresponde BIN_PACKING, no OPEN_DIMENSION_X.
     builder=InstanceBuilder(Objective.BIN_PACKING)
     builder.set_item_item_minimum_spacing(spacing_mm)
     builder.add_bin_type_rectangle(
@@ -161,20 +261,28 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
             if wcm<=0 or hcm<=0:
                 raise ValueError(f"Medidas inválidas en {part.get('name','pieza')}: {wcm} x {hcm} cm")
 
-            geom,trimx,trimy=svg_to_geometry(part['svgText'],wcm,hcm)
+            geom,trimx,trimy=svg_to_geometry(
+                part['svgText'],
+                wcm,
+                hcm,
+                solver_tolerance_mm=simplify_mm,
+                max_vertices=max_vertices,
+            )
             shapes=geom_parts(geom)
             if not shapes:
                 raise ValueError(f"Sin polígono: {part.get('name','pieza')}")
 
             minx,miny,maxx,maxy=geom.bounds
             gw=maxx-minx; gh=maxy-miny
+            vertex_count=sum(len(g.exterior.coords) for g in shapes if getattr(g,'exterior',None))
             diagnostics.append({
                 "name":part.get("name","pieza"),
                 "kit":kit.get("figure",""),
                 "wMm":round(gw,3),
                 "hMm":round(gh,3),
+                "vertices":vertex_count,
             })
-            # Ninguna rotación puede salvar una pieza que excede ambas dimensiones.
+
             if min(gw,gh)>min(width_mm,height_mm) or max(gw,gh)>max(width_mm,height_mm):
                 raise ValueError(
                     f"{part.get('name','pieza')} mide aprox. {gw/10:.1f} x {gh/10:.1f} cm "
@@ -182,7 +290,7 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
                 )
 
             if part.get('allowRotate',True):
-                step=max(5,min(90,int(rotation_step or 15)))
+                step=max(5,min(90,int(rotation_step or 30)))
                 rots=[(float(a),float(a)) for a in range(0,360,step)]
             else:
                 rots=[(0.0,0.0)]
@@ -205,27 +313,41 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
         return None
 
     solver=Solver()
-    solution=solver.solve(
-        builder.build(),
-        time_limit=max(1,float(seconds)),
-        verbosity_level=0,
-        optimization_mode='Anytime',
-        use_tree_search=True,
-        use_sequential_single_knapsack=True,
-        use_sequential_value_correction=True,
-        use_column_generation=False,
-        use_dichotomic_search=False,
-        anchor=True,
-        anchor_x_weight=1.0,
-        anchor_y_weight=1.0,
-    )
+    try:
+        solution=solver.solve(
+            builder.build(),
+            time_limit=max(1.0,float(seconds)),
+            verbosity_level=0,
+            optimization_mode='Anytime',
+            # Menos ramas para que la instancia Free no se quede 45 s en un intento.
+            use_tree_search=False,
+            use_sequential_single_knapsack=True,
+            use_sequential_value_correction=False,
+            use_column_generation=False,
+            use_dichotomic_search=False,
+            anchor=True,
+            anchor_x_weight=1.0,
+            anchor_y_weight=1.0,
+        )
+    except Exception as exc:
+        # El wrapper puede matar el binario por timeout duro. Este intento se
+        # considera fallido, pero NO borra una solución mejor ya encontrada.
+        return {
+            'feasible':False,
+            'target':target,
+            'expected':expected,
+            'placedCount':0,
+            'bins':0,
+            'diagnostics':diagnostics,
+            'timeout':True,
+            'error':str(exc),
+        }
 
     items=solution.all_items()
     bins=solution.total_bins_used()
     count=solution.total_item_count()
-
-    # Sólo es una "figura completa" si entraron TODOS los componentes esperados.
     feasible=(bins==1 and count==expected and len(items)==expected)
+
     if not feasible:
         return {
             'feasible':False,
@@ -247,8 +369,6 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
         src=meta['geom']
         placed=unary_union(it.shapes)
 
-        # La respuesta del wrapper ya trae las shapes en coordenadas absolutas.
-        # Derivamos la traslación comparando centroides tras aplicar la rotación.
         cx,cy=src.centroid.x,src.centroid.y
         a=math.radians(angle)
         rcx=cx*math.cos(a)-cy*math.sin(a)
@@ -287,12 +407,11 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
 
     if union and not union.is_empty:
         bx=union.bounds
-        usedw=max(0,bx[2]-bx[0])
-        usedh=max(0,bx[3]-bx[1])
+        usedw=max(0,bx[2]-bx[0]); usedh=max(0,bx[3]-bx[1])
         envelope=usedw*usedh
         compact=(item_area/envelope*100.0) if envelope>0 else 0.0
     else:
-        usedw=usedh=compact=0
+        usedw=usedh=compact=0.0
 
     return {
         'feasible':True,
@@ -305,7 +424,9 @@ def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotatio
         'metrics':solution.metrics,
         'diagnostics':diagnostics,
         'rotationStep':rotation_step,
+        'simplifyMm':simplify_mm,
     }
+
 
 
 from flask import Flask, request, jsonify
@@ -317,7 +438,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.2", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.3", status="ready")
 
 @app.post("/nest")
 def nest():
@@ -343,108 +464,100 @@ def nest():
                 str(k.get("figure") or ""),
             )
         )
-
         pool=kits[:min(18,len(kits))]
         total=len(pool)
+        minimum=min(10,total)
         attempts=[]
         best=None
 
-        # 1) Prueba de integración: una figura completa debe poder resolverse rápido.
-        first=solve_prefix(pool,1,width_mm,height_mm,spacing_mm,8,rotation_step=15)
-        attempts.append({
-            "target":1,
-            "rotationStep":15,
-            "ok":bool(first and first.get("feasible")),
-            "placed":(first or {}).get("placedCount", len((first or {}).get("placements",[]))),
-        })
+        def run(target, seconds, step, simplify, vertices):
+            r=solve_prefix(
+                pool,target,width_mm,height_mm,spacing_mm,
+                seconds=seconds,
+                rotation_step=step,
+                simplify_mm=simplify,
+                max_vertices=vertices,
+            )
+            attempts.append({
+                "target":target,
+                "rotationStep":step,
+                "simplifyMm":simplify,
+                "ok":bool(r and r.get("feasible")),
+                "timeout":bool((r or {}).get("timeout")),
+                "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
+                "diagnostics":(r or {}).get("diagnostics",[])[:4],
+            })
+            return r
+
+        # FASE 1 — prueba ultrarrápida: una figura completa, 0/90/180/270.
+        # Si esto falla por timeout, el problema es geométrico y devolvemos diagnóstico.
+        first=run(1,2.5,90,0.55,110)
         if first and first.get("feasible"):
             best=first
         else:
-            diag=(first or {}).get("diagnostics",[])
-            metrics=(first or {}).get("metrics",{})
-            raise RuntimeError(
-                "PackingSolver no pudo colocar ni una figura completa. "
-                f"Diagnóstico: componentes={diag[:4]}, métricas={metrics}"
-            )
+            # Segundo intento todavía barato, permitiendo 30°.
+            first2=run(1,3.0,30,0.45,140)
+            if first2 and first2.get("feasible"):
+                best=first2
+            else:
+                diag=(first2 or first or {}).get("diagnostics",[])
+                err=(first2 or first or {}).get("error","")
+                raise RuntimeError(
+                    "PackingSolver no pudo resolver ni 1 figura completa en modo rápido. "
+                    f"Geometría enviada: {diag[:4]}. {err[:240]}"
+                )
 
-        # 2) Buscar rápidamente hasta el mínimo de 10, sin perder nunca el mejor resultado.
-        minimum=min(10,total)
-        if minimum>1:
-            # Crecimiento progresivo: evita pedirle 20 componentes complejos de golpe.
-            targets=[]
-            for t in [2,4,6,8,10]:
-                if 1<t<=minimum and t not in targets:
-                    targets.append(t)
-            if minimum not in targets:
-                targets.append(minimum)
+        # FASE 2 — crecimiento progresivo, con búsqueda gruesa.
+        # Cada intento es corto; jamás puede comerse todo el presupuesto.
+        targets=[]
+        for t in [2,4,6,8,10]:
+            if 1<t<=minimum and t not in targets:
+                targets.append(t)
+        if minimum>1 and minimum not in targets:
+            targets.append(minimum)
 
-            for target in targets:
-                if time.time()-started>95:
-                    break
-                r=solve_prefix(pool,target,width_mm,height_mm,spacing_mm,12,rotation_step=15)
-                ok=bool(r and r.get("feasible"))
-                attempts.append({
-                    "target":target,
-                    "rotationStep":15,
-                    "ok":ok,
-                    "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
-                })
-                if ok:
-                    best=r
-                else:
-                    # Si N no entra, tampoco asumimos que N+2 vaya a entrar.
-                    break
+        for target in targets:
+            if time.time()-started>70:
+                break
+            r=run(target,3.5,30,0.45,150)
+            if r and r.get("feasible"):
+                best=r
+            else:
+                break
 
-        # 3) Si alcanzamos el mínimo, intentar agregar más figuras por prioridad.
+        # FASE 3 — intentar más que el mínimo, siempre preservando best.
         if best and best["target"]>=minimum and best["target"]<total:
             lo=best["target"]+1
             hi=total
-            while lo<=hi and time.time()-started<120:
+            while lo<=hi and time.time()-started<92:
                 mid=(lo+hi)//2
-                r=solve_prefix(pool,mid,width_mm,height_mm,spacing_mm,10,rotation_step=15)
-                ok=bool(r and r.get("feasible"))
-                attempts.append({
-                    "target":mid,
-                    "rotationStep":15,
-                    "ok":ok,
-                    "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
-                })
-                if ok:
+                r=run(mid,4.0,30,0.45,150)
+                if r and r.get("feasible"):
                     best=r
                     lo=mid+1
                 else:
                     hi=mid-1
 
-        # 4) Refinamiento final a 5° sobre LA MISMA cantidad ya demostrada factible.
-        # Nunca descarta la solución anterior si el refinamiento tarda o falla.
-        if best and time.time()-started<132:
-            refined=solve_prefix(
-                pool,
-                best["target"],
-                width_mm,
-                height_mm,
-                spacing_mm,
-                min(15,max(5,145-(time.time()-started))),
-                rotation_step=5,
-            )
-            rok=bool(refined and refined.get("feasible"))
-            attempts.append({
-                "target":best["target"],
-                "rotationStep":5,
-                "ok":rok,
-                "placed":(refined or {}).get("placedCount",len((refined or {}).get("placements",[]))),
-            })
-            if rok:
-                # Preferimos el refinado si compacta mejor o igual.
-                if refined.get("compactness",0)>=best.get("compactness",0):
-                    best=refined
+        # FASE 4 — refinamiento angular SOLO de la mejor cantidad ya factible.
+        # 15° primero; 5° únicamente si queda tiempo y el intento anterior funcionó.
+        if best and time.time()-started<104:
+            refined15=run(best["target"],4.0,15,0.35,170)
+            if refined15 and refined15.get("feasible"):
+                if refined15.get("compactness",0)>=best.get("compactness",0):
+                    best=refined15
+
+        if best and time.time()-started<118:
+            refined5=run(best["target"],4.0,5,0.30,190)
+            if refined5 and refined5.get("feasible"):
+                if refined5.get("compactness",0)>=best.get("compactness",0):
+                    best=refined5
 
         if not best:
             raise RuntimeError("PackingSolver no encontró ninguna figura completa")
 
         return jsonify(
             ok=True,
-            engine="PackingSolver C++ · placa fija",
+            engine="PackingSolver C++ · rápido progresivo",
             completeFigures=best["target"],
             placements=best["placements"],
             density=best["density"],
@@ -456,6 +569,7 @@ def nest():
             minimumTarget=minimum,
             elapsedSeconds=round(time.time()-started,2),
             rotationStep=best.get("rotationStep"),
+            simplifyMm=best.get("simplifyMm"),
         )
 
     except Exception as e:
