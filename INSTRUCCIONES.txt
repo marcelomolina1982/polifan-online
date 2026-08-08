@@ -1,11 +1,1 @@
-CAMBIO v22.0.2
-1. Reemplazar solver-service/app.py
-2. Reemplazar src/version.js si querés que se vea la versión 22.0.2.
-
-Cambios principales:
-- Usa BIN_PACKING para placa fija 122x58.
-- Prueba primero 1 figura completa.
-- Conserva siempre el mejor resultado encontrado.
-- Busca progresivamente 2, 4, 6, 8, 10 y luego más.
-- Refinamiento final a rotaciones de 5 grados.
-- Si no llega a 10 pero encuentra una placa válida, devuelve esa placa parcial.
+Reemplazar únicamente src/version.js en GitHub. No tocar solver-service ni SheetPlanner.jsx.
