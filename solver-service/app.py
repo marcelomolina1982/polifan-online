@@ -1,4 +1,4 @@
-import json, math, re, time
+import json, math, re, time, uuid, threading
 from xml.etree import ElementTree as ET
 
 from shapely.geometry import Polygon, Point, box
@@ -130,12 +130,6 @@ def _solver_simplify_polygon(poly, original_bounds, tolerance_mm=0.35, max_verti
     simp=translate(simp,xoff=-minx,yoff=-miny)
     simp=affinity_scale(simp,xfact=target_w/sw,yfact=target_h/sh,origin=(0,0))
 
-    # Buffer muy pequeño y conservador para que la simplificación nunca "meta"
-    # una pieza dentro de otra. Es geometría de cálculo, no de corte.
-    safe=simp.buffer(0.08,join_style=2)
-    if safe.is_valid and not safe.is_empty:
-        simp=safe
-
     minx,miny,maxx,maxy=simp.bounds
     simp=translate(simp,xoff=-minx,yoff=-miny)
     return simp
@@ -242,7 +236,7 @@ def solve_prefix(
 ):
     selected=kits[:target]
     builder=InstanceBuilder(Objective.BIN_PACKING)
-    builder.set_item_item_minimum_spacing(spacing_mm)
+    builder.set_item_item_minimum_spacing(0.0)
     builder.add_bin_type_rectangle(
         width_mm,
         height_mm,
@@ -268,7 +262,15 @@ def solve_prefix(
                 solver_tolerance_mm=simplify_mm,
                 max_vertices=max_vertices,
             )
-            shapes=geom_parts(geom)
+            # Garantía geométrica real de separación:
+            # cada pieza reserva la mitad del gap alrededor de su contorno.
+            pad=max(0.0,spacing_mm/2.0)
+            solver_geom=geom.buffer(pad,join_style=2) if pad>0 else geom
+            if not solver_geom.is_valid:
+                solver_geom=solver_geom.buffer(0)
+            pminx,pminy,pmaxx,pmaxy=solver_geom.bounds
+            solver_geom=translate(solver_geom,xoff=-pminx,yoff=-pminy)
+            shapes=geom_parts(solver_geom)
             if not shapes:
                 raise ValueError(f"Sin polígono: {part.get('name','pieza')}")
 
@@ -304,7 +306,9 @@ def solve_prefix(
                 **part,
                 'trimXmm':trimx,
                 'trimYmm':trimy,
-                'geom':geom,
+                'geom':solver_geom,
+                'renderGeom':geom,
+                'solverPadMm':pad,
                 'kitIndex':kit_index,
             }
             expected+=1
@@ -375,6 +379,13 @@ def solve_prefix(
         rcy=cx*math.sin(a)+cy*math.cos(a)
         tx=placed.centroid.x-rcx
         ty=placed.centroid.y-rcy
+        # solver_geom contiene pad a izquierda/arriba. Al renderizar el SVG original
+        # desplazamos ese pad rotado para conservar 3 mm reales entre contornos.
+        pad=_n(meta.get('solverPadMm'))
+        rp_x=pad*math.cos(a)-pad*math.sin(a)
+        rp_y=pad*math.sin(a)+pad*math.cos(a)
+        render_tx=tx+rp_x
+        render_ty=ty+rp_y
 
         placements.append({
             'instanceId':meta.get('instanceId'),
@@ -382,8 +393,8 @@ def solve_prefix(
             'figure':meta.get('figure'),
             'name':meta.get('name'),
             'role':meta.get('role'),
-            'xCm':tx/10.0,
-            'yCm':ty/10.0,
+            'xCm':render_tx/10.0,
+            'yCm':render_ty/10.0,
             'angle':angle,
             'trimXCm':meta['trimXmm']/10.0,
             'trimYCm':meta['trimYmm']/10.0,
@@ -444,7 +455,7 @@ def solve_knapsack_kits(
     aproximadamente lo mismo; sus partes reparten ese valor.
     """
     builder=InstanceBuilder(Objective.KNAPSACK)
-    builder.set_item_item_minimum_spacing(spacing_mm)
+    builder.set_item_item_minimum_spacing(0.0)
     builder.add_bin_type_rectangle(
         width_mm,
         height_mm,
@@ -479,7 +490,13 @@ def solve_knapsack_kits(
                 solver_tolerance_mm=simplify_mm,
                 max_vertices=max_vertices,
             )
-            shapes=geom_parts(geom)
+            pad=max(0.0,spacing_mm/2.0)
+            solver_geom=geom.buffer(pad,join_style=2) if pad>0 else geom
+            if not solver_geom.is_valid:
+                solver_geom=solver_geom.buffer(0)
+            pminx,pminy,pmaxx,pmaxy=solver_geom.bounds
+            solver_geom=translate(solver_geom,xoff=-pminx,yoff=-pminy)
+            shapes=geom_parts(solver_geom)
             if not shapes:
                 continue
 
@@ -506,7 +523,9 @@ def solve_knapsack_kits(
                 'instanceId':instance_id,
                 'trimXmm':trimx,
                 'trimYmm':trimy,
-                'geom':geom,
+                'geom':solver_geom,
+                'renderGeom':geom,
+                'solverPadMm':pad,
             }
             diagnostics.append({
                 "kitId":kit_id,
@@ -564,14 +583,18 @@ def solve_knapsack_kits(
         rcx=cx*math.cos(a)-cy*math.sin(a)
         rcy=cx*math.sin(a)+cy*math.cos(a)
         tx=placed.centroid.x-rcx; ty=placed.centroid.y-rcy
+        pad=_n(meta.get('solverPadMm'))
+        rp_x=pad*math.cos(a)-pad*math.sin(a)
+        rp_y=pad*math.sin(a)+pad*math.cos(a)
+        render_tx=tx+rp_x; render_ty=ty+rp_y
         placements.append({
             'instanceId':meta.get('instanceId'),
             'kitId':meta.get('kitId'),
             'figure':meta.get('figure'),
             'name':meta.get('name'),
             'role':meta.get('role'),
-            'xCm':tx/10.0,
-            'yCm':ty/10.0,
+            'xCm':render_tx/10.0,
+            'yCm':render_ty/10.0,
             'angle':angle,
             'trimXCm':meta['trimXmm']/10.0,
             'trimYCm':meta['trimYmm']/10.0,
@@ -615,13 +638,67 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.5", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.6", status="ready")
+
+
+_jobs={}
+_jobs_lock=threading.Lock()
+
+def _job_update(job_id, percent=None, stage=None, **extra):
+    if not job_id:
+        return
+    with _jobs_lock:
+        row=_jobs.setdefault(job_id,{"status":"running","percent":2,"stage":"Preparando geometrías…","started":time.time()})
+        if percent is not None: row["percent"]=int(percent)
+        if stage is not None: row["stage"]=stage
+        row.update(extra)
+        row["updated"]=time.time()
+
+@app.post("/nest/start")
+def nest_start():
+    data=request.get_json(silent=True) or {}
+    job_id=uuid.uuid4().hex
+    with _jobs_lock:
+        _jobs[job_id]={"status":"queued","percent":1,"stage":"En cola…","started":time.time()}
+    def worker():
+        with app.test_request_context("/nest",method="POST",json={**data,"jobId":job_id}):
+            try:
+                response=nest()
+                if isinstance(response,tuple):
+                    resp,status=response
+                else:
+                    resp,status=response,200
+                payload=resp.get_json() if hasattr(resp,"get_json") else {}
+                with _jobs_lock:
+                    _jobs[job_id].update({
+                        "status":"done" if status<400 else "error",
+                        "percent":100,
+                        "stage":"Finalizado" if status<400 else "Error",
+                        "result":payload,
+                        "httpStatus":status,
+                        "updated":time.time(),
+                    })
+            except Exception as exc:
+                with _jobs_lock:
+                    _jobs[job_id].update({"status":"error","percent":100,"stage":"Error","result":{"ok":False,"error":str(exc)},"httpStatus":500,"updated":time.time()})
+    threading.Thread(target=worker,daemon=True).start()
+    return jsonify(ok=True,jobId=job_id)
+
+@app.get("/nest/status/<job_id>")
+def nest_status(job_id):
+    with _jobs_lock:
+        row=dict(_jobs.get(job_id) or {})
+    if not row:
+        return jsonify(ok=False,error="Trabajo no encontrado"),404
+    return jsonify(ok=True,jobId=job_id,**row)
 
 @app.post("/nest")
 def nest():
     started=time.time()
     try:
         data=request.get_json(silent=True) or {}
+        job_id=data.get("jobId")
+        _job_update(job_id,5,"Preparando geometrías…")
         kits=data.get("kits") or []
         if not kits:
             raise ValueError("No llegaron figuras completas al motor industrial")
@@ -644,16 +721,17 @@ def nest():
         minimum=min(10,len(pool))
         attempts=[]
 
+        _job_update(job_id,20,"Seleccionando figuras completas · KNAPSACK 15°…")
         # ETAPA 1: todas las candidatas de una vez. KNAPSACK decide qué entra.
         ks=solve_knapsack_kits(
             pool,width_mm,height_mm,spacing_mm,
             seconds=20,
-            rotation_step=30,
+            rotation_step=15,
             simplify_mm=0.45,
             max_vertices=145,
         )
         attempts.append({
-            "stage":"knapsack-30",
+            "stage":"knapsack-15",
             "ok":bool(ks and ks.get("ok")),
             "completeFigures":(ks or {}).get("completeFigures",0),
             "placedParts":(ks or {}).get("placedPartCount",0),
@@ -672,6 +750,7 @@ def nest():
             )
 
         selected=[k for k in pool if str(k.get('kitId')) in selected_ids]
+        _job_update(job_id,58,"Reacomodando únicamente tapa+base completas…",completeFigures=len(selected))
 
         # ETAPA 2: recompone solamente kits completos, eliminando cualquier pieza
         # huérfana que KNAPSACK haya usado durante la selección.
@@ -707,6 +786,7 @@ def nest():
                 'simplifyMm':0.45,
             }
 
+        _job_update(job_id,80,"Refinando ángulos cada 5°…",completeFigures=len(selected))
         # ETAPA 3: si hay margen, refinamiento a 5° de la MISMA selección completa.
         if selected and time.time()-started<70:
             fine=solve_prefix(
@@ -728,6 +808,7 @@ def nest():
                 if fine.get("compactness",0)>=best.get("compactness",0):
                     best=fine
 
+        _job_update(job_id,96,"Validando separación real de 3 mm…",completeFigures=int(best.get("target",ks['completeFigures'])))
         return jsonify(
             ok=True,
             engine="PackingSolver C++ · KNAPSACK",

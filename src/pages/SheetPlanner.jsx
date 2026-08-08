@@ -739,11 +739,7 @@ export default function SheetPlanner({db,onSave}){
       if(!kits.length)throw new Error('No hay figuras completas con SVG vinculados para enviar al motor industrial.')
 
       setCalcProgress({stage:'Motor CNC externo · preparando geometrías…',percent:3,elapsed:0,eta:45,completeFigures:0,efficiency:0})
-      timer=setInterval(()=>{
-        const elapsed=(Date.now()-started)/1000
-        const percent=Math.min(94,5+Math.round(elapsed/50*88))
-        setCalcProgress(v=>v?{...v,stage:elapsed<12?'Motor CNC externo · vectorizando SVG…':elapsed<30?'Motor CNC externo · maximizando figuras completas…':'Motor CNC externo · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
-      },1000)
+      timer=setInterval(()=>setCalcProgress(v=>v?{...v,elapsed:(Date.now()-started)/1000,eta:Math.max(0,150-(Date.now()-started)/1000)}:v),1000)
 
       const payload={
         widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:Math.max(.3,num(gap,.3)),
@@ -759,9 +755,27 @@ export default function SheetPlanner({db,onSave}){
       try{
         const solverBase=(import.meta.env.VITE_NEST_API_URL||'').replace(/\/$/,'')
         if(!solverBase)throw new Error('Falta configurar VITE_NEST_API_URL con la URL del motor CNC externo.')
-        response=await fetch(`${solverBase}/nest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal})
+        const startResp=await fetch(`${solverBase}/nest/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal})
+        const startedJob=await startResp.json().catch(()=>({ok:false,error:'No se pudo iniciar el motor industrial'}))
+        if(!startResp.ok||!startedJob.ok||!startedJob.jobId)throw new Error(startedJob.error||`Motor industrial HTTP ${startResp.status}`)
+        let statusData=null
+        while(true){
+          await new Promise(r=>setTimeout(r,900))
+          const sr=await fetch(`${solverBase}/nest/status/${startedJob.jobId}`,{signal:controller.signal})
+          statusData=await sr.json().catch(()=>({ok:false,error:'Estado inválido del motor industrial'}))
+          if(!sr.ok||!statusData.ok)throw new Error(statusData.error||`Estado industrial HTTP ${sr.status}`)
+          setCalcProgress(v=>v?{...v,
+            stage:statusData.stage||v.stage,
+            percent:Number.isFinite(Number(statusData.percent))?Number(statusData.percent):v.percent,
+            elapsed:(Date.now()-started)/1000,
+            eta:Math.max(0,150-(Date.now()-started)/1000),
+            completeFigures:Number(statusData.completeFigures||v.completeFigures||0)
+          }:v)
+          if(statusData.status==='done'||statusData.status==='error')break
+        }
+        response={ok:statusData.status==='done',status:statusData.httpStatus||200}
+        var data=statusData.result||{ok:false,error:'El motor terminó sin resultado'}
       }finally{clearTimeout(timeout)}
-      const data=await response.json().catch(()=>({ok:false,error:'Respuesta inválida del motor industrial'}))
       if(!response.ok||!data.ok)throw new Error(data.error||`Motor industrial HTTP ${response.status}`)
 
       const placementMap=new Map((data.placements||[]).map(x=>[x.instanceId,x]))
@@ -786,7 +800,7 @@ export default function SheetPlanner({db,onSave}){
       setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete:10,targetEfficiency:num(minFill,90)})
       setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'PackingSolver · irregular C++'})
       setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:compactness})
-      if(missing.length)alert(`No se incluyeron porque falta completar su Biblioteca SVG: ${[...new Set(missing)].join(', ')}`)
+
     }catch(e){
       const msg=e?.name==='AbortError'?'El motor industrial superó el tiempo máximo de 150 segundos. Probá nuevamente o reducí temporalmente la cantidad pendiente.':(e.message||'No se pudo ejecutar PackingSolver.')
       setError(msg);setCalcProgress(null);setResult({sheets:[],rejected:[],total:0,used:0,sheetArea:0})
@@ -879,7 +893,7 @@ export default function SheetPlanner({db,onSave}){
         <span>⌛ Restante aprox.: <b>{calcProgress.percent>=100?'0 s':formatDuration(calcProgress.eta)}</b></span>
         <span>✓ Mejor resultado: <b>{calcProgress.completeFigures||0} figuras · {Number(calcProgress.efficiency||0).toFixed(1)}%</b></span>
       </div>
-      <div className="ai-optimizer-stats"><span>🧠 Estrategias probadas: <b>{optimizerStats.tested}</b></span><span>↗ Mejoras encontradas: <b>{optimizerStats.improved}</b></span><span>⭐ Mejor estrategia: <b>{optimizerStats.bestStrategy||'Buscando…'}</b></span></div>
+      <div className="ai-optimizer-stats"><span>🧠 Etapa del solver: <b>{calcProgress?.stage||'Preparando…'}</b></span><span>✓ Figuras completas detectadas: <b>{calcProgress?.completeFigures||0}</b></span><span>↻ Paso angular final: <b>{result?.attempts?.find?.(a=>a.stage==='repack-5'&&a.ok)?'5°':'en proceso'}</b></span></div>
       {busy&&<small>El cálculo industrial tiene un límite de 150 segundos. Si no termina, no genera una placa dudosa: informa el error para volver a intentar.</small>}
     </section>}
     <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" min=".3" step=".1" value={gap} onChange={e=>setGap(Math.max(.3,num(e.target.value,.3)))}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">PackingSolver industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>

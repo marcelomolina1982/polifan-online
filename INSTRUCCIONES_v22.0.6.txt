@@ -1,0 +1,11 @@
+v22.0.6
+Reemplazar:
+- solver-service/app.py
+- src/pages/SheetPlanner.jsx
+- src/version.js
+
+Cambios:
+1) Progreso REAL por etapas mediante /nest/start + /nest/status.
+2) Separación real: cada pieza reserva 1,5 mm alrededor; entre dos contornos quedan >= 3 mm.
+3) KNAPSACK selecciona con ángulos cada 15° y el repack final usa 5°.
+4) Los modelos sin SVG ya no abren un alert que tape el cálculo.
