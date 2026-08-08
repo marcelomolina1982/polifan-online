@@ -428,6 +428,183 @@ def solve_prefix(
     }
 
 
+def solve_knapsack_kits(
+    kits,
+    width_mm,
+    height_mm,
+    spacing_mm,
+    seconds=18,
+    rotation_step=30,
+    simplify_mm=0.45,
+    max_vertices=150,
+):
+    """
+    Fase de selección: entrega TODAS las piezas candidatas a una placa fija
+    y deja que KNAPSACK maximice el beneficio colocado. Cada kit completo vale
+    aproximadamente lo mismo; sus partes reparten ese valor.
+    """
+    builder=InstanceBuilder(Objective.KNAPSACK)
+    builder.set_item_item_minimum_spacing(spacing_mm)
+    builder.add_bin_type_rectangle(
+        width_mm,
+        height_mm,
+        copies=1,
+        item_bin_minimum_spacing=0.0,
+    )
+
+    mapping={}
+    kit_expected={}
+    diagnostics=[]
+
+    for kit_index,kit in enumerate(kits):
+        parts=kit.get('parts',[]) or []
+        if not parts:
+            continue
+        kit_id=str(kit.get('kitId') or f"kit-{kit_index}")
+        kit_expected[kit_id]=set()
+
+        # Cada kit vale 1000. Un bonus ínfimo desempata a favor de la prioridad.
+        priority=max(0.0,_n(kit.get("priority"),999999))
+        priority_bonus=max(0.0, 1.0-min(priority,9999)*0.00001)
+        part_profit=(1000.0+priority_bonus)/max(1,len(parts))
+
+        for part_index,part in enumerate(parts):
+            wcm=_n(part.get('sourceWidthCm') or part.get('widthCm'))
+            hcm=_n(part.get('sourceHeightCm') or part.get('heightCm'))
+            if wcm<=0 or hcm<=0:
+                continue
+
+            geom,trimx,trimy=svg_to_geometry(
+                part['svgText'],wcm,hcm,
+                solver_tolerance_mm=simplify_mm,
+                max_vertices=max_vertices,
+            )
+            shapes=geom_parts(geom)
+            if not shapes:
+                continue
+
+            minx,miny,maxx,maxy=geom.bounds
+            gw=maxx-minx; gh=maxy-miny
+            if min(gw,gh)>min(width_mm,height_mm) or max(gw,gh)>max(width_mm,height_mm):
+                continue
+
+            step=max(5,min(90,int(rotation_step or 30)))
+            rots=[(float(a),float(a)) for a in range(0,360,step)] if part.get('allowRotate',True) else [(0.0,0.0)]
+
+            item_id=builder.add_item_type(
+                shapes if len(shapes)>1 else shapes[0],
+                copies=1,
+                profit=part_profit,
+                allowed_rotations=rots,
+            )
+            iid=int(item_id)
+            instance_id=str(part.get('instanceId') or f"{kit_id}-p{part_index}")
+            kit_expected[kit_id].add(iid)
+            mapping[iid]={
+                **part,
+                'kitId':kit_id,
+                'instanceId':instance_id,
+                'trimXmm':trimx,
+                'trimYmm':trimy,
+                'geom':geom,
+            }
+            diagnostics.append({
+                "kitId":kit_id,
+                "name":part.get("name","pieza"),
+                "wMm":round(gw,2),
+                "hMm":round(gh,2),
+            })
+
+    if not mapping:
+        raise ValueError("No quedaron componentes utilizables para KNAPSACK")
+
+    solver=Solver()
+    try:
+        solution=solver.solve(
+            builder.build(),
+            time_limit=max(2,float(seconds)),
+            verbosity_level=0,
+            optimization_mode='Anytime',
+            use_tree_search=False,
+            use_sequential_single_knapsack=True,
+            use_sequential_value_correction=True,
+            use_column_generation=False,
+            use_dichotomic_search=False,
+            anchor=True,
+            anchor_x_weight=1.0,
+            anchor_y_weight=1.0,
+        )
+    except Exception as exc:
+        return {
+            'ok':False,
+            'timeout':True,
+            'error':str(exc),
+            'diagnostics':diagnostics[:8],
+        }
+
+    items=solution.all_items()
+    placed_ids={int(it.item_type_id) for it in items}
+    complete_kit_ids=[
+        kid for kid,expected in kit_expected.items()
+        if expected and expected.issubset(placed_ids)
+    ]
+
+    # Guardamos las posiciones de la selección KNAPSACK por si la segunda pasada
+    # no consigue mejorarla.
+    placements=[]
+    all_shapes=[]
+    for it in items:
+        meta=mapping.get(int(it.item_type_id))
+        if not meta or meta['kitId'] not in complete_kit_ids:
+            continue
+        angle=_n(it.angle)
+        src=meta['geom']; placed=unary_union(it.shapes)
+        cx,cy=src.centroid.x,src.centroid.y
+        a=math.radians(angle)
+        rcx=cx*math.cos(a)-cy*math.sin(a)
+        rcy=cx*math.sin(a)+cy*math.cos(a)
+        tx=placed.centroid.x-rcx; ty=placed.centroid.y-rcy
+        placements.append({
+            'instanceId':meta.get('instanceId'),
+            'kitId':meta.get('kitId'),
+            'figure':meta.get('figure'),
+            'name':meta.get('name'),
+            'role':meta.get('role'),
+            'xCm':tx/10.0,
+            'yCm':ty/10.0,
+            'angle':angle,
+            'trimXCm':meta['trimXmm']/10.0,
+            'trimYCm':meta['trimYmm']/10.0,
+        })
+        all_shapes.extend(it.shapes)
+
+    union=unary_union(all_shapes) if all_shapes else None
+    item_area=sum(g.area for g in all_shapes)
+    density=item_area/(width_mm*height_mm)*100.0 if width_mm*height_mm else 0.0
+    if union and not union.is_empty:
+        bx=union.bounds
+        usedw=max(0,bx[2]-bx[0]); usedh=max(0,bx[3]-bx[1])
+        env=usedw*usedh
+        compact=item_area/env*100.0 if env>0 else 0.0
+    else:
+        usedw=usedh=compact=0.0
+
+    return {
+        'ok':True,
+        'completeKitIds':complete_kit_ids,
+        'completeFigures':len(complete_kit_ids),
+        'placements':placements,
+        'density':density,
+        'compactness':compact,
+        'usedWidthMm':usedw,
+        'usedHeightMm':usedh,
+        'metrics':solution.metrics,
+        'placedPartCount':len(items),
+        'completePartCount':len(placements),
+        'diagnostics':diagnostics[:8],
+    }
+
+
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -438,7 +615,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.3", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.4", status="ready")
 
 @app.post("/nest")
 def nest():
@@ -452,7 +629,6 @@ def nest():
         width_mm=_n(data.get("widthCm"),122)*10
         height_mm=_n(data.get("heightCm"),58)*10
         spacing_mm=max(0,_n(data.get("gapCm"),.2)*10)
-
         if width_mm<=0 or height_mm<=0:
             raise ValueError("La medida de la placa es inválida")
 
@@ -464,112 +640,111 @@ def nest():
                 str(k.get("figure") or ""),
             )
         )
-        pool=kits[:min(18,len(kits))]
-        total=len(pool)
-        minimum=min(10,total)
+        pool=kits[:min(24,len(kits))]
+        minimum=min(10,len(pool))
         attempts=[]
-        best=None
 
-        def run(target, seconds, step, simplify, vertices):
-            r=solve_prefix(
-                pool,target,width_mm,height_mm,spacing_mm,
-                seconds=seconds,
-                rotation_step=step,
-                simplify_mm=simplify,
-                max_vertices=vertices,
+        # ETAPA 1: todas las candidatas de una vez. KNAPSACK decide qué entra.
+        ks=solve_knapsack_kits(
+            pool,width_mm,height_mm,spacing_mm,
+            seconds=20,
+            rotation_step=30,
+            simplify_mm=0.45,
+            max_vertices=145,
+        )
+        attempts.append({
+            "stage":"knapsack-30",
+            "ok":bool(ks and ks.get("ok")),
+            "completeFigures":(ks or {}).get("completeFigures",0),
+            "placedParts":(ks or {}).get("placedPartCount",0),
+            "timeout":bool((ks or {}).get("timeout")),
+        })
+        if not ks or not ks.get("ok"):
+            raise RuntimeError(
+                "KNAPSACK no pudo calcular la selección inicial. "
+                + str((ks or {}).get("error",""))
+            )
+
+        selected_ids=set(ks.get("completeKitIds",[]))
+        if not selected_ids:
+            raise RuntimeError(
+                "KNAPSACK colocó piezas pero no logró completar ningún par tapa+base."
+            )
+
+        selected=[k for k in pool if str(k.get('kitId')) in selected_ids]
+
+        # ETAPA 2: recompone solamente kits completos, eliminando cualquier pieza
+        # huérfana que KNAPSACK haya usado durante la selección.
+        best=None
+        if selected:
+            packed=solve_prefix(
+                selected,len(selected),width_mm,height_mm,spacing_mm,
+                seconds=7,
+                rotation_step=15,
+                simplify_mm=0.35,
+                max_vertices=170,
             )
             attempts.append({
-                "target":target,
-                "rotationStep":step,
-                "simplifyMm":simplify,
-                "ok":bool(r and r.get("feasible")),
-                "timeout":bool((r or {}).get("timeout")),
-                "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
-                "diagnostics":(r or {}).get("diagnostics",[])[:4],
+                "stage":"repack-15",
+                "ok":bool(packed and packed.get("feasible")),
+                "completeFigures":len(selected),
+                "timeout":bool((packed or {}).get("timeout")),
             })
-            return r
+            if packed and packed.get("feasible"):
+                best=packed
 
-        # FASE 1 — prueba ultrarrápida: una figura completa, 0/90/180/270.
-        # Si esto falla por timeout, el problema es geométrico y devolvemos diagnóstico.
-        first=run(1,2.5,90,0.55,110)
-        if first and first.get("feasible"):
-            best=first
-        else:
-            # Segundo intento todavía barato, permitiendo 30°.
-            first2=run(1,3.0,30,0.45,140)
-            if first2 and first2.get("feasible"):
-                best=first2
-            else:
-                diag=(first2 or first or {}).get("diagnostics",[])
-                err=(first2 or first or {}).get("error","")
-                raise RuntimeError(
-                    "PackingSolver no pudo resolver ni 1 figura completa en modo rápido. "
-                    f"Geometría enviada: {diag[:4]}. {err[:240]}"
-                )
+        # Si el repack fino falla, la solución KNAPSACK de kits completos sigue
+        # siendo válida y se conserva.
+        if best is None:
+            best={
+                'target':ks['completeFigures'],
+                'placements':ks['placements'],
+                'density':ks['density'],
+                'compactness':ks['compactness'],
+                'usedWidthMm':ks['usedWidthMm'],
+                'usedHeightMm':ks['usedHeightMm'],
+                'rotationStep':30,
+                'simplifyMm':0.45,
+            }
 
-        # FASE 2 — crecimiento progresivo, con búsqueda gruesa.
-        # Cada intento es corto; jamás puede comerse todo el presupuesto.
-        targets=[]
-        for t in [2,4,6,8,10]:
-            if 1<t<=minimum and t not in targets:
-                targets.append(t)
-        if minimum>1 and minimum not in targets:
-            targets.append(minimum)
-
-        for target in targets:
-            if time.time()-started>70:
-                break
-            r=run(target,3.5,30,0.45,150)
-            if r and r.get("feasible"):
-                best=r
-            else:
-                break
-
-        # FASE 3 — intentar más que el mínimo, siempre preservando best.
-        if best and best["target"]>=minimum and best["target"]<total:
-            lo=best["target"]+1
-            hi=total
-            while lo<=hi and time.time()-started<92:
-                mid=(lo+hi)//2
-                r=run(mid,4.0,30,0.45,150)
-                if r and r.get("feasible"):
-                    best=r
-                    lo=mid+1
-                else:
-                    hi=mid-1
-
-        # FASE 4 — refinamiento angular SOLO de la mejor cantidad ya factible.
-        # 15° primero; 5° únicamente si queda tiempo y el intento anterior funcionó.
-        if best and time.time()-started<104:
-            refined15=run(best["target"],4.0,15,0.35,170)
-            if refined15 and refined15.get("feasible"):
-                if refined15.get("compactness",0)>=best.get("compactness",0):
-                    best=refined15
-
-        if best and time.time()-started<118:
-            refined5=run(best["target"],4.0,5,0.30,190)
-            if refined5 and refined5.get("feasible"):
-                if refined5.get("compactness",0)>=best.get("compactness",0):
-                    best=refined5
-
-        if not best:
-            raise RuntimeError("PackingSolver no encontró ninguna figura completa")
+        # ETAPA 3: si hay margen, refinamiento a 5° de la MISMA selección completa.
+        if selected and time.time()-started<70:
+            fine=solve_prefix(
+                selected,len(selected),width_mm,height_mm,spacing_mm,
+                seconds=6,
+                rotation_step=5,
+                simplify_mm=0.30,
+                max_vertices=185,
+            )
+            attempts.append({
+                "stage":"repack-5",
+                "ok":bool(fine and fine.get("feasible")),
+                "completeFigures":len(selected),
+                "timeout":bool((fine or {}).get("timeout")),
+            })
+            if fine and fine.get("feasible"):
+                # La ocupación material no cambia para el mismo conjunto; usamos
+                # compactness para elegir el acomodo más compacto.
+                if fine.get("compactness",0)>=best.get("compactness",0):
+                    best=fine
 
         return jsonify(
             ok=True,
-            engine="PackingSolver C++ · rápido progresivo",
-            completeFigures=best["target"],
-            placements=best["placements"],
-            density=best["density"],
-            compactness=best["compactness"],
-            usedWidthMm=best["usedWidthMm"],
-            usedHeightMm=best["usedHeightMm"],
+            engine="PackingSolver C++ · KNAPSACK",
+            completeFigures=int(best.get("target",ks['completeFigures'])),
+            placements=best['placements'],
+            density=best['density'],
+            compactness=best['compactness'],
+            usedWidthMm=best['usedWidthMm'],
+            usedHeightMm=best['usedHeightMm'],
             attempts=attempts,
-            partial=best["target"]<minimum,
+            partial=int(best.get("target",0))<minimum,
             minimumTarget=minimum,
             elapsedSeconds=round(time.time()-started,2),
             rotationStep=best.get("rotationStep"),
             simplifyMm=best.get("simplifyMm"),
+            knapsackPlacedParts=ks.get("placedPartCount",0),
+            knapsackCompleteParts=ks.get("completePartCount",0),
         )
 
     except Exception as e:

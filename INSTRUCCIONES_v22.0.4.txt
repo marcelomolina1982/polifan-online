@@ -1,0 +1,13 @@
+v22.0.4 KNAPSACK
+Reemplazar:
+- solver-service/app.py
+- src/pages/SheetPlanner.jsx
+- src/version.js
+
+Qué cambia:
+- KNAPSACK recibe todas las candidatas de una vez y maximiza lo que entra en una sola placa.
+- Cada figura completa vale lo mismo; tapa/base reparten ese valor.
+- Se eliminan piezas huérfanas y se recompone sólo con kits completos.
+- Segunda pasada 15° y refinamiento opcional 5°.
+- Ocupación real = área real de material / área total de la placa.
+- Compactación del grupo se muestra por separado.
