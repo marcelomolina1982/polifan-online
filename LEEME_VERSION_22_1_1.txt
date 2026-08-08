@@ -1,0 +1,22 @@
+POLIFAN ONLINE v22.1.1
+
+CORRECCIÓN CRÍTICA DEL MOTOR CNC
+
+Problema corregido:
+El selector KNAPSACK optimizaba componentes físicos sueltos y luego la aplicación
+contaba únicamente kits tapa+base completos. Por eso podía devolver 3 figuras
+completas aunque hubiera muchas piezas físicas colocadas.
+
+Nuevo flujo:
+1. Buscar directamente 10 FIGURAS COMPLETAS.
+2. Si no entran, bajar de a una hasta hallar la máxima solución segura.
+3. Si entran, crecer 11, 12, 13... hasta dos fallos consecutivos.
+4. Refinar el mismo número con rotaciones de 5°/10°.
+5. KNAPSACK queda sólo como control cruzado y jamás puede reemplazar una solución
+   por otra con menos figuras completas.
+6. Separación recomendada: 3 mm. Mínimo absoluto: 2,5 mm.
+7. No se escala ni deforma ninguna geometría.
+
+También se mantienen:
+- Placa doble.
+- Venta manual fuera de inventario.
