@@ -1,0 +1,13 @@
+POLIFAN ONLINE v23.0.0
+
+RECONSTRUCCIÓN DEL MOTOR AUTOMÁTICO
+- Una sola ruta de cálculo: local en el navegador.
+- No usa Render ni PackingSolver para crear la placa automática.
+- Busca subconjuntos completos de 10 figuras antes de bajar el objetivo.
+- Prueba prioridad estricta, compactos, urgentes+compactos, intercambios y mezclas deterministas.
+- Si consigue 10, intenta 11, 12, 13... hasta que deja de mejorar.
+- Valida cada candidato con precisionValidateSheet.
+- 3 mm recomendado; 2,5 mm mínimo.
+- Escala 1:1, sin deformación.
+- Menos de 10 figuras = RESULTADO PARCIAL y no se puede enviar a corte.
+- Se mantienen Placa doble y Venta manual.

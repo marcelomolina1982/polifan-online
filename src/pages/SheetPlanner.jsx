@@ -646,21 +646,52 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
     strategy:{angleStep,orderMode,scoreMode,scanStep,shuffleSeed}}
 }
 
-async function runLocalAutomaticFallback(kits,wCm,hCm,gapCm,{
-  target=10,targetEfficiency=90,deadlineMs=70000,onProgress=null,shouldStop=null
+function localKitArea(k){
+  return (k?.parts||[]).reduce((sum,p)=>sum+num(p.width||p.sourceWidth)*num(p.height||p.sourceHeight),0)
+}
+function stableSubsetVariants(kits,target){
+  const n=Math.max(1,Math.min(Number(target)||1,kits.length)),window=kits.slice(0,Math.min(kits.length,28))
+  const out=[],seen=new Set()
+  const add=(label,arr)=>{
+    const rows=arr.filter(Boolean).slice(0,n)
+    if(rows.length!==n)return
+    const key=rows.map(k=>k.kitId).sort().join('|')
+    if(seen.has(key))return
+    seen.add(key);out.push({label,kits:rows})
+  }
+  add('prioridad estricta',kits.slice(0,n))
+  add('compactos',window.slice().sort((a,b)=>localKitArea(a)-localKitArea(b)).slice(0,n))
+
+  // Mantiene la mitad más urgente y usa piezas compactas para completar.
+  const keep=Math.min(Math.max(3,Math.floor(n/2)),n)
+  const urgent=kits.slice(0,keep)
+  const rest=window.slice(keep).sort((a,b)=>localKitArea(a)-localKitArea(b))
+  add('urgentes + compactos',[...urgent,...rest].slice(0,n))
+
+  // Intercambios controlados de las figuras más voluminosas del prefijo.
+  const base=kits.slice(0,n),extras=kits.slice(n,Math.min(kits.length,n+12))
+  const removable=base.map((k,i)=>({i,area:localKitArea(k)})).sort((a,b)=>b.area-a.area).slice(0,5)
+  extras.slice(0,8).forEach((extra,ei)=>{
+    removable.slice(0,4).forEach(({i})=>{
+      const v=base.slice();v[i]=extra;add(`intercambio ${ei+1}.${i+1}`,v)
+    })
+  })
+
+  // Variantes deterministas que mezclan la ventana completa sin depender del azar del navegador.
+  ;[17,31,47,73,101,131].forEach(seed=>{
+    const v=seededShuffle(window,seed)
+    // Reinyecta 3 urgentes al frente para no perder la lógica de producción.
+    const first=kits.slice(0,Math.min(3,n)),ids=new Set(first.map(k=>k.kitId))
+    add(`mezcla ${seed}`,[...first,...v.filter(k=>!ids.has(k.kitId))])
+  })
+  return out.slice(0,22)
+}
+
+async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
+  target=10,targetEfficiency=80,deadlineMs=110000,onProgress=null,shouldStop=null
 }={}){
   const started=Date.now(),deadline=started+deadlineMs
-  const strategies=[
-    {angleStep:15,orderMode:'areaDesc',scoreMode:'compact',scanStep:3,shuffleSeed:0},
-    {angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:3,shuffleSeed:0},
-    {angleStep:15,orderMode:'aspect',scoreMode:'contact',scanStep:3,shuffleSeed:0},
-    {angleStep:10,orderMode:'smallPartsFirst',scoreMode:'contact',scanStep:3,shuffleSeed:0},
-    {angleStep:10,orderMode:'areaDesc',scoreMode:'compact',scanStep:3,shuffleSeed:17},
-    {angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:3,shuffleSeed:31},
-    {angleStep:5,orderMode:'areaDesc',scoreMode:'contact',scanStep:4,shuffleSeed:47}
-  ]
-  const attempts=[]
-  let best=null
+  let best=null,attempts=[],tested=0
   const rank=r=>[
     Number(r?.completeFigures||0),
     Number(r?.validation?.usage||r?.sheets?.[0]?.efficiency||0),
@@ -672,41 +703,70 @@ async function runLocalAutomaticFallback(kits,wCm,hCm,gapCm,{
     for(let i=0;i<A.length;i++){if(A[i]!==B[i])return A[i]>B[i]}
     return false
   }
-  for(let i=0;i<strategies.length;i++){
-    if(Date.now()>=deadline||shouldStop?.())break
-    const cfg=strategies[i]
-    onProgress?.({stage:`Motor local seguro · estrategia ${i+1}/${strategies.length} · ${cfg.angleStep}°`,percent:Math.min(94,12+i*12)})
+  async function attempt(subset,cfg,label){
+    if(Date.now()>=deadline||shouldStop?.())return null
+    tested++
+    onProgress?.({stage:`Motor estable · ${label} · ${cfg.angleStep}°`,percent:Math.min(94,5+tested*3),completeFigures:Number(best?.completeFigures||0),efficiency:Number(best?.validation?.usage||0)})
     try{
-      const result=await packCompleteKits(kits,wCm,hCm,gapCm,{
-        target,targetEfficiency,deadline,onProgress:p=>onProgress?.({
-          stage:`Motor local seguro · ${p.completeFigures||0} figura(s) · ${Number(p.efficiency||0).toFixed(1)}%`,
-          percent:Math.min(94,12+i*12+Math.round(8*(Number(p.done||0)/Math.max(1,Number(p.total||1))))),
-          completeFigures:Number(p.completeFigures||0),
-          efficiency:Number(p.efficiency||0)
-        }),shouldStop,
+      const r=await packCompleteKits(subset,wCm,hCm,gapCm,{
+        target:subset.length,targetEfficiency,deadline,shouldStop,
+        onProgress:p=>onProgress?.({stage:`Motor estable · ${label} · ${p.completeFigures||0}/${subset.length}`,percent:Math.min(94,5+tested*3),completeFigures:Number(Math.max(best?.completeFigures||0,p.completeFigures||0)),efficiency:Number(p.efficiency||0)}),
         ...cfg
       })
-      const sheet=result?.sheets?.[0]
-      if(!sheet?.placed?.length){
-        attempts.push({engine:'local',strategy:cfg,ok:false,completeFigures:0})
-        continue
-      }
+      const sheet=r?.sheets?.[0]
+      if(!sheet?.placed?.length)return null
       const validation=await precisionValidateSheet(sheet,wCm,hCm,Math.max(.25,num(gapCm,.3)))
       const completeFigures=kitCountOnSheet(sheet)
-      attempts.push({engine:'local',strategy:cfg,ok:!!validation.ok,completeFigures,
-        density:Number(validation.usage||0)})
-      if(!validation.ok)continue
-      const valid={...result,completeFigures,validation}
-      valid.sheets=[{...sheet,efficiency:Number(validation.usage||0),used:Number(validation.materialArea||sheet.used||0)}]
-      if(better(valid,best))best=valid
-      if(best&&Number(best.completeFigures)>=target&&Number(best.validation?.usage||0)>=targetEfficiency)break
-    }catch(err){
-      attempts.push({engine:'local',strategy:cfg,ok:false,error:String(err?.message||err)})
-    }
-    await nextFrame()
+      const candidate={...r,completeFigures,validation,subsetLabel:label}
+      attempts.push({label,angleStep:cfg.angleStep,orderMode:cfg.orderMode,scoreMode:cfg.scoreMode,completeFigures,usage:Number(validation.usage||0),valid:!!validation.ok})
+      if(validation.ok&&better(candidate,best))best=candidate
+      return candidate
+    }catch(err){attempts.push({label,error:String(err?.message||err),completeFigures:0,valid:false});return null}
   }
-  if(!best)throw new Error('El motor local tampoco pudo construir una placa geométricamente válida.')
-  return {...best,attempts}
+
+  const wanted=Math.min(Math.max(1,Number(target)||10),kits.length)
+  const configs=[
+    {angleStep:15,orderMode:'areaDesc',scoreMode:'compact',scanStep:3,shuffleSeed:0},
+    {angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:3,shuffleSeed:0},
+    {angleStep:10,orderMode:'aspect',scoreMode:'contact',scanStep:3,shuffleSeed:0},
+    {angleStep:15,orderMode:'smallPartsFirst',scoreMode:'contact',scanStep:3,shuffleSeed:0}
+  ]
+
+  // FASE 1: no bajar de 10 sin probar combinaciones distintas de 10 kits completos.
+  for(const variant of stableSubsetVariants(kits,wanted)){
+    if(Date.now()>=deadline||shouldStop?.())break
+    for(const cfg of configs.slice(0,2)){
+      const r=await attempt(variant.kits,cfg,`${wanted} figuras · ${variant.label}`)
+      if(r?.validation?.ok&&Number(r.completeFigures)>=wanted)break
+    }
+    if(best&&Number(best.completeFigures)>=wanted)break
+  }
+
+  // FASE 2: si 10 entra, crecer 11, 12, 13... con la misma lógica.
+  if(best&&Number(best.completeFigures)>=wanted){
+    for(let grow=wanted+1;grow<=Math.min(kits.length,wanted+6);grow++){
+      if(Date.now()>=deadline||shouldStop?.())break
+      let improved=false
+      for(const variant of stableSubsetVariants(kits,grow).slice(0,8)){
+        const r=await attempt(variant.kits,configs[1],`${grow} figuras · ${variant.label}`)
+        if(r?.validation?.ok&&Number(r.completeFigures)>=grow){improved=true;break}
+      }
+      if(!improved)break
+    }
+  }else{
+    // FASE 3: sólo después de agotar 10, buscar el máximo seguro inferior.
+    for(let lower=wanted-1;lower>=1;lower--){
+      if(Date.now()>=deadline||shouldStop?.())break
+      let found=false
+      for(const variant of stableSubsetVariants(kits,lower).slice(0,10)){
+        const r=await attempt(variant.kits,configs[0],`${lower} figuras · ${variant.label}`)
+        if(r?.validation?.ok&&Number(r.completeFigures)>=lower){found=true;break}
+      }
+      if(found)break
+    }
+  }
+  if(!best)throw new Error('El motor estable no encontró una placa geométricamente válida.')
+  return {...best,attempts,tested}
 }
 
 function usableModelComponents(model){
@@ -789,15 +849,16 @@ export default function SheetPlanner({db,onSave}){
         const built=buildCompleteKits(g.rows,index,g.date,'pedido',modelForFigure)
         kits.push(...built.kits);missing.push(...built.missing)
       })
-      // Si faltan pedidos para explorar el sobrante, agrega modelos de alta rotación al final,
-      // sin desplazar jamás las entregas pendientes (prioridad 9999).
-      if(useFillers&&kits.length<32){
+      // Siempre agrega una reserva de modelos de alta rotación. No reemplazan prioridades:
+      // sólo dan al motor alternativas para completar una placa rentable cuando los kits urgentes
+      // son demasiado grandes o no encastran entre sí.
+      if(useFillers){
         const ranking=bestSellerNames(db)
-        let ri=0
-        while(kits.length<32&&ranking.length&&ri<ranking.length*4){
+        let ri=0,added=0
+        while(added<18&&ranking.length&&ri<ranking.length*6){
           const name=ranking[ri%ranking.length];ri++
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
-          kits.push(...built.kits)
+          if(built.kits.length){kits.push(...built.kits);added+=built.kits.length}
         }
       }
       if(!kits.length)throw new Error('No hay figuras completas con SVG vinculados para enviar al motor industrial.')
@@ -814,73 +875,29 @@ export default function SheetPlanner({db,onSave}){
           allowRotate:part.allowRotate!==false,svgText:part.svgText
         }))}))
       }
-      const controller=new AbortController()
-      const timeout=setTimeout(()=>controller.abort(),150000)
-      let response=null,data=null,externalError=''
-      try{
-        const solverBase=(import.meta.env.VITE_NEST_API_URL||'').replace(/\/$/,'')
-        if(!solverBase)throw new Error('VITE_NEST_API_URL no está configurada')
-        const startResp=await fetch(`${solverBase}/nest/start`,{
-          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal
-        })
-        const startedJob=await startResp.json().catch(()=>({ok:false,error:'Respuesta inválida al iniciar el motor'}))
-        if(!startResp.ok||!startedJob.ok||!startedJob.jobId)throw new Error(startedJob.error||`Motor externo HTTP ${startResp.status}`)
-        let statusData=null
-        while(true){
-          await new Promise(r=>setTimeout(r,900))
-          const sr=await fetch(`${solverBase}/nest/status/${startedJob.jobId}`,{signal:controller.signal})
-          statusData=await sr.json().catch(()=>({ok:false,error:'Estado inválido del motor industrial'}))
-          if(!sr.ok||!statusData.ok)throw new Error(statusData.error||`Motor externo HTTP ${sr.status}`)
-          setCalcProgress(v=>v?{...v,
-            stage:statusData.stage||v.stage,
-            percent:Number.isFinite(Number(statusData.percent))?Number(statusData.percent):v.percent,
-            elapsed:(Date.now()-started)/1000,
-            eta:Math.max(0,150-(Date.now()-started)/1000),
-            completeFigures:Number(statusData.completeFigures||v.completeFigures||0)
-          }:v)
-          if(statusData.status==='done'||statusData.status==='error')break
+      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo.
+      const local=await runStableLocalSolver(
+        kits,num(sheetW,122),num(sheetH,58),Math.max(.25,num(gap,.3)),{
+          target:Math.min(10,kits.length),targetEfficiency:Math.min(90,Math.max(80,num(minFill,90))),deadlineMs:110000,
+          shouldStop:()=>stopCalcRef.current,
+          onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:Math.max(0,110-(Date.now()-started)/1000)}))
         }
-        response={ok:statusData.status==='done',status:statusData.httpStatus||200}
-        data=statusData.result||{ok:false,error:'El motor externo terminó sin resultado'}
-        if(!response.ok||!data.ok)throw new Error(data.error||`Motor externo HTTP ${response.status}`)
-      }catch(netErr){
-        externalError=String(netErr?.name==='AbortError'?'Tiempo agotado del motor externo':(netErr?.message||netErr))
-        clearTimeout(timeout)
-        setCalcProgress({stage:`Motor externo no disponible · usando motor local validado…`,percent:8,elapsed:(Date.now()-started)/1000,eta:70,completeFigures:0,efficiency:0})
-        const local=await runLocalAutomaticFallback(
-          kits,num(sheetW,122),num(sheetH,58),Math.max(.25,num(gap,.3)),{
-            target:Math.min(10,kits.length),
-            targetEfficiency:num(minFill,90),
-            deadlineMs:70000,
-            shouldStop:()=>stopCalcRef.current,
-            onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000}))
-          }
-        )
-        const ls=local.sheets[0],validation=local.validation||{}
-        const xs=(ls.placed||[]).map(q=>num(q.x)),ys=(ls.placed||[]).map(q=>num(q.y))
-        const x2=(ls.placed||[]).map(q=>num(q.x)+num(q.w)),y2=(ls.placed||[]).map(q=>num(q.y)+num(q.h))
-        const usedW=xs.length?Math.max(...x2)-Math.min(...xs):0
-        const usedH=ys.length?Math.max(...y2)-Math.min(...ys):0
-        const materialArea=Number(validation.materialArea||ls.used||0)
-        const compactness=usedW*usedH>0?Math.min(100,100*materialArea/(usedW*usedH)):0
-        data={
-          ok:true,localFallback:true,
-          engine:'Motor local de respaldo · silueta real + validación fina',
-          completeFigures:Number(local.completeFigures||kitCountOnSheet(ls)),
-          placements:(ls.placed||[]).map(q=>({
-            instanceId:q.instanceId,kitId:q.kitId,figure:q.figure,name:q.name,role:q.role,
-            xCm:num(q.x),yCm:num(q.y),angle:num(q.angle),trimXCm:0,trimYCm:0
-          })),
-          density:Number(validation.usage||ls.efficiency||0),
-          compactness,usedWidthMm:usedW*10,usedHeightMm:usedH*10,
-          attempts:[{stage:'external-failed',ok:false,error:externalError},...(local.attempts||[])],
-          minimumTarget:Math.min(10,kits.length),
-          reachedMinimum:Number(local.completeFigures||0)>=Math.min(10,kits.length),
-          reachedDensity:Number(validation.usage||0)>=num(minFill,90)
-        }
-        response={ok:true,status:200}
-      }finally{clearTimeout(timeout)}
-
+      )
+      const ls=local.sheets[0],validation=local.validation||{}
+      const xs=(ls.placed||[]).map(q=>num(q.x)),ys=(ls.placed||[]).map(q=>num(q.y))
+      const x2=(ls.placed||[]).map(q=>num(q.x)+num(q.w)),y2=(ls.placed||[]).map(q=>num(q.y)+num(q.h))
+      const usedW=xs.length?Math.max(...x2)-Math.min(...xs):0,usedH=ys.length?Math.max(...y2)-Math.min(...ys):0
+      const materialArea=Number(validation.materialArea||ls.used||0)
+      const compactness=usedW*usedH>0?Math.min(100,100*materialArea/(usedW*usedH)):0
+      const data={
+        ok:true,localStable:true,engine:'Motor Polifan v23 · local estable · silueta real',
+        completeFigures:Number(local.completeFigures||kitCountOnSheet(ls)),
+        placements:(ls.placed||[]).map(q=>({instanceId:q.instanceId,kitId:q.kitId,figure:q.figure,name:q.name,role:q.role,xCm:num(q.x),yCm:num(q.y),angle:num(q.angle),trimXCm:0,trimYCm:0})),
+        density:Number(validation.usage||ls.efficiency||0),compactness,usedWidthMm:usedW*10,usedHeightMm:usedH*10,
+        attempts:local.attempts||[],minimumTarget:Math.min(10,kits.length),reachedMinimum:Number(local.completeFigures||0)>=Math.min(10,kits.length),
+        reachedDensity:Number(validation.usage||0)>=Math.min(90,Math.max(80,num(minFill,90)))
+      }
+      const response={ok:true,status:200}
       const placementMap=new Map((data.placements||[]).map(x=>[x.instanceId,x]))
       const sourceParts=new Map()
       kits.forEach(k=>k.parts.forEach(part=>sourceParts.set(part.instanceId,part)))
@@ -888,7 +905,7 @@ export default function SheetPlanner({db,onSave}){
         const part=sourceParts.get(pl.instanceId)
         if(!part)return null
         return {...part,x:num(pl.xCm),y:num(pl.yCm),angle:num(pl.angle),rotated:Math.abs(num(pl.angle)%360)>.001,
-          industrial:!data.localFallback,localFallback:!!data.localFallback,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
+          industrial:false,localFallback:false,localStable:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
       }).filter(Boolean)
       if(!placed.length)throw new Error('PackingSolver respondió sin componentes colocados.')
       const kitIds=new Set(placed.map(x=>x.kitId).filter(Boolean))
@@ -902,11 +919,11 @@ export default function SheetPlanner({db,onSave}){
         threshold:num(minFill,90),fillers:[],materialDensity:density,engine:data.engine||'PackingSolver C++',attempts:data.attempts||[]}
       setItems(placed.map(x=>({...x,qty:1})));setResult(finalResult)
       setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete:Number(data.minimumTarget||10),targetEfficiency:num(minFill,90),partial:!reachedMinimum})
-      setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'PackingSolver · irregular C++'})
+      setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'Motor Polifan v23 · subconjuntos completos'})
       setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:compactness})
 
     }catch(e){
-      const msg=e?.name==='AbortError'?'No se pudo completar el cálculo dentro del tiempo máximo.':(e.message||'No se pudo generar una placa válida con ninguno de los dos motores.')
+      const msg=e?.message||'No se pudo generar una placa válida con el motor estable.'
       setError(msg);setCalcProgress(null);setResult({sheets:[],rejected:[],total:0,used:0,sheetArea:0})
     }finally{
       if(timer)clearInterval(timer)

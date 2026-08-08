@@ -1,0 +1,44 @@
+POLIFAN ONLINE v23.0.0 — MOTOR LOCAL ESTABLE
+
+ARQUITECTURA
+- Una sola ruta de nesting automático.
+- No usa Render.
+- No usa fetch.
+- No usa PackingSolver para generar placas automáticas.
+- Toda la búsqueda se ejecuta en el navegador con máscaras de silueta real.
+
+BÚSQUEDA
+- Intenta primero 10 kits completos.
+- No baja a 9/8/7 hasta agotar combinaciones alternativas de 10.
+- Variantes: prioridad estricta, compactos, urgentes+compactos, intercambios y mezclas deterministas.
+- Si llega a 10, intenta 11, 12, 13...
+- Cada resultado pasa por precisionValidateSheet.
+
+REGLAS
+- Escala 1:1.
+- No deformar.
+- 3 mm recomendado.
+- 2,5 mm mínimo.
+- Menos de 10 = RESULTADO PARCIAL y botón Enviar a corte bloqueado.
+
+BENCHMARKS DEL NUEVO NÚCLEO
+- Arcoíris base+tapa x13, gap 3,0 mm: 10/13 kits completos.
+- Arcoíris base+tapa x13, gap 2,5 mm: 10/13 kits completos.
+- Placa CNC histórica de 16 componentes: 16/16 reacomodados.
+- Benchmark vectorial 21 piezas: 20/21 reacomodados.
+- Placa histórica de 26 componentes: 19/26 en búsqueda corta; se mantiene como caso duro de regresión.
+
+VERIFICACIONES ESTÁTICAS
+[OK] Sin fetch en planificador
+[OK] Sin VITE_NEST_API_URL
+[OK] Motor estable local presente
+[OK] Subconjuntos completos presentes
+[OK] Validador fino presente
+[OK] Bloqueo <10
+[OK] Placa doble
+[OK] Venta manual
+[OK] Imports relativos (113)
+[OK] Versión coherente
+
+LIMITACIÓN DEL ENTORNO DE PRUEBA
+No se pudo ejecutar npm run build porque el registry interno de este entorno no contiene @supabase/supabase-js. Esto no es un error del proyecto. Se comprobaron imports relativos, archivos críticos y coherencia de versión.
