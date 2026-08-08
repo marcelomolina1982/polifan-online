@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import OrderForm from './pages/OrderForm'
 import Orders from './pages/Orders'
+import ManualSale from './pages/ManualSale'
 import CutList from './pages/CutList'
 import CutBatches from './pages/CutBatches'
 import Stock from './pages/Stock'
@@ -108,7 +109,7 @@ export default function App(){
   }
 
   const navGroups = [
-    ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
+    ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['manualsale','＄','Venta manual'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
     ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','▧','Diseñar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
     ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
@@ -135,7 +136,8 @@ export default function App(){
       <main>
         {page==='dashboard' && <Dashboard db={db} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='new' && <OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} 
-        {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>} 
+        {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>}
+        {page==='manualsale' && <ManualSale db={db} onSave={saveData}/>}  
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 

@@ -705,7 +705,7 @@ def nest():
 
         width_mm=_n(data.get("widthCm"),122)*10
         height_mm=_n(data.get("heightCm"),58)*10
-        spacing_mm=max(3.0,_n(data.get("gapCm"),.3)*10)
+        spacing_mm=max(2.5,_n(data.get("gapCm"),.3)*10)
         target_density=max(0.0,min(100.0,_n(data.get("targetDensity"),80)))
         if width_mm<=0 or height_mm<=0:
             raise ValueError("La medida de la placa es inválida")
@@ -852,13 +852,13 @@ def nest():
 
         _job_update(
             job_id,97,
-            f"Validando 3 mm · resultado: {best.get('target',0)} figuras · {best.get('density',0):.1f}% real",
+            f"Validando {spacing_mm:.1f} mm · resultado: {best.get('target',0)} figuras · {best.get('density',0):.1f}% real",
             completeFigures=int(best.get("target",0)),
         )
 
         return jsonify(
             ok=True,
-            engine="PackingSolver C++ · BEST-OF ángulos",
+            engine="PackingSolver C++ · BEST-OF + validador de separación",
             completeFigures=int(best.get("target",best_ks['completeFigures'])),
             placements=best['placements'],
             density=best['density'],

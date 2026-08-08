@@ -1,0 +1,16 @@
+POLIFAN ONLINE v22.1.0
+08/08/2026
+
+CAMBIOS
+- Motor CNC BEST-OF integrado con separación recomendada 3,0 mm y mínimo absoluto 2,5 mm.
+- Conserva la mejor solución entre estrategias angulares.
+- Placa doble ya integrada en Diseñar placas y En corte: multiplica por 2 la reserva y el ingreso al stock al terminar.
+- Nueva sección NEGOCIO > Venta manual.
+- La venta manual acepta descripción, cantidad y precio libres.
+- Las ventas manuales cuentan en facturación pero quedan fuera de inventario, faltantes y producción.
+- Al guardar una venta manual se genera el comprobante JPG usando el kit de pedido existente.
+- Versión actualizada a v22.1.0.
+
+IMPORTANTE
+La separación normal recomendada sigue siendo 3 mm. El modo 2,5 mm queda disponible sólo para optimización extrema.
+Las geometrías no se escalan ni deforman.

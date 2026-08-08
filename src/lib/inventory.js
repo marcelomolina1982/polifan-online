@@ -13,7 +13,7 @@ function allFigureNames(db){
   const names=[]
   ;(db.figures||[]).forEach(x=>x&&names.push(String(x)))
   ;(db.customerCatalog||[]).forEach(x=>x?.name&&names.push(String(x.name)))
-  ;(db.orders||[]).forEach(o=>(o.items||[]).forEach(i=>i?.figure&&names.push(String(i.figure))))
+  ;(db.orders||[]).forEach(o=>(o.items||[]).forEach(i=>i?.figure&&i.inventoryTracked!==false&&names.push(String(i.figure))))
   ;(db.movements||[]).forEach(m=>m?.figure&&names.push(String(m.figure)))
   ;(db.cutBatches||[]).forEach(b=>(b.items||[]).forEach(i=>i?.figure&&names.push(String(i.figure))))
   Object.keys(db.stockMin||{}).forEach(x=>x&&names.push(String(x)))
@@ -204,7 +204,7 @@ export function orderDemand(db){
   const demand={}
   ;(db.orders||[]).filter(o=>isOrderCommitted(o)).forEach(o=>{
     ;(o.items||[]).forEach(i=>{
-      if(!i.figure)return
+      if(!i.figure||i.inventoryTracked===false)return
       demand[i.figure]=(demand[i.figure]||0)+Number(i.qty||0)
     })
   })
@@ -215,7 +215,7 @@ export function automaticOrderOutflow(db){
   const out={}
   ;(db.orders||[]).filter(o=>isOrderAutomaticallyOut(o)).forEach(o=>{
     ;(o.items||[]).forEach(i=>{
-      if(!i.figure)return
+      if(!i.figure||i.inventoryTracked===false)return
       out[i.figure]=(out[i.figure]||0)+Number(i.qty||0)
     })
   })
@@ -370,7 +370,7 @@ export function pendingCutByDelivery(db){
       if(!groups[key])groups[key]={key,date,orders:[],rows:{}}
       groups[key].orders.push(order.number)
       ;(order.items||[]).forEach(item=>{
-        if(!item?.figure || Number(item.qty||0)<=0)return
+        if(!item?.figure || item.inventoryTracked===false || Number(item.qty||0)<=0)return
         const figure=canonical(item.figure)
         const qty=Number(item.qty||0)
         const onHand=Math.max(0,Number(available[figure]||0))

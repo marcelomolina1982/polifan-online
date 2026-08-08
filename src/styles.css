@@ -468,3 +468,5 @@ input:focus,select:focus,textarea:focus{outline:2px solid #14b8b844;border-color
 .ai-optimizer-stats{display:flex;flex-wrap:wrap;gap:8px 18px;padding:9px 11px;border-radius:10px;background:#f7f3ff;border:1px solid #e7dcff;font-size:12px}
 .ai-optimizer-stats b{color:#6d28d9}
 @media(max-width:760px){.ai-optimizer-stats{display:grid;gap:5px}}
+
+.manual-sale-row{grid-template-columns:minmax(220px,2fr) 110px 150px 140px 44px;align-items:center}.manual-sale-total{display:flex;justify-content:flex-end;gap:24px;align-items:center;margin:18px 0;font-size:1.05rem}.manual-sale-total strong{font-size:1.35rem}@media(max-width:800px){.manual-sale-row{grid-template-columns:1fr 90px 1fr}.manual-sale-row b{grid-column:1/3}}
