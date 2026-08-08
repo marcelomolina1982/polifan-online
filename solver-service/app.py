@@ -638,7 +638,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.6", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.8", status="ready")
 
 
 _jobs={}
@@ -698,7 +698,7 @@ def nest():
     try:
         data=request.get_json(silent=True) or {}
         job_id=data.get("jobId")
-        _job_update(job_id,5,"Preparando geometrías…")
+        _job_update(job_id,4,"Preparando geometrías…")
         kits=data.get("kits") or []
         if not kits:
             raise ValueError("No llegaron figuras completas al motor industrial")
@@ -706,6 +706,7 @@ def nest():
         width_mm=_n(data.get("widthCm"),122)*10
         height_mm=_n(data.get("heightCm"),58)*10
         spacing_mm=max(3.0,_n(data.get("gapCm"),.3)*10)
+        target_density=max(0.0,min(100.0,_n(data.get("targetDensity"),80)))
         if width_mm<=0 or height_mm<=0:
             raise ValueError("La medida de la placa es inválida")
 
@@ -721,124 +722,144 @@ def nest():
         minimum=min(10,len(pool))
         attempts=[]
 
-        _job_update(job_id,20,"Seleccionando figuras completas · KNAPSACK 15°…")
-        # ETAPA 1: todas las candidatas de una vez. KNAPSACK decide qué entra.
-        ks=solve_knapsack_kits(
-            pool,width_mm,height_mm,spacing_mm,
-            seconds=26,
-            rotation_step=15,
-            simplify_mm=0.45,
-            max_vertices=145,
-        )
-        attempts.append({
-            "stage":"knapsack-15",
-            "ok":bool(ks and ks.get("ok")),
-            "completeFigures":(ks or {}).get("completeFigures",0),
-            "placedParts":(ks or {}).get("placedPartCount",0),
-            "timeout":bool((ks or {}).get("timeout")),
-        })
-        if not ks or not ks.get("ok"):
-            raise RuntimeError(
-                "KNAPSACK no pudo calcular la selección inicial. "
-                + str((ks or {}).get("error",""))
+        def score_result(r):
+            if not r or not r.get("ok"):
+                return (-1,-1,-1)
+            # Prioridad ABSOLUTA:
+            # 1) más figuras completas
+            # 2) mayor ocupación real
+            # 3) mejor compactación del grupo
+            return (
+                int(r.get("completeFigures",0)),
+                float(r.get("density",0) or 0),
+                float(r.get("compactness",0) or 0),
             )
 
-        # Si la primera pasada no alcanza 10 figuras o queda lejos del 80% real,
-        # abrimos más orientaciones. Esta segunda búsqueda cuesta más CPU, por eso
-        # sólo se ejecuta cuando realmente puede mejorar una placa floja.
-        if ks.get("completeFigures",0)<minimum or ks.get("density",0)<80.0:
-            _job_update(job_id,42,"Ampliando rotaciones cada 10°…",completeFigures=ks.get("completeFigures",0))
-            ks10=solve_knapsack_kits(
+        def run_knapsack(step, seconds, percent, label):
+            _job_update(job_id,percent,label)
+            r=solve_knapsack_kits(
                 pool,width_mm,height_mm,spacing_mm,
-                seconds=18,
-                rotation_step=10,
-                simplify_mm=0.40,
-                max_vertices=155,
+                seconds=seconds,
+                rotation_step=step,
+                simplify_mm=0.45 if step>=15 else 0.38,
+                max_vertices=145 if step>=15 else 165,
             )
             attempts.append({
-                "stage":"knapsack-10",
-                "ok":bool(ks10 and ks10.get("ok")),
-                "completeFigures":(ks10 or {}).get("completeFigures",0),
-                "density":(ks10 or {}).get("density",0),
-                "placedParts":(ks10 or {}).get("placedPartCount",0),
-                "timeout":bool((ks10 or {}).get("timeout")),
+                "stage":f"knapsack-{step}",
+                "ok":bool(r and r.get("ok")),
+                "completeFigures":(r or {}).get("completeFigures",0),
+                "density":round(float((r or {}).get("density",0) or 0),2),
+                "placedParts":(r or {}).get("placedPartCount",0),
+                "timeout":bool((r or {}).get("timeout")),
             })
-            if ks10 and ks10.get("ok"):
-                old_score=(int(ks.get("completeFigures",0)), float(ks.get("density",0)))
-                new_score=(int(ks10.get("completeFigures",0)), float(ks10.get("density",0)))
-                if new_score>old_score:
-                    ks=ks10
+            return r
 
-        selected_ids=set(ks.get("completeKitIds",[]))
+        # PASADA BASE: 30°. Es la estrategia que ya había conseguido el mejor
+        # resultado estable. Desde aquí NUNCA se permite retroceder.
+        best_ks=run_knapsack(30,16,15,"Búsqueda base 30° · guardando mejor placa…")
+        if not best_ks or not best_ks.get("ok"):
+            raise RuntimeError("La búsqueda base 30° no pudo generar una placa válida.")
+
+        _job_update(
+            job_id,32,
+            f"Base guardada: {best_ks.get('completeFigures',0)} figuras · {best_ks.get('density',0):.1f}% real",
+            completeFigures=best_ks.get("completeFigures",0),
+        )
+
+        # Más ángulos = más posibilidades, pero SOLO reemplazan al mejor resultado
+        # si lo superan. Así una búsqueda fina jamás puede bajar de 8 a 4, por ejemplo.
+        strategies=[
+            (15,18,42,"Explorando ángulos cada 15°…"),
+            (10,18,56,"Explorando ángulos cada 10°…"),
+            (5,16,68,"Exploración fina cada 5°…"),
+        ]
+
+        for step,seconds,percent,label in strategies:
+            # Si ya alcanzamos 10+ y 80% no gastamos tiempo en búsquedas innecesarias.
+            if int(best_ks.get("completeFigures",0))>=minimum and float(best_ks.get("density",0) or 0)>=target_density:
+                break
+            candidate=run_knapsack(step,seconds,percent,label)
+            if score_result(candidate)>score_result(best_ks):
+                best_ks=candidate
+                _job_update(
+                    job_id,percent+4,
+                    f"¡Mejora! {best_ks.get('completeFigures',0)} figuras · {best_ks.get('density',0):.1f}% ocupación",
+                    completeFigures=best_ks.get("completeFigures",0),
+                )
+            else:
+                _job_update(
+                    job_id,percent+4,
+                    f"Sin mejora a {step}° · se conserva {best_ks.get('completeFigures',0)} figuras",
+                    completeFigures=best_ks.get("completeFigures",0),
+                )
+
+        selected_ids=set(best_ks.get("completeKitIds",[]))
         if not selected_ids:
-            raise RuntimeError(
-                "KNAPSACK colocó piezas pero no logró completar ningún par tapa+base."
+            raise RuntimeError("El mejor resultado no contiene pares tapa+base completos.")
+        selected=[k for k in pool if str(k.get('kitId')) in selected_ids]
+
+        # El KNAPSACK ganador ya es una solución válida. La guardamos como baseline.
+        best={
+            'target':best_ks['completeFigures'],
+            'placements':best_ks['placements'],
+            'density':best_ks['density'],
+            'compactness':best_ks['compactness'],
+            'usedWidthMm':best_ks['usedWidthMm'],
+            'usedHeightMm':best_ks['usedHeightMm'],
+            'rotationStep':None,
+            'simplifyMm':0.45,
+        }
+
+        def packed_score(r):
+            if not r or not r.get("feasible"):
+                return (-1,-1,-1)
+            return (
+                int(r.get("target",0)),
+                float(r.get("density",0) or 0),
+                float(r.get("compactness",0) or 0),
             )
 
-        selected=[k for k in pool if str(k.get('kitId')) in selected_ids]
-        _job_update(job_id,58,"Reacomodando únicamente tapa+base completas…",completeFigures=len(selected))
-
-        # ETAPA 2: recompone solamente kits completos, eliminando cualquier pieza
-        # huérfana que KNAPSACK haya usado durante la selección.
-        best=None
-        if selected:
+        # Repack 10° y 5° SOLO sobre la cantidad ganadora.
+        # Nuevamente, jamás sustituye una placa por otra peor.
+        for step,seconds,percent in [(10,8,82),(5,8,90)]:
+            if time.time()-started>132:
+                break
+            _job_update(
+                job_id,percent,
+                f"Reacomodando {len(selected)} figuras completas cada {step}°…",
+                completeFigures=len(selected),
+            )
             packed=solve_prefix(
                 selected,len(selected),width_mm,height_mm,spacing_mm,
-                seconds=8,
-                rotation_step=10,
-                simplify_mm=0.35,
-                max_vertices=170,
+                seconds=seconds,
+                rotation_step=step,
+                simplify_mm=0.32 if step==10 else 0.28,
+                max_vertices=180 if step==10 else 195,
             )
             attempts.append({
-                "stage":"repack-10",
+                "stage":f"repack-{step}",
                 "ok":bool(packed and packed.get("feasible")),
                 "completeFigures":len(selected),
+                "density":round(float((packed or {}).get("density",0) or 0),2),
                 "timeout":bool((packed or {}).get("timeout")),
             })
-            if packed and packed.get("feasible"):
+            if packed_score(packed)>(
+                int(best.get("target",0)),
+                float(best.get("density",0) or 0),
+                float(best.get("compactness",0) or 0),
+            ):
                 best=packed
 
-        # Si el repack fino falla, la solución KNAPSACK de kits completos sigue
-        # siendo válida y se conserva.
-        if best is None:
-            best={
-                'target':ks['completeFigures'],
-                'placements':ks['placements'],
-                'density':ks['density'],
-                'compactness':ks['compactness'],
-                'usedWidthMm':ks['usedWidthMm'],
-                'usedHeightMm':ks['usedHeightMm'],
-                'rotationStep':15,
-                'simplifyMm':0.45,
-            }
+        _job_update(
+            job_id,97,
+            f"Validando 3 mm · resultado: {best.get('target',0)} figuras · {best.get('density',0):.1f}% real",
+            completeFigures=int(best.get("target",0)),
+        )
 
-        _job_update(job_id,80,"Refinando ángulos cada 5°…",completeFigures=len(selected))
-        # ETAPA 3: si hay margen, refinamiento a 5° de la MISMA selección completa.
-        if selected and time.time()-started<70:
-            fine=solve_prefix(
-                selected,len(selected),width_mm,height_mm,spacing_mm,
-                seconds=8,
-                rotation_step=5,
-                simplify_mm=0.30,
-                max_vertices=185,
-            )
-            attempts.append({
-                "stage":"repack-5",
-                "ok":bool(fine and fine.get("feasible")),
-                "completeFigures":len(selected),
-                "timeout":bool((fine or {}).get("timeout")),
-            })
-            if fine and fine.get("feasible"):
-                # La ocupación material no cambia para el mismo conjunto; usamos
-                # compactness para elegir el acomodo más compacto.
-                if fine.get("compactness",0)>=best.get("compactness",0):
-                    best=fine
-
-        _job_update(job_id,96,"Validando separación real de 3 mm…",completeFigures=int(best.get("target",ks['completeFigures'])))
         return jsonify(
             ok=True,
-            engine="PackingSolver C++ · KNAPSACK",
-            completeFigures=int(best.get("target",ks['completeFigures'])),
+            engine="PackingSolver C++ · BEST-OF ángulos",
+            completeFigures=int(best.get("target",best_ks['completeFigures'])),
             placements=best['placements'],
             density=best['density'],
             compactness=best['compactness'],
@@ -847,11 +868,13 @@ def nest():
             attempts=attempts,
             partial=int(best.get("target",0))<minimum,
             minimumTarget=minimum,
+            targetDensity=target_density,
+            reachedMinimum=int(best.get("target",0))>=minimum,
+            reachedDensity=float(best.get("density",0) or 0)>=target_density,
             elapsedSeconds=round(time.time()-started,2),
             rotationStep=best.get("rotationStep"),
             simplifyMm=best.get("simplifyMm"),
-            knapsackPlacedParts=ks.get("placedPartCount",0),
-            knapsackCompleteParts=ks.get("completePartCount",0),
+            candidatePool=len(pool),
         )
 
     except Exception as e:

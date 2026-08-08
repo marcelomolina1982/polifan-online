@@ -1,0 +1,16 @@
+v22.0.8 BEST-OF ÁNGULOS
+
+Reemplazar:
+- solver-service/app.py
+- src/pages/SheetPlanner.jsx
+- src/version.js
+
+Reglas:
+- Base 30° primero y se guarda.
+- Luego prueba 15°, 10° y 5°.
+- Una estrategia nueva JAMÁS reemplaza a otra si tiene menos figuras completas.
+- Si empatan en figuras, gana mayor ocupación real.
+- Mantiene mínimo real de 3 mm.
+- No escala ni modifica dimensiones.
+- Amplía candidatos de 18 a 32.
+- Objetivo: primero 10 figuras completas, luego 80% de ocupación real.
