@@ -1,0 +1,10 @@
+ARCHIVOS MODIFICADOS (2)
+
+1) src/pages/SheetPlanner.jsx
+   - Timeout del frontend para PackingSolver: 150 segundos.
+
+2) solver-service/Dockerfile
+   - Timeout de Gunicorn: 180 segundos.
+   - Conserva python:3.12-slim-trixie y las librerías del solver.
+
+En GitHub, reemplazar estos dos archivos respetando exactamente sus carpetas.
