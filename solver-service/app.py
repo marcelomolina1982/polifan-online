@@ -132,51 +132,180 @@ def geom_parts(geom):
     return ps
 
 
-def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds):
+def solve_prefix(kits, target, width_mm, height_mm, spacing_mm, seconds, rotation_step=15):
+    """
+    Resuelve EXACTAMENTE los primeros `target` kits dentro de UNA placa fija.
+    Cada kit conserva tapa+base como requisito lógico: la solución sólo se
+    acepta si entraron todos sus componentes.
+    """
     selected=kits[:target]
-    builder=InstanceBuilder(Objective.OPEN_DIMENSION_X)
+
+    # Para una placa física fija corresponde BIN_PACKING, no OPEN_DIMENSION_X.
+    builder=InstanceBuilder(Objective.BIN_PACKING)
     builder.set_item_item_minimum_spacing(spacing_mm)
-    builder.add_bin_type_rectangle(width_mm,height_mm,copies=1,item_bin_minimum_spacing=0.0)
-    mapping={}; expected=0
-    for kit in selected:
+    builder.add_bin_type_rectangle(
+        width_mm,
+        height_mm,
+        copies=1,
+        item_bin_minimum_spacing=0.0,
+    )
+
+    mapping={}
+    expected=0
+    diagnostics=[]
+
+    for kit_index,kit in enumerate(selected):
         for part in kit.get('parts',[]):
-            geom,trimx,trimy=svg_to_geometry(part['svgText'],_n(part.get('sourceWidthCm') or part.get('widthCm')),_n(part.get('sourceHeightCm') or part.get('heightCm')))
+            wcm=_n(part.get('sourceWidthCm') or part.get('widthCm'))
+            hcm=_n(part.get('sourceHeightCm') or part.get('heightCm'))
+            if wcm<=0 or hcm<=0:
+                raise ValueError(f"Medidas inválidas en {part.get('name','pieza')}: {wcm} x {hcm} cm")
+
+            geom,trimx,trimy=svg_to_geometry(part['svgText'],wcm,hcm)
             shapes=geom_parts(geom)
-            if not shapes: raise ValueError(f"Sin polígono: {part.get('name','pieza')}")
-            rots=[(0,360)] if part.get('allowRotate',True) else [(0,0)]
-            item_id=builder.add_item_type(shapes if len(shapes)>1 else shapes[0],copies=1,allowed_rotations=rots)
-            mapping[int(item_id)]={**part,'trimXmm':trimx,'trimYmm':trimy,'geom':geom}
+            if not shapes:
+                raise ValueError(f"Sin polígono: {part.get('name','pieza')}")
+
+            minx,miny,maxx,maxy=geom.bounds
+            gw=maxx-minx; gh=maxy-miny
+            diagnostics.append({
+                "name":part.get("name","pieza"),
+                "kit":kit.get("figure",""),
+                "wMm":round(gw,3),
+                "hMm":round(gh,3),
+            })
+            # Ninguna rotación puede salvar una pieza que excede ambas dimensiones.
+            if min(gw,gh)>min(width_mm,height_mm) or max(gw,gh)>max(width_mm,height_mm):
+                raise ValueError(
+                    f"{part.get('name','pieza')} mide aprox. {gw/10:.1f} x {gh/10:.1f} cm "
+                    f"y no puede entrar en una placa de {width_mm/10:.1f} x {height_mm/10:.1f} cm"
+                )
+
+            if part.get('allowRotate',True):
+                step=max(5,min(90,int(rotation_step or 15)))
+                rots=[(float(a),float(a)) for a in range(0,360,step)]
+            else:
+                rots=[(0.0,0.0)]
+
+            item_id=builder.add_item_type(
+                shapes if len(shapes)>1 else shapes[0],
+                copies=1,
+                allowed_rotations=rots,
+            )
+            mapping[int(item_id)]={
+                **part,
+                'trimXmm':trimx,
+                'trimYmm':trimy,
+                'geom':geom,
+                'kitIndex':kit_index,
+            }
             expected+=1
+
+    if expected==0:
+        return None
+
     solver=Solver()
-    solution=solver.solve(builder.build(),time_limit=seconds,verbosity_level=0,optimization_mode='Anytime',anchor=True,anchor_x_weight=1.0,anchor_y_weight=1.0)
+    solution=solver.solve(
+        builder.build(),
+        time_limit=max(1,float(seconds)),
+        verbosity_level=0,
+        optimization_mode='Anytime',
+        use_tree_search=True,
+        use_sequential_single_knapsack=True,
+        use_sequential_value_correction=True,
+        use_column_generation=False,
+        use_dichotomic_search=False,
+        anchor=True,
+        anchor_x_weight=1.0,
+        anchor_y_weight=1.0,
+    )
+
     items=solution.all_items()
-    bins=solution.total_bins_used(); count=solution.total_item_count()
-    feasible=(bins==1 and count==expected)
-    if not feasible: return None
-    placements=[]; all_shapes=[]
+    bins=solution.total_bins_used()
+    count=solution.total_item_count()
+
+    # Sólo es una "figura completa" si entraron TODOS los componentes esperados.
+    feasible=(bins==1 and count==expected and len(items)==expected)
+    if not feasible:
+        return {
+            'feasible':False,
+            'target':target,
+            'expected':expected,
+            'placedCount':count,
+            'bins':bins,
+            'diagnostics':diagnostics,
+            'metrics':solution.metrics,
+        }
+
+    placements=[]
+    all_shapes=[]
     for it in items:
         meta=mapping.get(int(it.item_type_id))
-        if not meta: continue
+        if not meta:
+            continue
         angle=_n(it.angle)
-        # Robust translation from centroids, independent of polygon vertex ordering.
-        src=meta['geom']; placed=unary_union(it.shapes)
+        src=meta['geom']
+        placed=unary_union(it.shapes)
+
+        # La respuesta del wrapper ya trae las shapes en coordenadas absolutas.
+        # Derivamos la traslación comparando centroides tras aplicar la rotación.
         cx,cy=src.centroid.x,src.centroid.y
-        a=math.radians(angle); rcx=cx*math.cos(a)-cy*math.sin(a); rcy=cx*math.sin(a)+cy*math.cos(a)
-        tx=placed.centroid.x-rcx; ty=placed.centroid.y-rcy
+        a=math.radians(angle)
+        rcx=cx*math.cos(a)-cy*math.sin(a)
+        rcy=cx*math.sin(a)+cy*math.cos(a)
+        tx=placed.centroid.x-rcx
+        ty=placed.centroid.y-rcy
+
         placements.append({
-            'instanceId':meta.get('instanceId'),'kitId':meta.get('kitId'),'figure':meta.get('figure'),'name':meta.get('name'),'role':meta.get('role'),
-            'xCm':tx/10.0,'yCm':ty/10.0,'angle':angle,'trimXCm':meta['trimXmm']/10.0,'trimYCm':meta['trimYmm']/10.0,
+            'instanceId':meta.get('instanceId'),
+            'kitId':meta.get('kitId'),
+            'figure':meta.get('figure'),
+            'name':meta.get('name'),
+            'role':meta.get('role'),
+            'xCm':tx/10.0,
+            'yCm':ty/10.0,
+            'angle':angle,
+            'trimXCm':meta['trimXmm']/10.0,
+            'trimYCm':meta['trimYmm']/10.0,
         })
         all_shapes.extend(it.shapes)
+
+    if len(placements)!=expected:
+        return {
+            'feasible':False,
+            'target':target,
+            'expected':expected,
+            'placedCount':len(placements),
+            'bins':bins,
+            'diagnostics':diagnostics,
+            'metrics':solution.metrics,
+        }
+
     union=unary_union(all_shapes) if all_shapes else None
     item_area=sum(g.area for g in all_shapes)
     density=item_area/(width_mm*height_mm)*100.0
-    if union and not union.is_empty:
-        bx=union.bounds; usedw=max(0,bx[2]-bx[0]); usedh=max(0,bx[3]-bx[1]); envelope=usedw*usedh
-        compact=(item_area/envelope*100.0) if envelope>0 else 0.0
-    else: usedw=usedh=compact=0
-    return {'target':target,'placements':placements,'density':density,'compactness':compact,'usedWidthMm':usedw,'usedHeightMm':usedh,'metrics':solution.metrics}
 
+    if union and not union.is_empty:
+        bx=union.bounds
+        usedw=max(0,bx[2]-bx[0])
+        usedh=max(0,bx[3]-bx[1])
+        envelope=usedw*usedh
+        compact=(item_area/envelope*100.0) if envelope>0 else 0.0
+    else:
+        usedw=usedh=compact=0
+
+    return {
+        'feasible':True,
+        'target':target,
+        'placements':placements,
+        'density':density,
+        'compactness':compact,
+        'usedWidthMm':usedw,
+        'usedHeightMm':usedh,
+        'metrics':solution.metrics,
+        'diagnostics':diagnostics,
+        'rotationStep':rotation_step,
+    }
 
 
 from flask import Flask, request, jsonify
@@ -188,10 +317,11 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.0", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.2", status="ready")
 
 @app.post("/nest")
 def nest():
+    started=time.time()
     try:
         data=request.get_json(silent=True) or {}
         kits=data.get("kits") or []
@@ -201,47 +331,120 @@ def nest():
         width_mm=_n(data.get("widthCm"),122)*10
         height_mm=_n(data.get("heightCm"),58)*10
         spacing_mm=max(0,_n(data.get("gapCm"),.2)*10)
-        kits=sorted(kits,key=lambda k:(_n(k.get("priority"),999999),str(k.get("date") or ""),str(k.get("figure") or "")))
+
+        if width_mm<=0 or height_mm<=0:
+            raise ValueError("La medida de la placa es inválida")
+
+        kits=sorted(
+            kits,
+            key=lambda k:(
+                _n(k.get("priority"),999999),
+                str(k.get("date") or ""),
+                str(k.get("figure") or ""),
+            )
+        )
+
         pool=kits[:min(18,len(kits))]
         total=len(pool)
-        best=None
         attempts=[]
+        best=None
 
-        # Primero asegura 10 figuras completas (o el total disponible).
-        base=min(10,total)
-        if base:
-            targets=[base]
-            if base>6:
-                targets.extend([max(6,base-2),max(4,base-4)])
-            for t in targets:
-                if t<=0 or any(a["target"]==t for a in attempts):
-                    continue
-                r=solve_prefix(pool,t,width_mm,height_mm,spacing_mm,9)
-                attempts.append({"target":t,"ok":bool(r)})
-                if r:
+        # 1) Prueba de integración: una figura completa debe poder resolverse rápido.
+        first=solve_prefix(pool,1,width_mm,height_mm,spacing_mm,8,rotation_step=15)
+        attempts.append({
+            "target":1,
+            "rotationStep":15,
+            "ok":bool(first and first.get("feasible")),
+            "placed":(first or {}).get("placedCount", len((first or {}).get("placements",[]))),
+        })
+        if first and first.get("feasible"):
+            best=first
+        else:
+            diag=(first or {}).get("diagnostics",[])
+            metrics=(first or {}).get("metrics",{})
+            raise RuntimeError(
+                "PackingSolver no pudo colocar ni una figura completa. "
+                f"Diagnóstico: componentes={diag[:4]}, métricas={metrics}"
+            )
+
+        # 2) Buscar rápidamente hasta el mínimo de 10, sin perder nunca el mejor resultado.
+        minimum=min(10,total)
+        if minimum>1:
+            # Crecimiento progresivo: evita pedirle 20 componentes complejos de golpe.
+            targets=[]
+            for t in [2,4,6,8,10]:
+                if 1<t<=minimum and t not in targets:
+                    targets.append(t)
+            if minimum not in targets:
+                targets.append(minimum)
+
+            for target in targets:
+                if time.time()-started>95:
+                    break
+                r=solve_prefix(pool,target,width_mm,height_mm,spacing_mm,12,rotation_step=15)
+                ok=bool(r and r.get("feasible"))
+                attempts.append({
+                    "target":target,
+                    "rotationStep":15,
+                    "ok":ok,
+                    "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
+                })
+                if ok:
                     best=r
+                else:
+                    # Si N no entra, tampoco asumimos que N+2 vaya a entrar.
                     break
 
-        # Si entra una solución, busca el máximo de figuras sin romper prioridad.
-        if best and best["target"]<total:
+        # 3) Si alcanzamos el mínimo, intentar agregar más figuras por prioridad.
+        if best and best["target"]>=minimum and best["target"]<total:
             lo=best["target"]+1
             hi=total
-            while lo<=hi and len(attempts)<6:
-                t=hi if len(attempts)==1 else (lo+hi)//2
-                r=solve_prefix(pool,t,width_mm,height_mm,spacing_mm,8)
-                attempts.append({"target":t,"ok":bool(r)})
-                if r:
+            while lo<=hi and time.time()-started<120:
+                mid=(lo+hi)//2
+                r=solve_prefix(pool,mid,width_mm,height_mm,spacing_mm,10,rotation_step=15)
+                ok=bool(r and r.get("feasible"))
+                attempts.append({
+                    "target":mid,
+                    "rotationStep":15,
+                    "ok":ok,
+                    "placed":(r or {}).get("placedCount",len((r or {}).get("placements",[]))),
+                })
+                if ok:
                     best=r
-                    lo=t+1
+                    lo=mid+1
                 else:
-                    hi=t-1
+                    hi=mid-1
+
+        # 4) Refinamiento final a 5° sobre LA MISMA cantidad ya demostrada factible.
+        # Nunca descarta la solución anterior si el refinamiento tarda o falla.
+        if best and time.time()-started<132:
+            refined=solve_prefix(
+                pool,
+                best["target"],
+                width_mm,
+                height_mm,
+                spacing_mm,
+                min(15,max(5,145-(time.time()-started))),
+                rotation_step=5,
+            )
+            rok=bool(refined and refined.get("feasible"))
+            attempts.append({
+                "target":best["target"],
+                "rotationStep":5,
+                "ok":rok,
+                "placed":(refined or {}).get("placedCount",len((refined or {}).get("placements",[]))),
+            })
+            if rok:
+                # Preferimos el refinado si compacta mejor o igual.
+                if refined.get("compactness",0)>=best.get("compactness",0):
+                    best=refined
 
         if not best:
-            raise RuntimeError("PackingSolver no encontró una placa completa dentro del límite de tiempo")
+            raise RuntimeError("PackingSolver no encontró ninguna figura completa")
 
         return jsonify(
             ok=True,
-            engine="PackingSolver C++",
+            engine="PackingSolver C++ · placa fija",
             completeFigures=best["target"],
             placements=best["placements"],
             density=best["density"],
@@ -249,9 +452,19 @@ def nest():
             usedWidthMm=best["usedWidthMm"],
             usedHeightMm=best["usedHeightMm"],
             attempts=attempts,
+            partial=best["target"]<minimum,
+            minimumTarget=minimum,
+            elapsedSeconds=round(time.time()-started,2),
+            rotationStep=best.get("rotationStep"),
         )
+
     except Exception as e:
-        return jsonify(ok=False,error=str(e)),500
+        return jsonify(
+            ok=False,
+            error=str(e),
+            elapsedSeconds=round(time.time()-started,2),
+        ),500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0",port=int(__import__("os").environ.get("PORT","10000")))
