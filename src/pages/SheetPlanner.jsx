@@ -546,47 +546,81 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
     return envelope*10000+edgeWaste*30-contacts*6000+y*20+x
   }
 
-  async function placePart(state,part){
-    if(Date.now()>=deadline||shouldStop?.())return false
+  function stateEnvelopeScore(state){
+    const maxX=Math.max(...state.boxes.map(r=>r.x+r.w),0)
+    const maxY=Math.max(...state.boxes.map(r=>r.y+r.h),0)
+    const area=maxX*maxY
+    const balance=Math.abs(maxX/Math.max(1,sw)-maxY/Math.max(1,sh))
+    return area*1000+balance*25000
+  }
+
+  async function placementCandidates(state,part,limit=8){
+    if(Date.now()>=deadline||shouldStop?.())return []
     const variants=await variantsFor(part)
-    let best=null
+    const found=[]
+    const push=(m,x,y)=>{
+      if(collisionHybrid(state,m,x,y))return
+      const score=placementScore(state,m,x,y)
+      found.push({m,x,y,score})
+    }
     for(const m of variants){
-      for(const [x,y] of candidatePoints(state,m)){
-        if(collisionHybrid(state,m,x,y))continue
-        const score=placementScore(state,m,x,y)
-        if(!best||score<best.score)best={m,x,y,score}
-      }
-      if(!best&&scanStep>0){
+      for(const [x,y] of candidatePoints(state,m))push(m,x,y)
+      if(found.length<limit*3&&scanStep>0){
         const step=Math.max(1,Math.floor(scanStep))
         for(let y=0;y<=sh-m.ph;y+=step){
-          for(let x=0;x<=sw-m.pw;x+=step){
-            if(collisionHybrid(state,m,x,y))continue
-            const score=placementScore(state,m,x,y)
-            if(!best||score<best.score)best={m,x,y,score}
+          for(let x=0;x<=sw-m.pw;x+=step)push(m,x,y)
+          if(y%18===0){
+            if(Date.now()>=deadline||shouldStop?.())break
+            await nextFrame()
           }
-          if(y%18===0){if(Date.now()>=deadline||shouldStop?.())break;await nextFrame()}
         }
       }
+      if(Date.now()>=deadline||shouldStop?.())break
     }
-    if(!best)return false
-    maskStamp(state.occ,best.m,best.x,best.y)
-    state.boxes.push({x:best.x,y:best.y,w:best.m.pw,h:best.m.ph})
-    state.placed.push({...part,x:(best.x+best.m.pad)/PX_PER_CM,y:(best.y+best.m.pad)/PX_PER_CM,
-      w:best.m.boxW,h:best.m.boxH,angle:best.m.angle,rotated:best.m.angle!==0,
-      _mx:best.x,_my:best.y,_pw:best.m.pw,_ph:best.m.ph})
-    return true
+    found.sort((a,b)=>a.score-b.score)
+    const out=[],seen=new Set()
+    for(const z of found){
+      const key=`${z.m.angle}|${z.x}|${z.y}`
+      if(seen.has(key))continue
+      seen.add(key);out.push(z)
+      if(out.length>=limit)break
+    }
+    return out
+  }
+
+  function applyPlacement(state,part,z){
+    const next={occ:state.occ.slice(),boxes:state.boxes.map(r=>({...r})),placed:state.placed.slice()}
+    maskStamp(next.occ,z.m,z.x,z.y)
+    next.boxes.push({x:z.x,y:z.y,w:z.m.pw,h:z.m.ph})
+    next.placed.push({...part,x:(z.x+z.m.pad)/PX_PER_CM,y:(z.y+z.m.pad)/PX_PER_CM,
+      w:z.m.boxW,h:z.m.boxH,angle:z.m.angle,rotated:z.m.angle!==0,
+      _mx:z.x,_my:z.y,_pw:z.m.pw,_ph:z.m.ph})
+    return next
   }
 
   async function tryKit(state,kit){
-    const trial={occ:state.occ.slice(),boxes:state.boxes.map(r=>({...r})),placed:state.placed.slice()}
+    // Beam search local: no elegir a ciegas la primera ubicación de la tapa/base.
+    // Conserva varias alternativas hasta haber colocado el kit COMPLETO.
     let parts=kit.parts.slice()
     if(orderMode==='smallPartsFirst')parts.sort((a,b)=>num(a.width)*num(a.height)-num(b.width)*num(b.height))
     else parts.sort((a,b)=>num(b.width)*num(b.height)-num(a.width)*num(a.height))
+
+    let beam=[{occ:state.occ.slice(),boxes:state.boxes.map(r=>({...r})),placed:state.placed.slice()}]
+    const beamWidth=parts.length<=2?7:4
     for(const part of parts){
       if(Date.now()>=deadline||shouldStop?.())return false
-      if(!await placePart(trial,part))return false
+      const nextBeam=[]
+      for(const branch of beam){
+        const candidates=await placementCandidates(branch,part,beamWidth+3)
+        for(const z of candidates)nextBeam.push(applyPlacement(branch,part,z))
+        if(Date.now()>=deadline||shouldStop?.())break
+      }
+      if(!nextBeam.length)return false
+      nextBeam.sort((a,b)=>stateEnvelopeScore(a)-stateEnvelopeScore(b))
+      beam=nextBeam.slice(0,beamWidth)
     }
-    state.occ=trial.occ;state.boxes=trial.boxes;state.placed=trial.placed
+    const winner=beam[0]
+    state.occ=winner.occ;state.boxes=winner.boxes;state.placed=winner.placed
     return true
   }
 
@@ -729,13 +763,15 @@ async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
     {angleStep:15,orderMode:'areaDesc',scoreMode:'compact',scanStep:3,shuffleSeed:0},
     {angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:3,shuffleSeed:0},
     {angleStep:10,orderMode:'aspect',scoreMode:'contact',scanStep:3,shuffleSeed:0},
-    {angleStep:15,orderMode:'smallPartsFirst',scoreMode:'contact',scanStep:3,shuffleSeed:0}
+    {angleStep:15,orderMode:'smallPartsFirst',scoreMode:'contact',scanStep:3,shuffleSeed:0},
+    {angleStep:10,orderMode:'areaDesc',scoreMode:'compact',scanStep:2,shuffleSeed:17},
+    {angleStep:5,orderMode:'areaDesc',scoreMode:'contact',scanStep:3,shuffleSeed:31}
   ]
 
   // FASE 1: no bajar de 10 sin probar combinaciones distintas de 10 kits completos.
   for(const variant of stableSubsetVariants(kits,wanted)){
     if(Date.now()>=deadline||shouldStop?.())break
-    for(const cfg of configs.slice(0,2)){
+    for(const cfg of configs){
       const r=await attempt(variant.kits,cfg,`${wanted} figuras · ${variant.label}`)
       if(r?.validation?.ok&&Number(r.completeFigures)>=wanted)break
     }
@@ -910,17 +946,17 @@ export default function SheetPlanner({db,onSave}){
       if(!placed.length)throw new Error('PackingSolver respondió sin componentes colocados.')
       const kitIds=new Set(placed.map(x=>x.kitId).filter(Boolean))
       const completeFigures=kitIds.size
-      const compactness=Math.max(0,Math.min(100,num(data.compactness)))
+      const finalCompactness=Math.max(0,Math.min(100,num(data.compactness)))
       const density=Math.max(0,Math.min(100,num(data.density)))
       const sheetArea=num(sheetW,122)*num(sheetH,58)
-      const one={number:1,placed,used:sheetArea*density/100,efficiency:density,groupCompactness:compactness,industrial:true,materialDensity:density,usedWidthCm:num(data.usedWidthMm)/10,usedHeightCm:num(data.usedHeightMm)/10}
+      const one={number:1,placed,used:sheetArea*density/100,efficiency:density,groupCompactness:finalCompactness,industrial:true,materialDensity:density,usedWidthCm:num(data.usedWidthMm)/10,usedHeightCm:num(data.usedHeightMm)/10}
       const reachedMinimum=completeFigures>=Number(data.minimumTarget||10)
       const finalResult={sheets:[one],rejected:[],total:placed.length,used:one.used,sheetArea,stale:false,automatic:true,industrial:true,precisionValidated:true,productionMinimumValidated:reachedMinimum,
         threshold:num(minFill,90),fillers:[],materialDensity:density,engine:data.engine||'PackingSolver C++',attempts:data.attempts||[]}
       setItems(placed.map(x=>({...x,qty:1})));setResult(finalResult)
       setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete:Number(data.minimumTarget||10),targetEfficiency:num(minFill,90),partial:!reachedMinimum})
       setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'Motor Polifan v23 · subconjuntos completos'})
-      setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:compactness})
+      setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:finalCompactness})
 
     }catch(e){
       const msg=e?.message||'No se pudo generar una placa válida con el motor estable.'

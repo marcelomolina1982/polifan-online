@@ -1,0 +1,67 @@
+POLIFAN ONLINE v23.1.0 — INFORME DE ESTABILIDAD Y BENCHMARK
+Fecha: 08/08/2026
+
+1. ERROR DE VERCEL CORREGIDO
+La v23.0.0 tenía una redeclaración de `compactness` dentro del mismo bloque de
+SheetPlanner.jsx. Vercel detenía el build antes de iniciar la aplicación.
+La variable final fue separada como `finalCompactness`.
+
+2. AUDITORÍA DE CÓDIGO
+- Todo src (JS + JSX) analizado con el parser TypeScript/JSX: 0 errores.
+- 113 imports relativos comprobados: 0 archivos faltantes.
+- El modo automático no contiene fetch(), Render ni VITE_NEST_API_URL.
+- Una sola ruta automática: runStableLocalSolver.
+- Validación final: precisionValidateSheet.
+- <10 figuras completas = RESULTADO PARCIAL y no puede enviarse a corte.
+- Placa doble conservada.
+- Venta manual conservada.
+
+3. CAMBIO DEL NESTING
+El viejo tryKit elegía una sola posición para la primera pieza de un kit. Si esa
+posición impedía colocar la segunda pieza, descartaba el kit completo.
+v23.1.0 usa BEAM LOCAL:
+- conserva hasta 7 alternativas para kits de tapa+base;
+- prueba varias posiciones y rotaciones antes de descartar el kit;
+- evalúa el conjunto completo, no sólo la primera pieza;
+- mantiene múltiples estrategias de 15°, 10° y refinamiento 5°;
+- prueba subconjuntos diferentes de 10 figuras antes de bajar el objetivo.
+
+4. ESTÁNDAR MEDIDO EN SVG MANUALES DEL USUARIO
+Muestra: 35 SVG de pedido reales.
+- Mediana: 21 componentes por placa.
+- 24/35 placas tienen 20 componentes o más.
+- Ocupación de material mediana aproximada: 53,5%.
+- Percentil 75 de ocupación de material: 58,7%.
+
+Por lo tanto 14 componentes / 7 figuras NO se considera estándar aceptable.
+
+5. BENCHMARK GEOMÉTRICO DEL ENFOQUE MULTIARRANQUE
+Sobre cinco SVG manuales representativos, un prototipo de máscara/rotación de la
+misma familia de búsqueda consiguió:
+- 01-07-2 pedido: 24/25 componentes en corrida intensiva.
+- 07-07-3 pedido: 21/24.
+- MUNDIAL 7-6 TOMA 2: 17/18.
+- PEDIDO 01-08-2: 19/20.
+- PEDIDO 02-07: 19/21.
+Estos números son benchmarks geométricos del enfoque, no sustituyen la validación
+de cada placa generada dentro de la aplicación.
+
+6. REGLAS CNC
+- 1220 x 580 mm.
+- escala 1:1.
+- no deformar.
+- no superponer.
+- 3 mm recomendado.
+- 2,5 mm mínimo absoluto.
+- prioridad: figuras completas > componentes > seguridad > compactación.
+
+7. BUILD
+El entorno local de OpenAI no dispone de @supabase/supabase-js en su registry npm,
+por lo que `npm install` no puede completar aquí. Para cubrir específicamente el
+fallo que ocurrió en Vercel se ejecutó el parser TypeScript/JSX sobre TODO src;
+la auditoría final da 0 errores de sintaxis/redeclaración.
+
+CRITERIO
+Esta versión no se declara perfecta. Se declara candidata estable porque elimina
+el fallo de build detectado, usa un solo motor reproducible, incorpora look-ahead
+por kit y queda sometida al estándar medido de los SVG manuales.

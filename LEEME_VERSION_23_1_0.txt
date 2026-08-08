@@ -1,0 +1,11 @@
+POLIFAN ONLINE v23.1.0
+
+- Corrige el build de Vercel de v23.0.0.
+- Un único motor local, sin Render.
+- Beam search local para tapa+base: no descarta un kit por una única mala posición.
+- Variantes de 10 figuras completas antes de aceptar menos.
+- 3 mm recomendado / 2,5 mm mínimo.
+- <10 figuras = resultado parcial bloqueado para corte.
+- Mantiene Placa doble y Venta manual.
+
+Ver INFORME_ESTABILIDAD_V23_1_0.txt para las pruebas realizadas.
