@@ -1,0 +1,19 @@
+POLIFAN v22.0.7 — MÁS ÁNGULOS + OBJETIVO 10 / 80%
+
+Cambios:
+- Hasta 32 kits candidatos por placa (antes 18 en el frontend / 24 backend).
+- Separación mínima real: 3 mm.
+- Sin escala: las medidas SVG originales no se modifican.
+- Primera búsqueda: rotaciones cada 15°.
+- Si no llega a 10 figuras completas o 80% de ocupación real: segunda búsqueda cada 10°.
+- Reacomodo de kits completos cada 10°.
+- Refinamiento final cada 5°.
+- Prioridad: maximizar figuras completas; a igualdad, mayor ocupación real.
+- El refinamiento angular puede tardar más, pero se activa principalmente cuando la placa todavía está floja.
+
+Subir/reemplazar en GitHub:
+1. solver-service/app.py
+2. src/pages/SheetPlanner.jsx
+3. src/version.js
+
+Render redeployará solver-service y Vercel redeployará la app.

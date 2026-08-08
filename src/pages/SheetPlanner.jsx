@@ -727,10 +727,11 @@ export default function SheetPlanner({db,onSave}){
       })
       // Si faltan pedidos para explorar el sobrante, agrega modelos de alta rotación al final,
       // sin desplazar jamás las entregas pendientes (prioridad 9999).
-      if(useFillers&&kits.length<18){
+      const MAX_SOLVER_KITS=32
+      if(useFillers&&kits.length<MAX_SOLVER_KITS){
         const ranking=bestSellerNames(db)
         let ri=0
-        while(kits.length<18&&ranking.length&&ri<ranking.length*2){
+        while(kits.length<MAX_SOLVER_KITS&&ranking.length&&ri<ranking.length*4){
           const name=ranking[ri%ranking.length];ri++
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
           kits.push(...built.kits)
@@ -743,7 +744,7 @@ export default function SheetPlanner({db,onSave}){
 
       const payload={
         widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:Math.max(.3,num(gap,.3)),
-        kits:kits.slice(0,18).map(k=>({kitId:k.kitId,figure:k.figure,priority:k.priority,date:k.date,source:k.source,parts:k.parts.map(part=>({
+        kits:kits.slice(0,MAX_SOLVER_KITS).map(k=>({kitId:k.kitId,figure:k.figure,priority:k.priority,date:k.date,source:k.source,parts:k.parts.map(part=>({
           instanceId:part.instanceId,id:part.id,kitId:part.kitId,figure:part.figure,name:part.name,role:part.role,
           sourceWidthCm:num(part.sourceWidth||part.width),sourceHeightCm:num(part.sourceHeight||part.height),
           allowRotate:part.allowRotate!==false,svgText:part.svgText

@@ -717,7 +717,7 @@ def nest():
                 str(k.get("figure") or ""),
             )
         )
-        pool=kits[:min(24,len(kits))]
+        pool=kits[:min(32,len(kits))]
         minimum=min(10,len(pool))
         attempts=[]
 
@@ -725,7 +725,7 @@ def nest():
         # ETAPA 1: todas las candidatas de una vez. KNAPSACK decide qué entra.
         ks=solve_knapsack_kits(
             pool,width_mm,height_mm,spacing_mm,
-            seconds=20,
+            seconds=26,
             rotation_step=15,
             simplify_mm=0.45,
             max_vertices=145,
@@ -743,6 +743,32 @@ def nest():
                 + str((ks or {}).get("error",""))
             )
 
+        # Si la primera pasada no alcanza 10 figuras o queda lejos del 80% real,
+        # abrimos más orientaciones. Esta segunda búsqueda cuesta más CPU, por eso
+        # sólo se ejecuta cuando realmente puede mejorar una placa floja.
+        if ks.get("completeFigures",0)<minimum or ks.get("density",0)<80.0:
+            _job_update(job_id,42,"Ampliando rotaciones cada 10°…",completeFigures=ks.get("completeFigures",0))
+            ks10=solve_knapsack_kits(
+                pool,width_mm,height_mm,spacing_mm,
+                seconds=18,
+                rotation_step=10,
+                simplify_mm=0.40,
+                max_vertices=155,
+            )
+            attempts.append({
+                "stage":"knapsack-10",
+                "ok":bool(ks10 and ks10.get("ok")),
+                "completeFigures":(ks10 or {}).get("completeFigures",0),
+                "density":(ks10 or {}).get("density",0),
+                "placedParts":(ks10 or {}).get("placedPartCount",0),
+                "timeout":bool((ks10 or {}).get("timeout")),
+            })
+            if ks10 and ks10.get("ok"):
+                old_score=(int(ks.get("completeFigures",0)), float(ks.get("density",0)))
+                new_score=(int(ks10.get("completeFigures",0)), float(ks10.get("density",0)))
+                if new_score>old_score:
+                    ks=ks10
+
         selected_ids=set(ks.get("completeKitIds",[]))
         if not selected_ids:
             raise RuntimeError(
@@ -758,13 +784,13 @@ def nest():
         if selected:
             packed=solve_prefix(
                 selected,len(selected),width_mm,height_mm,spacing_mm,
-                seconds=7,
-                rotation_step=15,
+                seconds=8,
+                rotation_step=10,
                 simplify_mm=0.35,
                 max_vertices=170,
             )
             attempts.append({
-                "stage":"repack-15",
+                "stage":"repack-10",
                 "ok":bool(packed and packed.get("feasible")),
                 "completeFigures":len(selected),
                 "timeout":bool((packed or {}).get("timeout")),
@@ -782,7 +808,7 @@ def nest():
                 'compactness':ks['compactness'],
                 'usedWidthMm':ks['usedWidthMm'],
                 'usedHeightMm':ks['usedHeightMm'],
-                'rotationStep':30,
+                'rotationStep':15,
                 'simplifyMm':0.45,
             }
 
@@ -791,7 +817,7 @@ def nest():
         if selected and time.time()-started<70:
             fine=solve_prefix(
                 selected,len(selected),width_mm,height_mm,spacing_mm,
-                seconds=6,
+                seconds=8,
                 rotation_step=5,
                 simplify_mm=0.30,
                 max_vertices=185,
