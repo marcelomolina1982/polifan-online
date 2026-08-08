@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: polifan-cnc-solver
+    runtime: docker
+    plan: free
+    dockerfilePath: ./solver-service/Dockerfile
+    dockerContext: ./solver-service
+    healthCheckPath: /health
+    autoDeployTrigger: commit

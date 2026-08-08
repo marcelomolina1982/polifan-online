@@ -1,0 +1,30 @@
+POLIFAN ONLINE v22.2.0 — CANDIDATO ESTABLE
+
+CAMBIO PRINCIPAL
+La creación automática de placas ya no depende de un único servidor.
+
+MOTOR DUAL
+1. Intenta PackingSolver externo.
+2. Si Render está caído, dormido, mal configurado, da timeout o aparece un error de red,
+   cambia automáticamente al motor local del navegador.
+3. El motor local prueba varias estrategias de orden, rotación y compactación.
+4. Cada resultado local pasa por precisionValidateSheet antes de ser aceptado.
+5. Nunca se muestra "Failed to fetch" como resultado final de una caída de Render.
+
+SEGURIDAD
+- escala 1:1;
+- sin deformación;
+- 3 mm recomendado;
+- 2,5 mm mínimo;
+- verificación independiente de colisiones;
+- <10 figuras se marca como resultado parcial y no puede enviarse a corte.
+
+DEPLOY
+Se agregó render.yaml a la raíz del repositorio, con:
+- Dockerfile: solver-service/Dockerfile
+- Docker context: solver-service
+- health check: /health
+
+Se mantienen:
+- Placa doble.
+- Venta manual.

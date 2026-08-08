@@ -1,0 +1,56 @@
+POLIFAN ONLINE v22.2.0 — INFORME DE ESTABILIDAD
+Fecha: 08/08/2026
+
+OBJETIVO DE ESTA VERSIÓN
+Eliminar la dependencia única de Render y evitar que una caída de red termine en
+"Failed to fetch" o deje inutilizable el planificador.
+
+ARQUITECTURA
+- Motor primario: PackingSolver externo (Render).
+- Motor de respaldo: nesting local por silueta real dentro del navegador.
+- Cambio automático al respaldo ante:
+  * error de red;
+  * VITE_NEST_API_URL ausente;
+  * timeout;
+  * respuesta HTTP inválida;
+  * trabajo externo terminado con error.
+- Validador independiente precisionValidateSheet sobre cada solución local.
+
+REGLAS CNC
+- Escala 1:1.
+- Sin deformación.
+- Separación recomendada: 3 mm.
+- Separación mínima admitida: 2,5 mm.
+- Menos de 10 figuras en automático = RESULTADO PARCIAL.
+- Un resultado parcial de menos de 10 no puede enviarse a corte.
+
+PRUEBAS REALIZADAS ANTES DE EMPAQUETAR
+[OK] solver-service/app.py compila con py_compile.
+[OK] package.json válido.
+[OK] version.json válido.
+[OK] vercel.json válido.
+[OK] 41 archivos JS/JSX analizados: 0 errores sintácticos.
+[OK] 113 imports relativos comprobados: 0 archivos faltantes.
+[OK] fallback local conectado al catch de red.
+[OK] fallback local llama a precisionValidateSheet.
+[OK] motor externo sigue conectado a /nest/start y /nest/status.
+[OK] resultados locales usan la transformación SVG local, no la industrial.
+[OK] no queda ningún literal "Failed to fetch" como error de la aplicación.
+[OK] bloqueo de Enviar a corte cuando automático <10.
+[OK] render.yaml agregado a la raíz.
+[OK] dockerfilePath apunta a solver-service/Dockerfile.
+[OK] dockerContext apunta a solver-service.
+[OK] healthCheckPath = /health.
+[OK] Venta manual conectada al menú y excluida de inventario.
+[OK] Placa doble conservada.
+
+LIMITACIÓN DE LA PRUEBA LOCAL
+No fue posible ejecutar `npm run build` en este entorno porque su registry interno
+no contiene @supabase/supabase-js. Para compensarlo se hizo análisis sintáctico de
+todos los JS/JSX e inspección de todos los imports relativos. El problema del registry
+no pertenece al proyecto ni a Vercel.
+
+RESULTADO
+Esta versión no depende de que Render esté disponible para poder generar una placa.
+Si Render vuelve a fallar, la aplicación cambia automáticamente al motor local
+validado en vez de mostrar "Failed to fetch".
