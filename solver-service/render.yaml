@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: polifan-cnc-solver
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    plan: free

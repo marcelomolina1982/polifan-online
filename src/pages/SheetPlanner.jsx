@@ -738,11 +738,11 @@ export default function SheetPlanner({db,onSave}){
       }
       if(!kits.length)throw new Error('No hay figuras completas con SVG vinculados para enviar al motor industrial.')
 
-      setCalcProgress({stage:'PackingSolver C++ · preparando geometrías…',percent:3,elapsed:0,eta:45,completeFigures:0,efficiency:0})
+      setCalcProgress({stage:'Motor CNC externo · preparando geometrías…',percent:3,elapsed:0,eta:45,completeFigures:0,efficiency:0})
       timer=setInterval(()=>{
         const elapsed=(Date.now()-started)/1000
         const percent=Math.min(94,5+Math.round(elapsed/50*88))
-        setCalcProgress(v=>v?{...v,stage:elapsed<12?'PackingSolver C++ · vectorizando SVG…':elapsed<30?'PackingSolver C++ · buscando encastres…':'PackingSolver C++ · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
+        setCalcProgress(v=>v?{...v,stage:elapsed<12?'Motor CNC externo · vectorizando SVG…':elapsed<30?'Motor CNC externo · buscando encastres…':'Motor CNC externo · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
       },1000)
 
       const payload={
@@ -757,7 +757,9 @@ export default function SheetPlanner({db,onSave}){
       const timeout=setTimeout(()=>controller.abort(),58000)
       let response
       try{
-        response=await fetch('/api/nest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal})
+        const solverBase=(import.meta.env.VITE_NEST_API_URL||'').replace(/\/$/,'')
+        if(!solverBase)throw new Error('Falta configurar VITE_NEST_API_URL con la URL del motor CNC externo.')
+        response=await fetch(`${solverBase}/nest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal})
       }finally{clearTimeout(timeout)}
       const data=await response.json().catch(()=>({ok:false,error:'Respuesta inválida del motor industrial'}))
       if(!response.ok||!data.ok)throw new Error(data.error||`Motor industrial HTTP ${response.status}`)
