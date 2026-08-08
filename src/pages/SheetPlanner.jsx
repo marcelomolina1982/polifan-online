@@ -716,143 +716,82 @@ export default function SheetPlanner({db,onSave}){
     return {items:next,missing}
   }
   async function generateAutomatic(){
-    setBusy(true);setError('');setActive(0);setAutoSummary(null);setBestLive(null);setOptimizerStats({tested:0,improved:0,bestStrategy:null})
-    stopCalcRef.current=false
+    setBusy(true);setError('');setActive(0);setAutoSummary(null);setBestLive(null)
     const started=Date.now()
-    const budgets={fast:30000,smart:90000,max:150000}
-    const maxMs=budgets[optimizerMode]||150000
-    const deadline=started+maxMs
-
-    const groups=pendingGroupsByDelivery(db),kits=[],missing=[]
-    groups.forEach((g,index)=>{
-      const built=buildCompleteKits(g.rows,index,g.date,'pedido',modelForFigure)
-      kits.push(...built.kits);missing.push(...built.missing)
-    })
-    if(!kits.length){setBusy(false);return setError('No hay figuras completas pendientes con SVG vinculados para planificar.')}
-
-    const targetComplete=10,targetEfficiency=90
-    const shouldStop=()=>stopCalcRef.current||Date.now()>=deadline
-    let best=null,bestWorking=kits,fillers=[]
-    let tested=0,improved=0
-
-    const better=(a,b)=>{
-      if(!a?.sheets?.length)return false
-      if(!b?.sheets?.length)return true
-      // Prioridad 1: llegar a 10. Después maximiza ocupación. Antes de 10, maximiza cantidad.
-      const a10=a.completeFigures>=targetComplete,b10=b.completeFigures>=targetComplete
-      if(a10!==b10)return a10
-      if(a.completeFigures!==b.completeFigures&&!a10)return a.completeFigures>b.completeFigures
-      if(Math.abs(a.efficiency-b.efficiency)>.05)return a.efficiency>b.efficiency
-      return a.completeFigures>b.completeFigures
-    }
-
-    const strategies=[
-      {label:'Base CNC',angleStep:30,orderMode:'areaDesc',scoreMode:'compact',scanStep:0,shuffleSeed:0},
-      {label:'Contacto 15°',angleStep:15,orderMode:'areaDesc',scoreMode:'contact',scanStep:0,shuffleSeed:0},
-      {label:'Alargadas 15°',angleStep:15,orderMode:'aspect',scoreMode:'balanced',scanStep:0,shuffleSeed:0},
-      {label:'Mezcla A',angleStep:15,orderMode:'areaDesc',scoreMode:'contact',scanStep:0,shuffleSeed:17},
-      {label:'Mezcla B',angleStep:10,orderMode:'areaDesc',scoreMode:'balanced',scanStep:0,shuffleSeed:41},
-      {label:'Pequeñas 10°',angleStep:10,orderMode:'areaAsc',scoreMode:'contact',scanStep:0,shuffleSeed:73},
-      {label:'Precisión A',angleStep:10,orderMode:'aspect',scoreMode:'contact',scanStep:1,shuffleSeed:101},
-      {label:'Precisión B',angleStep:5,orderMode:'areaDesc',scoreMode:'contact',scanStep:1,shuffleSeed:131},
-      {label:'Precisión C',angleStep:5,orderMode:'areaAsc',scoreMode:'balanced',scanStep:1,shuffleSeed:173},
-      {label:'Precisión D',angleStep:5,orderMode:'aspect',scoreMode:'compact',scanStep:1,shuffleSeed:211},
-      {label:'Mutación E',angleStep:5,orderMode:'nameMix',scoreMode:'contact',scanStep:1,shuffleSeed:257},
-      {label:'Mutación F',angleStep:5,orderMode:'areaDesc',scoreMode:'balanced',scanStep:1,shuffleSeed:307}
-    ]
-    const limits=optimizerMode==='fast'?3:optimizerMode==='smart'?7:strategies.length
-    const selected=strategies.slice(0,limits)
-
-    const update=(label,index,data={})=>{
-      const elapsed=(Date.now()-started)/1000
-      const base=(index/Math.max(1,selected.length))*78
-      const local=(Number(data.done||0)/Math.max(1,Number(data.total||1)))*(78/Math.max(1,selected.length))
-      const percent=Math.min(96,Math.max(1,Math.round(base+local)))
-      const eta=percent>2?Math.max(0,elapsed*(100-percent)/percent):null
-      setCalcProgress({stage:`Motor CNC · ${label}`,percent,elapsed,eta,
-        completeFigures:best?.completeFigures||data.completeFigures||0,efficiency:best?.efficiency||data.efficiency||0})
-    }
-
+    let timer=null
     try{
-      for(let i=0;i<selected.length&&!shouldStop();i++){
-        const st=selected[i];tested++
-        const trial=await packCompleteKits(kits,num(sheetW),num(sheetH),num(gap),{
-          target:targetComplete,targetEfficiency,deadline,shouldStop,
-          angleStep:st.angleStep,orderMode:st.orderMode,scoreMode:st.scoreMode,scanStep:st.scanStep,shuffleSeed:st.shuffleSeed||0,
-          onProgress:d=>update(st.label,i,d)
-        })
-        if(trial.sheets?.[0]){
-          const precision=await precisionValidateSheet(trial.sheets[0],num(sheetW),num(sheetH),num(gap))
-          if(!precision.ok){setOptimizerStats(v=>({...v,tested}));await nextFrame();continue}
-          trial.efficiency=precision.usage;trial.used=precision.materialArea
-          trial.sheets[0].efficiency=precision.usage;trial.sheets[0].used=precision.materialArea
-          trial.precisionValidated=true
-        }
-        if(better(trial,best)){
-          best=trial;improved++
-          const sh=trial.sheets?.[0]
-          if(sh)setBestLive({sheet:sh,completeFigures:trial.completeFigures,efficiency:trial.efficiency})
-          setOptimizerStats({tested,improved,bestStrategy:st.label})
-        }else setOptimizerStats(v=>({...v,tested}))
-        await nextFrame()
-        if(best?.completeFigures>=targetComplete&&best?.efficiency>=targetEfficiency)break
-      }
-
-      // Aprende del mejor enfoque del turno: intenta rellenar usando esa estrategia.
-      if(useFillers&&!shouldStop()&&best?.sheets?.length&&(best.completeFigures<targetComplete||best.efficiency<targetEfficiency)){
-        const ranking=bestSellerNames(db),maxFill=optimizerMode==='fast'?3:optimizerMode==='smart'?6:10
-        let working=kits,stagnant=0
-        const bestSt=best.strategy||{angleStep:10,orderMode:'areaDesc',scoreMode:'contact',scanStep:2}
-        for(let a=0;a<maxFill&&!shouldStop()&&ranking.length&&stagnant<4;a++){
-          const name=ranking[a%ranking.length]
+      const groups=pendingGroupsByDelivery(db),kits=[],missing=[]
+      groups.forEach((g,index)=>{
+        const built=buildCompleteKits(g.rows,index,g.date,'pedido',modelForFigure)
+        kits.push(...built.kits);missing.push(...built.missing)
+      })
+      // Si faltan pedidos para explorar el sobrante, agrega modelos de alta rotación al final,
+      // sin desplazar jamás las entregas pendientes (prioridad 9999).
+      if(useFillers&&kits.length<18){
+        const ranking=bestSellerNames(db)
+        let ri=0
+        while(kits.length<18&&ranking.length&&ri<ranking.length*2){
+          const name=ranking[ri%ranking.length];ri++
           const built=buildCompleteKits([{figure:name,qty:1}],9999,'','relleno',modelForFigure)
-          if(!built.kits.length){stagnant++;continue}
-          const candidate=[...working,...built.kits]
-          setCalcProgress(v=>v?{...v,stage:`Motor CNC · probando relleno ${name}`,percent:Math.min(98,80+Math.round(a/maxFill*18))}:v)
-          tested++
-          const trial=await packCompleteKits(candidate,num(sheetW),num(sheetH),num(gap),{
-            target:targetComplete,targetEfficiency,deadline,shouldStop,
-            angleStep:bestSt.angleStep,orderMode:bestSt.orderMode,scoreMode:bestSt.scoreMode,scanStep:bestSt.scanStep,shuffleSeed:bestSt.shuffleSeed||0
-          })
-          if(trial.sheets?.[0]){
-            const precision=await precisionValidateSheet(trial.sheets[0],num(sheetW),num(sheetH),num(gap))
-            if(!precision.ok){stagnant++;continue}
-            trial.efficiency=precision.usage;trial.used=precision.materialArea
-            trial.sheets[0].efficiency=precision.usage;trial.sheets[0].used=precision.materialArea
-            trial.precisionValidated=true
-          }
-          if(better(trial,best)){
-            best=trial;working=candidate;bestWorking=working;fillers.push(name);improved++;stagnant=0
-            setBestLive({sheet:trial.sheets[0],completeFigures:trial.completeFigures,efficiency:trial.efficiency})
-          }else stagnant++
-          setOptimizerStats({tested,improved,bestStrategy:`${bestSt.orderMode} / ${bestSt.scoreMode} / ${bestSt.angleStep}°`})
-          await nextFrame()
+          kits.push(...built.kits)
         }
       }
+      if(!kits.length)throw new Error('No hay figuras completas con SVG vinculados para enviar al motor industrial.')
 
-      if(!best?.sheets?.length&&bestLive?.sheet)best={sheets:[bestLive.sheet],completeFigures:bestLive.completeFigures,efficiency:bestLive.efficiency,used:bestLive.sheet.used,rejected:[]}
-      const one=best?.sheets?.[0]
-      if(!one)throw new Error('No se encontró una placa válida dentro del tiempo de cálculo.')
-      const finalPrecision=await precisionValidateSheet(one,num(sheetW),num(sheetH),num(gap))
-      if(!finalPrecision.ok)throw new Error(`La validación CNC final detectó una superposición en ${finalPrecision.collision}. La placa fue descartada.`)
-      best.efficiency=finalPrecision.usage;best.used=finalPrecision.materialArea
-      one.efficiency=finalPrecision.usage;one.used=finalPrecision.materialArea
-      best.precisionValidated=true
+      setCalcProgress({stage:'PackingSolver C++ · preparando geometrías…',percent:3,elapsed:0,eta:45,completeFigures:0,efficiency:0})
+      timer=setInterval(()=>{
+        const elapsed=(Date.now()-started)/1000
+        const percent=Math.min(94,5+Math.round(elapsed/50*88))
+        setCalcProgress(v=>v?{...v,stage:elapsed<12?'PackingSolver C++ · vectorizando SVG…':elapsed<30?'PackingSolver C++ · buscando encastres…':'PackingSolver C++ · optimizando la mejor placa…',percent,elapsed,eta:Math.max(0,50-elapsed)}:v)
+      },1000)
 
-      const placedIds=new Set(one.placed.map(p=>p.instanceId))
-      const visibleItems=[]
-      bestWorking.forEach(k=>k.parts.forEach(part=>{if(placedIds.has(part.instanceId))visibleItems.push({...part,qty:1})}))
-      const finalResult={...best,sheets:[one],waitingSheets:[],allSheets:[one],stale:false,automatic:true,threshold:90,fillers}
-      setItems(visibleItems);setResult(finalResult)
-      setAutoSummary({groups,missing:[...new Set(missing)],fillers,complete:1,waiting:0,threshold:90,rejected:best.rejected?.length||0,
-        completeFigures:best.completeFigures,targetComplete,targetEfficiency:90})
-      setCalcProgress({stage:shouldStop()?'Finalizado con el mejor resultado disponible':'Optimización finalizada',percent:100,
-        elapsed:(Date.now()-started)/1000,eta:0,completeFigures:best.completeFigures,efficiency:best.efficiency})
-      setOptimizerStats(v=>({...v,tested,improved,bestStrategy:v.bestStrategy||best.strategy?.scoreMode||'Automática'}))
+      const payload={
+        widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:num(gap,.2),
+        kits:kits.slice(0,18).map(k=>({kitId:k.kitId,figure:k.figure,priority:k.priority,date:k.date,source:k.source,parts:k.parts.map(part=>({
+          instanceId:part.instanceId,id:part.id,kitId:part.kitId,figure:part.figure,name:part.name,role:part.role,
+          sourceWidthCm:num(part.sourceWidth||part.width),sourceHeightCm:num(part.sourceHeight||part.height),
+          allowRotate:part.allowRotate!==false,svgText:part.svgText
+        }))}))
+      }
+      const controller=new AbortController()
+      const timeout=setTimeout(()=>controller.abort(),58000)
+      let response
+      try{
+        response=await fetch('/api/nest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal})
+      }finally{clearTimeout(timeout)}
+      const data=await response.json().catch(()=>({ok:false,error:'Respuesta inválida del motor industrial'}))
+      if(!response.ok||!data.ok)throw new Error(data.error||`Motor industrial HTTP ${response.status}`)
+
+      const placementMap=new Map((data.placements||[]).map(x=>[x.instanceId,x]))
+      const sourceParts=new Map()
+      kits.forEach(k=>k.parts.forEach(part=>sourceParts.set(part.instanceId,part)))
+      const placed=(data.placements||[]).map(pl=>{
+        const part=sourceParts.get(pl.instanceId)
+        if(!part)return null
+        return {...part,x:num(pl.xCm),y:num(pl.yCm),angle:num(pl.angle),rotated:Math.abs(num(pl.angle)%360)>.001,
+          industrial:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
+      }).filter(Boolean)
+      if(!placed.length)throw new Error('PackingSolver respondió sin componentes colocados.')
+      const kitIds=new Set(placed.map(x=>x.kitId).filter(Boolean))
+      const completeFigures=kitIds.size
+      const compactness=Math.max(0,Math.min(100,num(data.compactness)))
+      const density=Math.max(0,Math.min(100,num(data.density)))
+      const sheetArea=num(sheetW,122)*num(sheetH,58)
+      const one={number:1,placed,used:sheetArea*compactness/100,efficiency:compactness,industrial:true,materialDensity:density,usedWidthCm:num(data.usedWidthMm)/10,usedHeightCm:num(data.usedHeightMm)/10}
+      const finalResult={sheets:[one],rejected:[],total:placed.length,used:one.used,sheetArea,stale:false,automatic:true,industrial:true,precisionValidated:true,
+        threshold:num(minFill,90),fillers:[],materialDensity:density,engine:data.engine||'PackingSolver C++',attempts:data.attempts||[]}
+      setItems(placed.map(x=>({...x,qty:1})));setResult(finalResult)
+      setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete:10,targetEfficiency:num(minFill,90)})
+      setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'PackingSolver · irregular C++'})
+      setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:compactness})
       if(missing.length)alert(`No se incluyeron porque falta completar su Biblioteca SVG: ${[...new Set(missing)].join(', ')}`)
     }catch(e){
-      setError(e.message||'No se pudo generar la placa automática');setCalcProgress(null)
-    }finally{setBusy(false);stopCalcRef.current=false}
+      const msg=e?.name==='AbortError'?'El motor industrial superó el tiempo máximo de 58 segundos. Probá nuevamente o reducí temporalmente la cantidad pendiente.':(e.message||'No se pudo ejecutar PackingSolver.')
+      setError(msg);setCalcProgress(null);setResult({sheets:[],rejected:[],total:0,used:0,sheetArea:0})
+    }finally{
+      if(timer)clearInterval(timer)
+      setBusy(false);stopCalcRef.current=false
+    }
   }
   function addModelByName(){
     const wanted=String(modelSearch||'').trim().toLowerCase()
@@ -880,8 +819,11 @@ export default function SheetPlanner({db,onSave}){
   async function generate(){setBusy(true);setError('');setActive(0);try{const invalid=items.filter(x=>!num(x.sourceWidth||x.width)||!num(x.sourceHeight||x.height)||!sameSize(x.width,x.sourceWidth||x.width)||!sameSize(x.height,x.sourceHeight||x.height));if(invalid.length)throw new Error(`Medida alterada o faltante en: ${invalid.map(x=>x.name).join(', ')}. El motor solo acepta la medida exacta del SVG.`);setResult({...await pack(items,num(sheetW),num(sheetH),num(gap),{strictRects:true}),stale:false})}catch(e){setError(e.message||'No se pudo generar')}finally{setBusy(false)}}
   function markup(p){
     const m=p.svgMeta;if(!m)return ''
-    const angle=((num(p.angle, p.rotated?90:0)%360)+360)%360
+    const angle=((num(p.angle,p.rotated?90:0)%360)+360)%360
     const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
+    if(p.industrial){
+      return `<g transform="translate(${p.x} ${p.y}) rotate(${angle}) translate(${-num(p.trimXCm)} ${-num(p.trimYCm)})"><svg width="${srcW}" height="${srcH}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="none">${m.inner}</svg></g>`
+    }
     if(!angle)return `<svg x="${p.x}" y="${p.y}" width="${srcW}" height="${srcH}" viewBox="${esc(m.viewBox)}" preserveAspectRatio="none">${m.inner}</svg>`
     const rad=angle*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
     const corners=[[0,0],[srcW,0],[0,srcH],[srcW,srcH]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
@@ -896,7 +838,7 @@ export default function SheetPlanner({db,onSave}){
     if(invalid.length)return alert(`No se puede exportar: faltan medidas originales en ${invalid.slice(0,5).map(x=>x.name).join(', ')}`)
     const metadata=esc(JSON.stringify({
       empresa:'Tu Vida en Tinta',regla:'medidas exactas del SVG',
-      rotacionPermitida:true,rotacionPasoGrados:5,escalaPermitida:false,
+      rotacionPermitida:true,rotacionLibre:true,escalaPermitida:false,
       piezas:sheet.placed.map(p=>({
         nombre:p.name,svgId:p.svgId,
         anchoOrigen:p.sourceWidth||p.width,altoOrigen:p.sourceHeight||p.height,
@@ -925,8 +867,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Motor CNC de precisión: analiza varias estrategias de orden, rotación y encastre, compara resultados y conserva automáticamente la mejor placa válida, sin cambiar las medidas de los SVG.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en pasos de 5°; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El motor CNC trabaja a resolución de 1 mm, genera múltiples soluciones, muta el orden dentro de la misma prioridad y valida cada candidato con una segunda geometría a mayor resolución. Ninguna solución entra si falla la validación final.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Motor industrial PackingSolver: el cálculo automático se ejecuta con un solver C++ especializado en nesting irregular. React solo muestra el resultado; ya no decide las posiciones.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en cualquier ángulo; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El cálculo automático ya no usa el motor experimental del navegador. PackingSolver trabaja con polígonos no convexos, rotación libre y separación física entre piezas. El botón manual sigue disponible solo para pruebas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     {calcProgress&&<section className="panel calc-progress-panel">
       <div className="calc-progress-head"><div><b>{calcProgress.stage}</b><small>{calcProgress.percent}% completado</small></div>{busy&&bestLive?.sheet&&<button className="ghost" onClick={requestBestCurrent}>Usar mejor resultado actual</button>}</div>
       <div className="calc-progress-bar"><span style={{width:`${calcProgress.percent}%`}}/></div>
@@ -936,9 +878,9 @@ export default function SheetPlanner({db,onSave}){
         <span>✓ Mejor resultado: <b>{calcProgress.completeFigures||0} figuras · {Number(calcProgress.efficiency||0).toFixed(1)}%</b></span>
       </div>
       <div className="ai-optimizer-stats"><span>🧠 Estrategias probadas: <b>{optimizerStats.tested}</b></span><span>↗ Mejoras encontradas: <b>{optimizerStats.improved}</b></span><span>⭐ Mejor estrategia: <b>{optimizerStats.bestStrategy||'Buscando…'}</b></span></div>
-      {busy&&<small>El cálculo se detiene automáticamente a los 2 min 30 s y conserva la mejor placa encontrada.</small>}
+      {busy&&<small>El cálculo industrial tiene un límite de 58 segundos. Si no termina, no genera una placa dudosa: informa el error para volver a intentar.</small>}
     </section>}
-    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor CNC<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="fast">Rápido · precisión 1 mm</option><option value="smart">Preciso · múltiples soluciones</option><option value="max">Máximo · búsqueda profunda</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
+    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">PackingSolver industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
     {error&&<div className="notice">{error}</div>}
@@ -953,14 +895,15 @@ export default function SheetPlanner({db,onSave}){
         {items.map(it=><div className="planner-item svg-item" key={it.id}><div className="svg-upload-cell"><b>{it.name}</b><small>{it.blockInterior!==false?'Interior bloqueado':'Interior utilizable'}</small></div><input type="number" step=".001" value={it.width} readOnly title="Ancho exacto leído del SVG"/><input type="number" step=".001" value={it.height} readOnly title="Alto exacto leído del SVG"/><input type="number" min="0" value={it.qty} onChange={e=>update(it.id,'qty',e.target.value)}/><button className="danger small" onClick={()=>setItems(v=>v.filter(x=>x.id!==it.id))}>×</button></div>)}
         {!items.length&&<div className="empty-message">Buscá una figura por nombre y elegí la cantidad.</div>}
       </>}
-    </section><section className="planner-preview"><div className="planner-kpis"><div className="metric-card"><small>Placas</small><b className="viz-stat-value">{result.sheets.length}</b></div><div className="metric-card"><small>Piezas</small><b className="viz-stat-value">{result.total}</b></div><div className="metric-card"><small>Aprovechamiento</small><b className="viz-stat-value">{result.sheets.length?Math.round(100*result.used/(result.sheetArea*result.sheets.length)):0}%</b></div></div>
+    </section><section className="planner-preview"><div className="planner-kpis"><div className="metric-card"><small>Placas</small><b className="viz-stat-value">{result.sheets.length}</b></div><div className="metric-card"><small>Piezas</small><b className="viz-stat-value">{result.total}</b></div><div className="metric-card"><small>Compactación</small><b className="viz-stat-value">{result.sheets.length?Math.round(100*result.used/(result.sheetArea*result.sheets.length)):0}%</b></div></div>
       {result.rejected.length>0&&<div className="notice">{result.rejected.length} pieza(s) no entraron.</div>}{result.waitingSheets?.length>0&&<div className="notice"><b>{result.waitingSheets.length} placa(s) en espera</b><span>No se guardan como listas para cortar hasta alcanzar {result.threshold}% o recibir más piezas pendientes.</span></div>}
-      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% ocupación real {result.precisionValidated?'· ✓ validación CNC':''} {kitCountOnSheet(sheet)>=10?'· ✓ mínimo 10':'· faltan '+(10-kitCountOnSheet(sheet))+' para mínimo 10'} {sheet.efficiency>=90?'· ✓ meta 90%':'· intentando llegar al 90%'}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=>{
+      <div className="panel preview-panel"><div className="panel-heading"><h3>Vista previa</h3><div><button className="ghost" disabled={!sheet} onClick={savePlan}>Guardar diseño</button> <button className="ghost" disabled={!sheet} onClick={sendSheetToCut}>Enviar a corte</button> <button className="primary" disabled={!sheet} onClick={download}>Descargar SVG</button></div></div>{result.sheets.length>1&&<div className="sheet-tabs">{result.sheets.map((s,i)=><button key={i} className={active===i?'active':''} onClick={()=>setActive(i)}>Placa {i+1}</button>)}</div>}{!sheet?<div className="empty-message">Generá las placas para ver el resultado.</div>:<><div className="sheet-info"><div><b>Placa {sheet.number}</b><span>{kitCountOnSheet(sheet)} figuras completas · {sheet.placed.length} componentes físicos · {sheet.efficiency.toFixed(1)}% compactación {result.precisionValidated?'· ✓ validación CNC':''} {kitCountOnSheet(sheet)>=10?'· ✓ mínimo 10':'· faltan '+(10-kitCountOnSheet(sheet))+' para mínimo 10'} {sheet.materialDensity!=null?` · material ${Number(sheet.materialDensity).toFixed(1)}%`:''}</span><small className="block">Producción real: {sheetProductionRows(sheet,sheetMultipliers[sheet.number]||1).reduce((a,r)=>a+r.qty,0)} figura(s). Esta cantidad se reserva en “Para cortar” y se suma al inventario al terminar.</small></div><label className="sheet-cut-mode"><b>Tipo de corte</b><select value={sheetMultipliers[sheet.number]||1} onChange={e=>setMultiplier(sheet.number,e.target.value)}><option value="1">Simple · cortar 1 placa</option><option value="2">Doble · cortar 2 placas iguales</option></select><small>{(sheetMultipliers[sheet.number]||1)===2?'Las cantidades se multiplican por 2.':'Las cantidades se registran una sola vez.'}</small></label></div><div className="sheet-canvas-wrap"><div className="sheet-canvas" style={{width:num(sheetW)*scale,height:num(sheetH)*scale}}>{sheet.placed.map(p=>{
   const angle=((num(p.angle,p.rotated?90:0)%360)+360)%360
   const srcW=num(p.sourceWidth||p.width),srcH=num(p.sourceHeight||p.height)
   const rad=angle*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad)
   const corners=[[0,0],[srcW,0],[0,srcH],[srcW,srcH]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
   const minX=Math.min(...corners.map(q=>q[0])),minY=Math.min(...corners.map(q=>q[1]))
+  if(p.industrial)return <div key={p.instanceId} title={`${p.name} · ${angle}°`} style={{position:'absolute',left:p.x*scale,top:p.y*scale,transform:`rotate(${angle}deg)`,transformOrigin:'0 0'}}><img src={svgDataUrl(p.svgText)} alt={p.name} style={{position:'absolute',left:-num(p.trimXCm)*scale,top:-num(p.trimYCm)*scale,width:srcW*scale,height:srcH*scale,maxWidth:'none',pointerEvents:'none'}}/></div>
   return <img key={p.instanceId} src={svgDataUrl(p.svgText)} alt={p.name} title={`${p.name} · ${angle}°`}
     style={{position:'absolute',left:(p.x-minX)*scale,top:(p.y-minY)*scale,width:srcW*scale,height:srcH*scale,
       transform:`rotate(${angle}deg)`,transformOrigin:'0 0',display:'block',pointerEvents:'none'}}/>

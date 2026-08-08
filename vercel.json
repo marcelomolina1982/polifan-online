@@ -1,9 +1,51 @@
 {
-  "rewrites": [{"source": "/(.*)", "destination": "/"}],
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/"
+    }
+  ],
   "headers": [
-    {"source": "/", "headers": [{"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}]},
-    {"source": "/index.html", "headers": [{"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}]},
-    {"source": "/sw.js", "headers": [{"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}]},
-    {"source": "/version.json", "headers": [{"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}]}
-  ]
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/version.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "api/nest.py": {
+      "maxDuration": 60
+    }
+  }
 }
