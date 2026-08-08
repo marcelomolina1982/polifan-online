@@ -638,7 +638,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.1.1", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.1.2", status="ready")
 
 
 _jobs={}
@@ -760,8 +760,120 @@ def nest():
             })
             return r
 
+        def kit_load(k):
+            """
+            Estimación barata del espacio que exige un kit. No decide la validez:
+            sólo sirve para generar subconjuntos alternativos. La geometría real
+            siempre la decide solve_prefix + PackingSolver.
+            """
+            total=0.0
+            for part in (k.get("parts") or []):
+                w=max(0.0,_n(part.get("sourceWidthCm") or part.get("widthCm")))
+                h=max(0.0,_n(part.get("sourceHeightCm") or part.get("heightCm")))
+                total+=w*h
+            return total
+
+        def subset_candidates(target):
+            """
+            Genera combinaciones COMPLETAS distintas para el mismo target.
+            Ésta es la corrección clave: solve_prefix ya no prueba solamente
+            kits[:target]. Si los primeros 10 no encastran, prueba intercambios
+            con las figuras siguientes sin romper la prioridad de producción.
+            """
+            target=max(1,min(int(target),len(pool)))
+            window=pool[:min(len(pool),target+10)]
+            variants=[]
+            seen=set()
+
+            def add(rows,label):
+                rows=list(rows)[:target]
+                if len(rows)!=target:
+                    return
+                key=tuple(str(k.get("kitId")) for k in rows)
+                if key in seen:
+                    return
+                seen.add(key)
+                variants.append((label,rows))
+
+            # 1. Prioridad estricta.
+            add(pool[:target],"prioridad")
+
+            # 2. Dentro de una ventana cercana, preferir kits de menor carga.
+            # La prioridad sigue siendo la primera clave; el área sólo desempata.
+            add(sorted(window,key=lambda k:(
+                _n(k.get("priority"),999999),
+                kit_load(k),
+                str(k.get("date") or ""),
+            )),"prioridad+compactos")
+
+            # 3. Intercambios uno-a-uno: sacar del prefijo una figura grande
+            # y probar una de las siguientes. Mantiene target figuras completas.
+            base=list(pool[:target])
+            extras=list(pool[target:min(len(pool),target+8)])
+            removable=sorted(
+                range(len(base)),
+                key=lambda i:(kit_load(base[i]),_n(base[i].get("priority"),999999)),
+                reverse=True,
+            )[:min(5,len(base))]
+            for ei,extra in enumerate(extras[:6]):
+                for ri in removable[:4]:
+                    candidate=list(base)
+                    candidate[ri]=extra
+                    # Reordenar para que solve_prefix reciba exactamente el subconjunto,
+                    # pero conserve la prioridad interna.
+                    candidate=sorted(candidate,key=lambda k:(
+                        _n(k.get("priority"),999999),
+                        str(k.get("date") or ""),
+                        str(k.get("figure") or ""),
+                    ))
+                    add(candidate,f"swap-{ri}-{ei}")
+
+            # 4. Variantes de dos intercambios para casos duros.
+            if target>=6 and len(extras)>=2:
+                heavy=removable[:3]
+                for j in range(min(3,len(extras)-1)):
+                    if len(heavy)<2:
+                        break
+                    candidate=list(base)
+                    for idx,extra in zip(heavy[:2],extras[j:j+2]):
+                        candidate[idx]=extra
+                    candidate=sorted(candidate,key=lambda k:(
+                        _n(k.get("priority"),999999),
+                        str(k.get("date") or ""),
+                        str(k.get("figure") or ""),
+                    ))
+                    add(candidate,f"swap2-{j}")
+
+            return variants[:18]
+
+        def search_target(target, step, seconds_each, percent, label, max_variants=8):
+            """
+            Busca el MISMO número de figuras sobre varios subconjuntos completos.
+            Se queda con la mejor placa válida. De este modo un mal conjunto de
+            10 figuras no obliga al motor a caer a 8 si otra combinación de 10 entra.
+            """
+            best_local=None
+            variants=subset_candidates(target)[:max_variants]
+            for vi,(variant_label,rows) in enumerate(variants):
+                if time.time()-started>132:
+                    break
+                candidate=run_complete(
+                    target,step,seconds_each,percent,
+                    f"{label} · combinación {vi+1}/{len(variants)} ({variant_label})",
+                    source_pool=rows,
+                )
+                if packed_score(candidate)>packed_score(best_local):
+                    best_local=candidate
+                    if candidate and candidate.get("feasible"):
+                        candidate["subsetLabel"]=variant_label
+                # Para target >= mínimo, una solución completa ya es suficiente
+                # para continuar al crecimiento; no hace falta agotar variantes.
+                if best_local and int(best_local.get("target",0))>=target:
+                    break
+            return best_local
+
         # ------------------------------------------------------------------
-        # MOTOR v22.1.1
+        # MOTOR v22.1.2
         # La versión anterior seleccionaba piezas con KNAPSACK y recién después
         # descartaba kits incompletos. Eso podía devolver, por ejemplo, 3 pares
         # completos aunque físicamente hubiera lugar para muchos más.
@@ -778,11 +890,12 @@ def nest():
         for idx,step in enumerate(base_steps):
             if time.time()-started>118:
                 break
-            candidate=run_complete(
+            candidate=search_target(
                 base_target,step,
-                9 if step!=30 else 7,
+                6 if step!=30 else 5,
                 14+idx*8,
-                f"Buscando {base_target} figuras completas · rotación {step}°…",
+                f"Buscando {base_target} figuras completas · rotación {step}°",
+                max_variants=10,
             )
             if packed_score(candidate)>packed_score(best):
                 best=candidate
@@ -795,9 +908,10 @@ def nest():
             for target in range(base_target-1,0,-1):
                 if time.time()-started>118:
                     break
-                candidate=run_complete(
-                    target,15,7,42,
-                    f"Probando máximo seguro: {target} figuras completas…",
+                candidate=search_target(
+                    target,15,5,42,
+                    f"Probando máximo seguro: {target} figuras completas",
+                    max_variants=8,
                 )
                 if packed_score(candidate)>packed_score(best):
                     best=candidate
@@ -821,9 +935,10 @@ def nest():
         failed_growth=0
         target=current+1
         while target<=hard_cap and failed_growth<2 and time.time()-started<122:
-            candidate=run_complete(
-                target,10,8,62,
-                f"Intentando subir a {target} figuras completas…",
+            candidate=search_target(
+                target,10,5,62,
+                f"Intentando subir a {target} figuras completas",
+                max_variants=7,
             )
             if packed_score(candidate)>packed_score(best):
                 best=candidate
@@ -844,9 +959,10 @@ def nest():
         for step,seconds,percent in [(5,7,82),(10,6,90)]:
             if time.time()-started>132:
                 break
-            candidate=run_complete(
-                current,step,seconds,percent,
-                f"Compactando {current} figuras completas · micro-rotación {step}°…",
+            candidate=search_target(
+                current,step,max(4,seconds-2),percent,
+                f"Compactando {current} figuras completas · micro-rotación {step}°",
+                max_variants=6,
             )
             if packed_score(candidate)>packed_score(best):
                 best=candidate

@@ -1,0 +1,25 @@
+POLIFAN ONLINE v22.1.2
+
+CORRECCIÓN DEL NESTING AUTOMÁTICO
+
+Problema comprobado con placa-cnc-1:
+- el resultado tenía 16 componentes = 8 figuras completas;
+- el motor seguía probando únicamente los primeros N kits;
+- si ese subconjunto concreto no entraba, podía bajar a 8 aunque otra combinación de 10 sí pudiera entrar.
+
+Corrección:
+1. El motor genera varias combinaciones de FIGURAS COMPLETAS para el mismo objetivo.
+2. Para 10 figuras prueba:
+   - prioridad estricta;
+   - prioridad + kits compactos;
+   - intercambios de 1 kit;
+   - intercambios de 2 kits en casos duros.
+3. Sólo si ninguna combinación de 10 entra baja a 9, 8, etc.
+4. Si consigue 10, intenta crecer a 11, 12, 13...
+5. La búsqueda fina no puede reemplazar una solución por otra con menos figuras.
+6. El resultado <10 se marca visualmente como RESULTADO PARCIAL.
+7. En automático, una placa parcial <10 no se puede enviar a corte.
+8. La geometría sigue siendo 1:1, sin escala ni deformación.
+9. Separación recomendada 3 mm; mínimo absoluto 2,5 mm.
+
+Se mantienen Placa doble y Venta manual.
