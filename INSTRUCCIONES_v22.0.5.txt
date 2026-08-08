@@ -1,0 +1,13 @@
+v22.0.5 - Separación mínima 3 mm
+
+Reemplazar:
+- solver-service/app.py
+- src/pages/SheetPlanner.jsx
+- src/version.js
+
+Cambios:
+- Separación por defecto: 0,3 cm.
+- La interfaz no permite bajar de 0,3 cm.
+- El backend impone mínimo absoluto de 3 mm aunque llegue un valor menor.
+- Se mantiene placa 122 x 58 cm.
+- Se mantiene objetivo: mínimo 10 figuras completas y luego intentar más.

@@ -615,7 +615,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.get("/")
 @app.get("/health")
 def health():
-    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.4", status="ready")
+    return jsonify(ok=True, engine="PackingSolver C++", version="22.0.5", status="ready")
 
 @app.post("/nest")
 def nest():
@@ -628,7 +628,7 @@ def nest():
 
         width_mm=_n(data.get("widthCm"),122)*10
         height_mm=_n(data.get("heightCm"),58)*10
-        spacing_mm=max(0,_n(data.get("gapCm"),.2)*10)
+        spacing_mm=max(3.0,_n(data.get("gapCm"),.3)*10)
         if width_mm<=0 or height_mm<=0:
             raise ValueError("La medida de la placa es inválida")
 

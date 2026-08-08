@@ -675,7 +675,7 @@ function sheetProductionRows(sheet,multiplier=1){
 }
 
 export default function SheetPlanner({db,onSave}){
-  const [sheetW,setSheetW]=useState(122),[sheetH,setSheetH]=useState(58),[gap,setGap]=useState(.2)
+  const [sheetW,setSheetW]=useState(122),[sheetH,setSheetH]=useState(58),[gap,setGap]=useState(.3)
   const [items,setItems]=useState([]),[result,setResult]=useState({sheets:[],rejected:[],total:0,used:0,sheetArea:0}),[active,setActive]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[minFill,setMinFill]=useState(90),[useFillers,setUseFillers]=useState(true),[autoSummary,setAutoSummary]=useState(null),[sheetMultipliers,setSheetMultipliers]=useState({}),[modelSearch,setModelSearch]=useState(''),[modelQty,setModelQty]=useState(1)
   const [calcProgress,setCalcProgress]=useState(null)
   const [bestLive,setBestLive]=useState(null)
@@ -746,7 +746,7 @@ export default function SheetPlanner({db,onSave}){
       },1000)
 
       const payload={
-        widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:num(gap,.2),
+        widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:Math.max(.3,num(gap,.3)),
         kits:kits.slice(0,18).map(k=>({kitId:k.kitId,figure:k.figure,priority:k.priority,date:k.date,source:k.source,parts:k.parts.map(part=>({
           instanceId:part.instanceId,id:part.id,kitId:part.kitId,figure:part.figure,name:part.name,role:part.role,
           sourceWidthCm:num(part.sourceWidth||part.width),sourceHeightCm:num(part.sourceHeight||part.height),
@@ -882,7 +882,7 @@ export default function SheetPlanner({db,onSave}){
       <div className="ai-optimizer-stats"><span>🧠 Estrategias probadas: <b>{optimizerStats.tested}</b></span><span>↗ Mejoras encontradas: <b>{optimizerStats.improved}</b></span><span>⭐ Mejor estrategia: <b>{optimizerStats.bestStrategy||'Buscando…'}</b></span></div>
       {busy&&<small>El cálculo industrial tiene un límite de 150 segundos. Si no termina, no genera una placa dudosa: informa el error para volver a intentar.</small>}
     </section>}
-    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" step=".1" value={gap} onChange={e=>setGap(e.target.value)}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">PackingSolver industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
+    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" min=".3" step=".1" value={gap} onChange={e=>setGap(Math.max(.3,num(e.target.value,.3)))}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">PackingSolver industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
     {error&&<div className="notice">{error}</div>}
