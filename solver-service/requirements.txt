@@ -4,3 +4,7 @@ svgpathtools>=1.6,<2
 Flask>=3.0,<4
 flask-cors>=4,<6
 gunicorn>=22,<24
+numpy>=2.0,<3
+pillow>=10,<12
+cairosvg>=2.7,<3
+opencv-python-headless>=4.10,<5
