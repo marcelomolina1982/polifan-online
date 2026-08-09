@@ -469,7 +469,11 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
   target=10,targetEfficiency=90,angleStep=15,deadline=Infinity,onProgress=null,shouldStop=null,
   orderMode='areaDesc',scoreMode='compact',scanStep=3,shuffleSeed=0
 }={}){
-  const safeGap=Math.max(num(gap),.20)
+  const requestedGap=Math.max(num(gap),.20)
+  // Margen anti-redondeo: la búsqueda usa 0,4 mm extra porque trabaja a 10 px/cm
+  // y la validación fina a 14 px/cm. El validador sigue exigiendo EXACTAMENTE
+  // requestedGap; esto evita falsos rechazos por rasterización sin reducir seguridad.
+  const safeGap=requestedGap+.04
   const sw=Math.floor(wCm*PX_PER_CM),sh=Math.floor(hCm*PX_PER_CM)
   const sheetArea=wCm*hCm
 
@@ -669,7 +673,7 @@ async function packCompleteKits(kits,wCm,hCm,gap,{
   // Verificación independiente, usando exactamente la misma geometría de cada pieza.
   const verifyOcc=new Uint8Array(sw*sh)
   for(const piece of sheet.placed){
-    const m=await makeAngleMask(piece,num(piece.angle,0),safeGap)
+    const m=await makeAngleMask(piece,num(piece.angle,0),requestedGap)
     const x=Math.round(num(piece.x)*PX_PER_CM-m.pad),y=Math.round(num(piece.y)*PX_PER_CM-m.pad)
     if(maskCollides(verifyOcc,m,x,y))throw new Error(`Seguridad de placa: superposición detectada en ${piece.name}.`)
     maskStamp(verifyOcc,m,x,y)
@@ -725,7 +729,7 @@ async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
   target=10,targetEfficiency=80,deadlineMs=110000,onProgress=null,shouldStop=null
 }={}){
   const started=Date.now(),deadline=started+deadlineMs
-  let best=null,attempts=[],tested=0
+  let best=null,bestGeometric=null,attempts=[],tested=0
   const rank=r=>[
     Number(r?.completeFigures||0),
     Number(r?.validation?.usage||r?.sheets?.[0]?.efficiency||0),
@@ -752,7 +756,8 @@ async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
       const validation=await precisionValidateSheet(sheet,wCm,hCm,Math.max(.25,num(gapCm,.3)))
       const completeFigures=kitCountOnSheet(sheet)
       const candidate={...r,completeFigures,validation,subsetLabel:label}
-      attempts.push({label,angleStep:cfg.angleStep,orderMode:cfg.orderMode,scoreMode:cfg.scoreMode,completeFigures,usage:Number(validation.usage||0),valid:!!validation.ok})
+      attempts.push({label,angleStep:cfg.angleStep,orderMode:cfg.orderMode,scoreMode:cfg.scoreMode,completeFigures,usage:Number(validation.usage||0),valid:!!validation.ok,validationCollision:validation.collision||null})
+      if(!bestGeometric||Number(completeFigures)>Number(bestGeometric.completeFigures||0))bestGeometric=candidate
       if(validation.ok&&better(candidate,best))best=candidate
       return candidate
     }catch(err){attempts.push({label,error:String(err?.message||err),completeFigures:0,valid:false});return null}
@@ -801,7 +806,11 @@ async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
       if(found)break
     }
   }
-  if(!best)throw new Error('El motor estable no encontró una placa geométricamente válida.')
+  if(!best){
+    const geo=bestGeometric
+    const detail=geo?` Mejor acomodo bruto: ${geo.completeFigures||0} figura(s). Rechazo fino: ${geo.validation?.collision||'separación/borde'}.`:''
+    throw new Error(`El motor no pudo certificar una placa con la separación solicitada.${detail}`)
+  }
   return {...best,attempts,tested}
 }
 
@@ -943,7 +952,7 @@ export default function SheetPlanner({db,onSave}){
         return {...part,x:num(pl.xCm),y:num(pl.yCm),angle:num(pl.angle),rotated:Math.abs(num(pl.angle)%360)>.001,
           industrial:false,localFallback:false,localStable:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
       }).filter(Boolean)
-      if(!placed.length)throw new Error('PackingSolver respondió sin componentes colocados.')
+      if(!placed.length)throw new Error('El motor local terminó sin componentes colocados.')
       const kitIds=new Set(placed.map(x=>x.kitId).filter(Boolean))
       const completeFigures=kitIds.size
       const finalCompactness=Math.max(0,Math.min(100,num(data.compactness)))

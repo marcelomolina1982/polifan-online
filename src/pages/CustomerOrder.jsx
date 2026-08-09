@@ -40,10 +40,14 @@ export default function CustomerOrder() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
   const [cart, setCart] = useState({})
+  const [specialFigure,setSpecialFigure]=useState({enabled:false,description:''})
+  const [customerSource]=useState(()=>{const q=new URLSearchParams(window.location.search);const raw=(q.get('src')||q.get('utm_source')||'').toLowerCase();if(raw.includes('tiktok'))return 'TikTok';if(raw.includes('instagram')||raw==='ig')return 'Instagram';if(raw.includes('whatsapp')||raw==='wa')return 'WhatsApp';return 'Directo / otro'})
   const [data, setData] = useState({ firstName: '', lastName: '', name: '', phone: '', dni: '', email: '', address: '', betweenStreets: '', locality: '', district: '', province: '', postalCode: '', delivery: '', method: 'Logística GBA/CABA', agencyDelivery: 'Envío a domicilio', notes: '' })
+  const [publicReviews,setPublicReviews]=useState([])
+  const [publicPhotos,setPublicPhotos]=useState([])
   const [feedback, setFeedback] = useState({ rating: '', comment: '', sent: false })
   const [chatOpen,setChatOpen]=useState(false)
-  const [chatbotSettings,setChatbotSettings]=useState({enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'/mia-assistant-cutout.png',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'})
+  const [chatbotSettings,setChatbotSettings]=useState(()=>{let saved={};try{saved=JSON.parse(window.localStorage.getItem(PLANNING_CACHE_KEY)||'null')?.state?.chatbotSettings||{}}catch{};return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',assistantImage:'/mia-assistant-cutout.png',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved}})
   const [chatMessages,setChatMessages]=useState([{from:'bot',text:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.'}])
 
   useEffect(()=>{setChatMessages(current=>current.length<=1?[{from:'bot',text:chatbotSettings.welcome||`¡Hola! Soy ${chatbotSettings.assistantName||'tu asistente'}. Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.`}]:current)},[chatbotSettings.welcome,chatbotSettings.assistantName])
@@ -63,12 +67,14 @@ export default function CustomerOrder() {
           if(!Array.isArray(state.orders)) throw new Error('La planificación no contiene la lista de pedidos.')
           setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
           setOrders(state.orders)
+          setPublicReviews((state.customerReviews||[]).filter(x=>x.active!==false))
+          setPublicPhotos((state.customerPhotos||[]).filter(x=>x.active!==false))
           setClosedProductionDates(state.productionClosedDates)
           setConfig({
             whatsapp: urlPhone || cleanPhone(state.customerSettings?.whatsapp),
             businessName: state.customerSettings?.businessName || 'Tu Vida En Tinta'
           })
-          setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+          setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
           const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
@@ -86,12 +92,14 @@ export default function CustomerOrder() {
       if(Array.isArray(cachedState?.productionClosedDates)&&Array.isArray(cachedState?.orders)){
         setProducts(normalizeCatalogProducts(cachedState.customerCatalog?.length ? cachedState.customerCatalog : catalogProducts).filter(product => product.active !== false))
         setOrders(cachedState.orders)
+        setPublicReviews((cachedState.customerReviews||[]).filter(x=>x.active!==false))
+        setPublicPhotos((cachedState.customerPhotos||[]).filter(x=>x.active!==false))
         setClosedProductionDates(cachedState.productionClosedDates)
         setConfig({
           whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),
           businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'
         })
-        setChatbotSettings((()=>{const saved=cachedState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Mía',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+        setChatbotSettings((()=>{const saved=cachedState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
         setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
         return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
       }
@@ -113,8 +121,8 @@ export default function CustomerOrder() {
   }, [urlPhone])
 
   useEffect(() => {
-    trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop' } })
-  }, [])
+    trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })
+  }, [customerSource])
 
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
@@ -130,13 +138,14 @@ export default function CustomerOrder() {
     .map(([id, qty]) => ({ product: products.find(product => product.id === id), qty }))
     .filter(item => item.product)
 
-  const regularQty = items.filter(item => item.product.category === 'Carameleras').reduce((sum, item) => sum + item.qty, 0)
+  const specialQty=specialFigure.enabled&&specialFigure.description.trim()?1:0
+  const regularQty = items.filter(item => item.product.category === 'Carameleras').reduce((sum, item) => sum + item.qty, 0)+specialQty
   const lightQty = items.filter(item => item.product.category === 'Figuras con luces').reduce((sum, item) => sum + item.qty, 0)
   const fixedTotal = items.filter(item => item.product.fixedPrice).reduce((sum, item) => sum + item.product.fixedPrice * item.qty, 0)
   const regularTotal = regularPrice(regularQty)
   const lightTotal = lightPrice(lightQty)
   const estimatedTotal = regularTotal + lightTotal + fixedTotal
-  const total = items.reduce((sum, item) => sum + item.qty, 0)
+  const total = items.reduce((sum, item) => sum + item.qty, 0)+specialQty
   const deliveryEstimate = ['ready','stale'].includes(planningSync.status) ? estimateProductionAvailability(orders,total,closedProductionDates) : null
   const fmtProductionDate = value => formatArgentinaLongDate(value,{includeYear:false,capitalize:true})
   const nextGoal = regularQty < 6 ? 6 : regularQty < 12 ? 12 : null
@@ -168,7 +177,7 @@ export default function CustomerOrder() {
     if (!data.firstName.trim()) return alert('Ingresá tu nombre.')
     if (!data.lastName.trim()) return alert('Ingresá tu apellido.')
     if (!data.phone.trim()) return alert('Ingresá tu WhatsApp.')
-    if (!items.length) return alert('Elegí al menos un producto.')
+    if (!items.length&&!specialQty) return alert('Elegí al menos un producto o describí una figura especial.')
     if(data.method==='Logística GBA/CABA' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
     if(data.method==='Vía Cargo' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
 
@@ -183,7 +192,7 @@ export default function CustomerOrder() {
       ? `🛠️ *Producción disponible:* Desde ${fmtProductionDate(productionDate).toLowerCase()} en adelante`
       : '🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'
 
-    const productLines = items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`).join('\n')
+    const productLines = [...items.map(item => `• ${item.product.name} (${item.product.measure}): ${item.qty}`),...(specialQty?[`• FIGURA ESPECIAL A DISEÑAR: 1 — ${specialFigure.description.trim()}`]:[])].join('\n')
     const arNow = argentinaNow()
     const [year,month,day]=arNow.date.split('-')
     const receivedDate = `${day}/${month}/${year}`
@@ -213,15 +222,15 @@ export default function CustomerOrder() {
       '', 'El total es estimado y no incluye envío.', '', 'Muchas gracias por elegir *TU VIDA EN TINTA* 💜', 'En breve revisaremos la solicitud, calcularemos el costo del envío y te enviaremos el importe final junto con los datos para realizar el pago.', 'La producción comenzará una vez confirmado el pago.'
     ].filter(Boolean).join('\n')
 
-    const requestItems=items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty}))
-    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:productionDate,estimatedDeliveryEnd:productionDate,productionDateStatus:productionDate?'estimada':'pendiente de confirmar'},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:productionDate,estimated_to:productionDate,notes:data.notes.trim()})
+    const requestItems=[...items.map(item=>({productId:item.product.id,name:item.product.name,measure:item.product.measure,qty:item.qty})),...(specialQty?[{productId:'special-request',name:'Figura especial a diseñar',measure:'A confirmar',qty:1,special:true,description:specialFigure.description.trim()}]:[])]
+    const {error:requestError}=await supabase.from('web_requests').insert({code:requestCode,status:'Pendiente de pago',customer:{...data,source:customerSource,name:[data.firstName,data.lastName].filter(Boolean).join(' '),delivery:'',estimatedDeliveryStart:productionDate,estimatedDeliveryEnd:productionDate,productionDateStatus:productionDate?'estimada':'pendiente de confirmar'},items:requestItems,quantity:total,estimated_total:estimatedTotal,estimated_from:productionDate,estimated_to:productionDate,notes:data.notes.trim()})
     if(requestError){ setSending(false); return alert('No se pudo guardar la solicitud. Verificá que hayas ejecutado SUPABASE_SOLICITUDES_WEB.sql. '+requestError.message) }
     trackCatalogEvent('order_sent', {
       locality: data.locality,
       province: data.province,
       postalCode: data.postalCode,
       quantity: total,
-      metadata: { method: data.method, estimatedTotal }
+      metadata: { method: data.method, estimatedTotal, source: customerSource, specialFigure: specialQty?specialFigure.description.trim():null }
     })
     items.forEach(item => trackCatalogEvent('order_product', { productId: item.product.id, productName: item.product.name, category: item.product.category, quantity: item.qty }))
     setSending(false)
@@ -280,11 +289,19 @@ export default function CustomerOrder() {
             </div>}
         </section>
 
+      <section className="customer-section special-figure-request">
+        <small className="section-kicker">¿NO ENCONTRASTE TU FIGURA?</small><h2>Pedí una figura especial</h2>
+        <p>Podés agregar una sola figura especial por pedido. Describinos qué personaje, objeto o diseño necesitás y lo revisaremos antes de confirmar el pedido.</p>
+        <label className="form-check"><input type="checkbox" checked={specialFigure.enabled} onChange={e=>setSpecialFigure(v=>({...v,enabled:e.target.checked}))}/><span>Quiero agregar 1 figura especial</span></label>
+        {specialFigure.enabled&&<textarea maxLength={300} value={specialFigure.description} onChange={e=>setSpecialFigure(v=>({...v,description:e.target.value}))} placeholder="Ej.: Quiero una figura de... Detalles, temática, nombre, etc."/>}
+        {specialFigure.enabled&&<small>Máximo: 1 figura especial por pedido. Cuenta como una pieza regular para el total estimado; el diseño queda sujeto a revisión.</small>}
+      </section>
+
       {regularQty>0&&<section className="customer-section promo-progress"><div><b>{nextGoal?`Te faltan ${missingForGoal} figura${missingForGoal===1?'':'s'} para el próximo precio`:'🎉 Alcanzaste el mejor precio'}</b><span>{regularQty} figuras regulares seleccionadas</span></div><div className="progress-track"><i style={{width:`${Math.max(8,(progressValue/progressMax)*100)}%`}} /></div></section>}
 
       {items.length > 0 && <section className="customer-section cart-summary">
         <h2>Tu selección</h2>
-        {items.map(item => <div className="cart-line" key={item.product.id}><span>{item.product.name}</span><b>{item.qty}</b></div>)}
+        {items.map(item => <div className="cart-line" key={item.product.id}><span>{item.product.name}</span><b>{item.qty}</b></div>)}{specialQty>0&&<div className="cart-line"><span>Figura especial: {specialFigure.description.trim()}</span><b>1</b></div>}
         <div className="cart-total"><span>Total</span><strong>{total} piezas</strong></div>
         <div className="estimated-price"><span>Total estimado sin envío</span><strong>{money(estimatedTotal)}</strong><small>La confirmación final se realiza por WhatsApp.</small></div>
       </section>}
@@ -311,6 +328,8 @@ export default function CustomerOrder() {
         <div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado. Te responderemos por WhatsApp con el costo del envío, disponibilidad y datos de pago.</div>
         <button type="button" className="whatsapp-button" onClick={send} disabled={sending}><span>{sending?'Guardando y enviando…':'Enviar solicitud por WhatsApp'}</span><small>{planningSync.status==='ready'?'Te confirmamos envío, disponibilidad y pago':'La fecha de producción se confirmará al revisar tu solicitud'}</small></button>
       </section>
+
+      {(publicPhotos.length>0||publicReviews.length>0)&&<section className="customer-section customer-trust-public"><small className="section-kicker">CLIENTES REALES</small><h2>Fotos y opiniones de quienes ya compraron</h2>{publicPhotos.length>0&&<><h3>📸 Fotos que nos enviaron</h3><div className="trust-photo-grid">{publicPhotos.map(x=><article key={x.id}><img src={x.image} alt={x.caption||'Foto de cliente'}/><b>{x.name||'Cliente'}</b><small>{x.caption}</small></article>)}</div></>}{publicReviews.length>0&&<><h3>⭐ Reseñas</h3><div className="trust-review-grid">{publicReviews.map(x=><article key={x.id}><strong>★★★★★</strong><p>“{x.text}”</p><b>{x.name||'Cliente'}</b></article>)}</div></>}</section>}
 
       <section className="customer-section customer-feedback">
         <h2>¿Te gustó el catálogo?</h2>

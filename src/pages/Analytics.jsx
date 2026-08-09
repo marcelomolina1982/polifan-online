@@ -168,6 +168,8 @@ export default function Analytics({ db }) {
     return { visits:visits.length, visitors, sessions, sent, carts, likes, dislikes, conversion:sessions ? Math.round((sent/sessions)*100) : 0 }
   }, [events])
 
+  const sourceRows=useMemo(()=>{const map=new Map();events.forEach(e=>{const source=e.metadata?.source||'Directo / otro';const row=map.get(source)||{visits:0,orders:0};if(e.event_type==='catalog_visit')row.visits++;if(e.event_type==='order_sent')row.orders++;map.set(source,row)});return [...map.entries()].sort((a,b)=>b[1].orders-a[1].orders)},[events])
+
   const viewed = topRows(events, 'product_name', ['product_view'])
   const added = topRows(events, 'product_name', ['cart_add'])
   const ordered = topRows(events, 'product_name', ['order_product'])
@@ -208,6 +210,8 @@ export default function Analytics({ db }) {
       </div>
       <section className="panel catalog-stat-callout"><div><small>MODELO MÁS VENDIDO</small><b>{summary.bestSeller?.soldPeriod ? summary.bestSeller.name : 'Sin ventas en el período'}</b><span>{summary.bestSeller?.soldPeriod || 0} unidades</span></div><div><small>MAYOR ROTACIÓN · 30 DÍAS</small><b>{summary.fastest?.sold30 ? summary.fastest.name : 'Sin datos suficientes'}</b><span>{summary.fastest?.sold30 || 0} unidades</span></div></section>
     </>}
+
+    {tab === 'web' && <section className="panel"><h3>Origen de visitas y pedidos</h3><p className="muted">Usá enlaces con <b>?src=tiktok</b>, <b>?src=instagram</b> o <b>?src=whatsapp</b>. El catálogo guarda el origen de la visita y del pedido.</p><div className="table-wrap"><table><thead><tr><th>Origen</th><th>Visitas</th><th>Pedidos enviados</th><th>Conversión</th></tr></thead><tbody>{sourceRows.map(([source,row])=><tr key={source}><td><b>{source}</b></td><td>{row.visits}</td><td>{row.orders}</td><td>{row.visits?Math.round(row.orders/row.visits*100):0}%</td></tr>)}{!sourceRows.length&&<tr><td colSpan="4">Todavía no hay datos.</td></tr>}</tbody></table></div></section>}
 
     {tab === 'products' && <section className="panel table-wrap catalog-stats-table"><table><thead><tr><th>Producto</th><th>Ventas</th><th>Stock</th><th>Pendiente</th><th>En corte</th><th>Rotación</th><th>Última venta</th><th>Sugerencia</th></tr></thead><tbody>
       {filteredRows.sort((a,b)=>b.soldPeriod-a.soldPeriod).map(row => <tr key={row.id}><td><b>{row.name}</b><small className="block">{row.category} · {row.svgCount} SVG</small></td><td><b>{row.soldPeriod}</b><small className="block">{row.orderCount} pedidos · {money(row.revenuePeriod)}</small></td><td><b className={row.net < 0 ? 'red-text' : 'green-text'}>{row.available}</b><small className="block">Neto comprometido: {row.net}</small></td><td className={row.pending ? 'red-text big' : ''}>{row.pending}</td><td>{row.inCut}</td><td><span className={`rotation-badge ${row.rotation.className}`}>{row.rotation.label}</span><small className="block">30 días: {row.sold30} ({row.trend>0?'+':''}{row.trend}%)</small></td><td>{row.lastSale || 'Sin ventas'}<small className="block">{row.daysSinceSale === null ? '' : `Hace ${plural(row.daysSinceSale,'día')}`}</small></td><td><b>{row.suggested ? `Producir ${row.suggested}` : 'No producir'}</b><small className="block">Ideal: {row.targetStock}</small></td></tr>)}

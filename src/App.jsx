@@ -20,6 +20,7 @@ import Analytics from './pages/Analytics'
 import WebRequests from './pages/WebRequests'
 import AttentionCenter from './pages/AttentionCenter'
 import CatalogAssistant from './pages/CatalogAssistant'
+import CustomerTrust from './pages/CustomerTrust'
 import Quotes from './pages/Quotes'
 import ProductionCalendar from './pages/ProductionCalendar'
 import SheetPlanner from './pages/SheetPlanner'
@@ -111,7 +112,7 @@ export default function App(){
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['manualsale','＄','Venta manual'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
     ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','▧','Diseñar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
-    ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
+    ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['trust','⭐','Fotos y reseñas'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
   ]
@@ -150,6 +151,7 @@ export default function App(){
         {page==='assistant' && <CatalogAssistant db={db} onSave={saveData}/>} 
         {page==='attention' && <AttentionCenter db={db} onSave={saveData}/>} 
         {page==='webrequests' && <WebRequests db={db} onSave={saveData}/>} 
+        {page==='trust' && <CustomerTrust db={db} onSave={saveData}/>} 
         {page==='catalog' && <CatalogAdmin db={db} onSave={saveData}/>} 
         {page==='analytics' && <Analytics db={db}/>} 
         {page==='expenses' && <Expenses db={db} onSave={saveData}/>} 

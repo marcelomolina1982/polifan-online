@@ -1,0 +1,19 @@
+POLIFAN ONLINE v23.2.0
+
+CORRECCIÓN ESTRUCTURAL DEL VALIDADOR
+- Búsqueda geométrica: 10 px/cm.
+- Validación final: 14 px/cm.
+- Se detectó que usar exactamente la misma separación en ambas resoluciones podía provocar falsos rechazos por redondeo.
+- La búsqueda ahora reserva 0,4 mm adicionales.
+- La validación final sigue exigiendo exactamente la separación elegida por el usuario: 3,0 mm recomendado o 2,5 mm mínimo.
+- No se reducen tamaños ni separación real.
+
+MOTOR
+- Un único motor local.
+- Beam search por kit completo tapa+base.
+- Variantes de subconjuntos de 10 antes de aceptar menos.
+- Rotaciones 15°, 10° y refinamiento 5°.
+- Resultado <10 sigue bloqueado para Enviar a corte.
+- Diagnóstico detallado si la validación fina rechaza el mejor acomodo.
+
+Se mantienen Placa doble y Venta manual.

@@ -8,7 +8,7 @@ export const figuresDefault = [
 ]
 
 export const emptyState = () => ({
-  orders: [], movements: [], stockMin: {}, figures: figuresDefault, clients: [], cutBatches: [], incomes: [], expenses: [], customerSettings: { whatsapp:'', businessName:'Tu Vida En Tinta' }, customerCatalog: [], svgLibrary: [], generatedSheets: [], productionClosedDates: [], attentionMessages: [], attentionTemplates: {}, quotes: []
+  orders: [], movements: [], stockMin: {}, figures: figuresDefault, clients: [], cutBatches: [], incomes: [], expenses: [], customerSettings: { whatsapp:'', businessName:'Tu Vida En Tinta' }, customerCatalog: [], svgLibrary: [], generatedSheets: [], productionClosedDates: [], attentionMessages: [], attentionTemplates: {}, quotes: [], customerReviews: [], customerPhotos: []
 })
 
 export const statusColors = {

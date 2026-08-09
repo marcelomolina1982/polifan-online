@@ -1,0 +1,11 @@
+POLIFAN ONLINE v23.3.0 — MEJORAS OPERATIVAS (SIN CAMBIAR EL MOTOR)
+
+Incluye:
+- Cajas necesarias para los próximos 7 días, agrupadas por medida.
+- Nueva administración Fotos y reseñas, visibles en el catálogo público.
+- Origen de catálogo/pedido por enlaces ?src=tiktok, ?src=instagram, ?src=whatsapp.
+- Ventas manuales con datos completos del cliente y precio unitario por producto.
+- Figura especial: máximo 1 por pedido, con descripción, sumada como una pieza regular estimada.
+- Corrección asistente: Juli desde el primer render usando la configuración cacheada; se elimina el parpadeo Mía -> Juli.
+
+IMPORTANTE: esta versión mantiene el motor de nesting de v23.2.0. Las mejoras del motor se siguen validando por separado.
