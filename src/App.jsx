@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import OrderForm from './pages/OrderForm'
 import Orders from './pages/Orders'
+import OrdersFinance from './pages/OrdersFinance'
 import ManualSale from './pages/ManualSale'
 import CutList from './pages/CutList'
 import CutBatches from './pages/CutBatches'
@@ -120,7 +121,7 @@ export default function App(){
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
       <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN {APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div>
-      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
+      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
 
@@ -137,7 +138,7 @@ export default function App(){
       <main>
         {page==='dashboard' && <Dashboard db={db} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='new' && <OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} 
-        {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>}
+        {page==='orders' && <><Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/><OrdersFinance db={db}/></>}
         {page==='manualsale' && <ManualSale db={db} onSave={saveData}/>}  
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
