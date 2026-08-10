@@ -8,7 +8,7 @@ export default async function handler(req,res){
   try{
     const controller=new AbortController()
     const timeout=setTimeout(()=>controller.abort(),285000)
-    const r=await fetch(base+'/nest-v5',{
+    const r=await fetch(base+'/nest-nfp',{
       method:'POST',
       headers:{'content-type':'application/json'},
       body:JSON.stringify(req.body||{}),
@@ -20,7 +20,7 @@ export default async function handler(req,res){
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
     return res.send(text)
   }catch(e){
-    const reason=e?.name==='AbortError'?'El Motor V5 superó el tiempo máximo de cálculo.':e?.message||String(e)
-    return res.status(502).json({ok:false,error:'No se pudo conectar con el Motor V5 en Render: '+reason})
+    const reason=e?.name==='AbortError'?'El Motor NFP superó el tiempo máximo de cálculo.':e?.message||String(e)
+    return res.status(502).json({ok:false,error:'No se pudo conectar con el Motor NFP en Render: '+reason})
   }
 }
