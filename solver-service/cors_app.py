@@ -1,9 +1,9 @@
-from nest_v4 import app
+from nest_v5 import app
 from flask_cors import CORS
 
-# Compatibilidad inmediata: la app actual sigue llamando /nest-v3,
-# pero esa ruta ejecuta desde ahora Motor V4 progresivo.
-if 'nest_v4' in app.view_functions and 'nest_v3' in app.view_functions:
-    app.view_functions['nest_v3']=app.view_functions['nest_v4']
+# La app conserva la ruta historica /nest-v3, pero desde ahora ejecuta
+# Motor V5 geometrico directo (sin PackingSolver para decidir posiciones).
+if 'nest_v5' in app.view_functions and 'nest_v3' in app.view_functions:
+    app.view_functions['nest_v3']=app.view_functions['nest_v5']
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
