@@ -140,7 +140,7 @@ export default function App(){
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>}
         {page==='manualsale' && <ManualSale db={db} onSave={saveData}/>}  
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
-        {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
+        {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')} goMotor={()=>setPage('sheetplanner')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='sheetplanner' && <MotorDefinitivo db={db} onSave={saveData}/>} 
         {page==='svganalyzer' && <SvgAnalyzer db={db} onSave={saveData}/>} 
