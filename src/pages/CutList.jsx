@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 
@@ -12,28 +12,11 @@ function groupedPendingByDelivery(db){
   return pendingCutByDelivery(db)
 }
 
-function isLegacySuggestedBatch(batch){
-  const number=String(batch?.number||'').replace(/\D/g,'')
-  const name=String(batch?.name||'').trim().toLowerCase()
-  const notes=String(batch?.notes||'').trim().toLowerCase()
-  return number==='038' || name==='placa sugerida 2026-08-10' || (name.startsWith('placa sugerida')&&notes.includes('generada automáticamente'))
-}
-
-export default function CutList({db,onSave,goMotor}){
+export default function CutList({db,goMotor}){
   const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
   const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
   const [selectedDate,setSelectedDate]=useState('')
-  const cleanupStarted=useRef(false)
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
-
-  useEffect(()=>{
-    if(cleanupStarted.current)return
-    const batches=db.cutBatches||[]
-    const legacy=batches.filter(isLegacySuggestedBatch)
-    if(!legacy.length)return
-    cleanupStarted.current=true
-    onSave({...db,cutBatches:batches.filter(b=>!isLegacySuggestedBatch(b))})
-  },[db,onSave])
 
   function printDailyList(){
     if(!visibleGroups.length) return alert('No hay piezas pendientes para la fecha seleccionada.')
