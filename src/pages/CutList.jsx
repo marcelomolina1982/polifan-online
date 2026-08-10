@@ -12,6 +12,13 @@ function groupedPendingByDelivery(db){
   return pendingCutByDelivery(db)
 }
 
+function isLegacySuggestedBatch(batch){
+  const number=String(batch?.number||'').replace(/\D/g,'')
+  const name=String(batch?.name||'').trim().toLowerCase()
+  const notes=String(batch?.notes||'').trim().toLowerCase()
+  return number==='038' || name==='placa sugerida 2026-08-10' || (name.startsWith('placa sugerida')&&notes.includes('generada automáticamente'))
+}
+
 export default function CutList({db,onSave,goMotor}){
   const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
   const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
@@ -19,16 +26,13 @@ export default function CutList({db,onSave,goMotor}){
   const cleanupStarted=useRef(false)
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
-  // Corrección puntual: la antigua acción “Crear placa sugerida” metió todo lo
-  // pendiente en corte. Se elimina exclusivamente la placa automática #038
-  // creada el 10/08/2026 para que esas piezas vuelvan inmediatamente a pendientes.
   useEffect(()=>{
     if(cleanupStarted.current)return
     const batches=db.cutBatches||[]
-    const bad=batches.find(b=>String(b.number)==='038'&&b.name==='Placa sugerida 2026-08-10'&&b.notes==='Generada automáticamente desde las piezas pendientes.')
-    if(!bad)return
+    const legacy=batches.filter(isLegacySuggestedBatch)
+    if(!legacy.length)return
     cleanupStarted.current=true
-    onSave({...db,cutBatches:batches.filter(b=>b.id!==bad.id)})
+    onSave({...db,cutBatches:batches.filter(b=>!isLegacySuggestedBatch(b))})
   },[db,onSave])
 
   function printDailyList(){
@@ -39,9 +43,7 @@ export default function CutList({db,onSave,goMotor}){
       return `<section><h2>Entrega: ${dateLabel(g.date)}</h2><p class="orders">Pedidos: ${g.orders.map(n=>'#'+n).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th>Total</th><th>${total}</th></tr></tfoot></table></section>`
     }).join('')
     const win=window.open('','_blank')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>
-      @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}
-    </style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada según pedidos, inventario disponible y piezas registradas en corte.</p><script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}</style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada según pedidos, inventario disponible y piezas registradas en corte.</p><script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
   }
 
@@ -61,9 +63,7 @@ export default function CutList({db,onSave,goMotor}){
     <div className="delivery-groups">
       {visibleGroups.map(g=><div className="panel delivery-group" key={g.key}>
         <div className="delivery-head"><div><small>FECHA DE ENTREGA</small><h3>{dateLabel(g.date)}</h3><span>Pedidos: {g.orders.map(n=>'#'+n).join(', ')}</span></div><b>{g.rows.reduce((a,r)=>a+r.qty,0)} piezas</b></div>
-        <div className="table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad a cortar</th></tr></thead><tbody>
-          {g.rows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td className="big">{r.qty}</td></tr>)}
-        </tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad a cortar</th></tr></thead><tbody>{g.rows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td className="big">{r.qty}</td></tr>)}</tbody></table></div>
       </div>)}
       {!visibleGroups.length&&<div className="panel">No hay piezas pendientes para la fecha seleccionada.</div>}
     </div>
