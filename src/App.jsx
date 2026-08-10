@@ -28,6 +28,19 @@ import SvgLibrary from './pages/SvgLibrary'
 import SvgAnalyzer from './pages/SvgAnalyzer'
 import { APP_VERSION_LABEL, APP_UPDATED_AT } from './version'
 
+function removeBadSuggestedBatch(state){
+  const next={...emptyState(),...(state||{})}
+  const batches=Array.isArray(next.cutBatches)?next.cutBatches:[]
+  const kept=batches.filter(batch=>{
+    const number=String(batch?.number??'').replace(/\D/g,'').replace(/^0+/,'')
+    const name=String(batch?.name??'').trim().toLowerCase()
+    const exactBadName=name==='placa sugerida 2026-08-10'
+    const badNumberAndName=number==='38' && name.includes('placa sugerida')
+    return !(exactBadName||badNumberAndName)
+  })
+  return {state:{...next,cutBatches:kept},changed:kept.length!==batches.length}
+}
+
 export default function App(){
   const params = new URLSearchParams(window.location.search)
   const controlMode = params.get('control')
@@ -35,7 +48,12 @@ export default function App(){
   if(controlMode) return <OrderControl />
   if(customerMode) return <CustomerOrder />
   const [session,setSession] = useState(null)
-  const cachedState = (()=>{ try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null} })()
+  const cachedState = (()=>{
+    try{
+      const raw=JSON.parse(localStorage.getItem('polifan-app-cache')||'null')
+      return raw?removeBadSuggestedBatch(raw).state:null
+    }catch{return null}
+  })()
   const [db,setDb] = useState(cachedState ? {...emptyState(),...cachedState} : emptyState())
   const [loading,setLoading] = useState(!cachedState)
   const [saving,setSaving] = useState(false)
@@ -69,7 +87,18 @@ export default function App(){
       setLoading(false)
       return
     }
-    const next=data?.data ? {...emptyState(),...data.data} : emptyState()
+    const loaded=data?.data ? {...emptyState(),...data.data} : emptyState()
+    const cleaned=removeBadSuggestedBatch(loaded)
+    const next=cleaned.state
+
+    if(cleaned.changed){
+      const updatedAt=new Date().toISOString()
+      const {error:cleanupError}=await supabase.from('app_state').upsert({
+        id:'main',data:next,updated_at:updatedAt
+      },{onConflict:'id'})
+      if(cleanupError && !silent) alert('No se pudo eliminar la placa sugerida #038: '+cleanupError.message)
+    }
+
     setDb(next)
     try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}
     setLoading(false)
@@ -78,9 +107,10 @@ export default function App(){
   async function saveData(next){
     setSaving(true)
     const previous=db
+    const cleaned=removeBadSuggestedBatch(next).state
     const updatedAt=new Date().toISOString()
     const {data:saved,error} = await supabase.from('app_state').upsert({
-      id:'main', data:next, updated_at:updatedAt, updated_by:session.user.id
+      id:'main', data:cleaned, updated_at:updatedAt, updated_by:session.user.id
     },{onConflict:'id'}).select('data,updated_at').single()
     setSaving(false)
     if(error){
@@ -88,7 +118,7 @@ export default function App(){
       alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+error.message)
       return {ok:false,error}
     }
-    const confirmed=saved?.data ? {...emptyState(),...saved.data} : next
+    const confirmed=saved?.data ? removeBadSuggestedBatch(saved.data).state : cleaned
     setDb(confirmed)
     try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
     return {ok:true,updatedAt:saved?.updated_at||updatedAt}
@@ -120,7 +150,7 @@ export default function App(){
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
       <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN {APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div>
-      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
+      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
 
