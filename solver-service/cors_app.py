@@ -1,4 +1,4 @@
-from extended_app import app
+from nest_v3 import app
 from flask_cors import CORS
 
 # Permitir que la app web en Vercel llame directamente al solver de Render.
