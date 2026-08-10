@@ -1,0 +1,83 @@
+name: Build Sparrow WASM Polifan
+
+on:
+  push:
+    branches:
+      - lab/sparrow-wasm-3mm
+    paths:
+      - '.github/workflows/build-sparrow-wasm-polifan.yml'
+      - 'sparrow-polifan/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Polifan
+        uses: actions/checkout@v4
+
+      - name: Checkout sparroWASM upstream
+        uses: actions/checkout@v4
+        with:
+          repository: JeroenGar/sparroWASM
+          path: upstream-sparrow
+          submodules: recursive
+
+      - name: Configure exact Polifan 3mm separation
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('upstream-sparrow/src/sparrow.rs')
+          s=p.read_text()
+          needle='let mut config = DEFAULT_SPARROW_CONFIG;'
+          repl='let mut config = DEFAULT_SPARROW_CONFIG;\n    // POLIFAN: 3.0 mm fixed production separation enforced by jagua-rs.\n    config.min_item_separation = Some(3.0);'
+          if needle not in s:
+              raise SystemExit('upstream patch point not found')
+          p.write_text(s.replace(needle,repl,1))
+
+      - name: Assert 3mm patch
+        run: grep -F 'config.min_item_separation = Some(3.0);' upstream-sparrow/src/sparrow.rs
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Install dependencies
+        working-directory: upstream-sparrow
+        run: npm ci
+
+      - name: Build custom Sparrow WASM
+        working-directory: upstream-sparrow
+        run: |
+          wasm-pack build --target web --release
+          npm run build
+
+      - name: Inventory build assets
+        run: |
+          find upstream-sparrow/dist -maxdepth 2 -type f -printf '%P %s bytes\n' | sort
+          test -n "$(find upstream-sparrow/dist -name '*.wasm' -print -quit)"
+          test -n "$(find upstream-sparrow/dist -name 'algorithmWorker-*.js' -print -quit)"
+
+      - name: Upload custom build
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparrow-wasm-polifan-3mm
+          path: upstream-sparrow/dist/
+          if-no-files-found: error
+          retention-days: 7
