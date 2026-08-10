@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Polifan Sparrow WASM Lab</title>
+<pre id="status">starting</pre>
+<script type="module">
+const status=document.getElementById('status');
+window.POLIFAN_LAB={started:true,crossOriginIsolated:self.crossOriginIsolated,sharedArrayBuffer:typeof SharedArrayBuffer!=='undefined'};
+try{
+  const manifest=await fetch('/sparroWASM/polifan-manifest.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('manifest '+r.status);return r.json()});
+  const input=await fetch('/sparroWASM/assets/shapes0.json',{cache:'no-store'}).then(r=>r.text());
+  const workerUrl='/sparroWASM/assets/'+manifest.algorithm_worker;
+  const worker=new Worker(workerUrl,{type:'module'});
+  window.POLIFAN_LAB.manifest=manifest;
+  const timer=setTimeout(()=>{window.POLIFAN_LAB.error='timeout';status.textContent=JSON.stringify(window.POLIFAN_LAB,null,2)},30000);
+  worker.onmessage=e=>{
+    const d=e.data;
+    if(Array.isArray(d))return;
+    if(d?.type==='finished'){
+      clearTimeout(timer);
+      window.POLIFAN_LAB.finished=true;
+      window.POLIFAN_LAB.resultSvg=d.result;
+      const doc=new DOMParser().parseFromString(d.result,'image/svg+xml');
+      window.POLIFAN_LAB.placed=doc.querySelectorAll('use').length;
+      status.textContent=JSON.stringify({...window.POLIFAN_LAB,resultSvg:`${d.result.length} chars`},null,2);
+      worker.terminate();
+    }else if(d?.type==='error'){
+      clearTimeout(timer);window.POLIFAN_LAB.error=String(d.message||'worker error');status.textContent=JSON.stringify(window.POLIFAN_LAB,null,2);
+    }
+  };
+  worker.onerror=e=>{clearTimeout(timer);window.POLIFAN_LAB.error=String(e.message||'worker exception');status.textContent=JSON.stringify(window.POLIFAN_LAB,null,2)};
+  worker.postMessage({type:'start',payload:{nWorkers:2,showLogsInstant:false,input,optimizationAlgo:'sparrow',showPreviewSvg:false,timeLimit:8,seed:4242n,useEarlyTermination:true}});
+}catch(e){window.POLIFAN_LAB.error=String(e?.stack||e);status.textContent=JSON.stringify(window.POLIFAN_LAB,null,2)}
+</script>
