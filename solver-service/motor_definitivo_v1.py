@@ -116,11 +116,22 @@ def T_rotate(deg,cx,cy):
     a=math.radians(deg);c,s=math.cos(a),math.sin(a);R=np.array([[c,-s,0.],[s,c,0.],[0.,0.,1.]])
     return T_translate(cx,cy)@R@T_translate(-cx,-cy)
 
+def project_inside(p):
+    """Traslada una pieza lo mínimo indispensable para dejarla íntegramente dentro de la placa."""
+    q=p.clone();x0,y0,x1,y1=q.geom.bounds;dx=dy=0.0
+    if x0<0:dx=-x0
+    elif x1>PLATE_W:dx=PLATE_W-x1
+    if y0<0:dy=-y0
+    elif y1>PLATE_H:dy=PLATE_H-y1
+    if dx or dy:
+        q.geom=affinity.translate(q.geom,dx,dy);q.matrix=T_translate(dx,dy)@q.matrix
+    return q
+
 def compact_seed(pieces):
     allg=unary_union([p.geom for p in pieces]);minx,miny,maxx,maxy=allg.bounds;spanx,spany=maxx-minx,maxy-miny;ex=max(0.,spanx-PLATE_W);out=[]
     for p in pieces:
         q=p.clone();cx=q.geom.centroid.x;frac=(cx-minx)/spanx if spanx else 0;dx=-minx-ex*frac;dy=-miny+max(0.,(PLATE_H-spany)/2)
-        q.geom=affinity.translate(q.geom,dx,dy);q.matrix=T_translate(dx,dy)@q.matrix;out.append(q)
+        q.geom=affinity.translate(q.geom,dx,dy);q.matrix=T_translate(dx,dy)@q.matrix;out.append(project_inside(q))
     return out
 
 def bbox_dist(a,b):
@@ -148,15 +159,35 @@ def degrees(pieces,gap):
             if a.geom.distance(pieces[j].geom)<gap:d[i]+=1;d[j]+=1
     return d
 
+def conflict_push(cur,i,gap,rng,strength):
+    """Empuje dirigido: aleja la pieza elegida del centroide de sus bloqueadores."""
+    g=cur[i].geom;c=g.centroid;vx=vy=0.0;n=0
+    for j,p in enumerate(cur):
+        if j==i:continue
+        d=g.distance(p.geom)
+        if d<gap:
+            oc=p.geom.centroid;dx=c.x-oc.x;dy=c.y-oc.y;L=math.hypot(dx,dy) or 1.0
+            vx+=dx/L;vy+=dy/L;n+=1
+    if not n:return rng.gauss(0,strength),rng.gauss(0,strength)
+    L=math.hypot(vx,vy) or 1.0
+    return vx/L*strength+rng.gauss(0,.35),vy/L*strength+rng.gauss(0,.35)
+
 def anneal(pieces,gap,seconds,seed):
-    cur=[p.clone() for p in pieces];best=[p.clone() for p in cur];cs=evaluate(cur,gap);bs=cs;rng=random.Random(seed);start=time.time();iters=0
+    cur=[project_inside(p) for p in pieces];best=[p.clone() for p in cur];cs=evaluate(cur,gap);bs=cs;rng=random.Random(seed);start=time.time();iters=0
     while time.time()-start<seconds:
         iters+=1;deg=degrees(cur,gap)
-        i=rng.choices(range(len(cur)),weights=[1+x*x for x in deg],k=1)[0] if max(deg,default=0)>0 and rng.random()<.82 else rng.randrange(len(cur))
-        old=cur[i].clone();c=old.geom.centroid;e=(time.time()-start)/seconds;sc=max(.2,3*(1-e));dx,dy=rng.gauss(0,sc),rng.gauss(0,sc);ang=rng.choice([0,0,0,0,-1,-.5,.5,1,-2,2]);q=old.clone();M=np.eye(3)
+        i=rng.choices(range(len(cur)),weights=[1+x*x for x in deg],k=1)[0] if max(deg,default=0)>0 and rng.random()<.88 else rng.randrange(len(cur))
+        old=cur[i].clone();c=old.geom.centroid;e=(time.time()-start)/seconds
+        # Movimientos grandes al principio para escapar de mínimos locales; finos al final.
+        sc=max(.25,8.0*(1-e)**1.7)
+        if deg[i]>0 and rng.random()<.68:dx,dy=conflict_push(cur,i,gap,rng,sc)
+        else:dx,dy=rng.gauss(0,sc),rng.gauss(0,sc)
+        ang=rng.choice([0,0,0,0,-.5,.5,-1,1,-1.5,1.5,-2,2]);q=old.clone();M=np.eye(3)
         if ang:q.geom=affinity.rotate(q.geom,ang,origin=(c.x,c.y));M=T_rotate(ang,c.x,c.y)@M
-        q.geom=affinity.translate(q.geom,dx,dy);M=T_translate(dx,dy)@M;q.matrix=M@q.matrix;cur[i]=q
-        ns=evaluate(cur,gap);delta=ns[0]-cs[0];temp=max(.05,8*(1-e))
+        q.geom=affinity.translate(q.geom,dx,dy);M=T_translate(dx,dy)@M;q.matrix=M@q.matrix
+        # Regla nueva: ningún candidato puede permanecer fuera de la placa.
+        q=project_inside(q);cur[i]=q
+        ns=evaluate(cur,gap);delta=ns[0]-cs[0];temp=max(.05,10*(1-e))
         if delta<=0 or rng.random()<math.exp(-delta/temp):
             cs=ns
             if (ns[1]+ns[2],ns[0])<(bs[1]+bs[2],bs[0]):best=[p.clone() for p in cur];bs=ns
@@ -186,15 +217,15 @@ def validate(svg_path,ppm=4.0):
     ev=evaluate(pieces,MIN_GAP)
     return {'valid':ev[1]==0 and ev[2]==0,'piece_count':len(pieces),'conflicts':ev[1],'border_conflicts':ev[2],'min_gap_mm':ev[3],'validation_ppm':ppm,'gap_required_mm':MIN_GAP}
 
-def solve_file(inp,outdir,seconds3=6.,seconds25=10.):
+def solve_file(inp,outdir,seconds3=8.,seconds25=14.):
     t0=time.time();root,defs,pieces,collapsed=extract(inp,1.0)
     if not pieces:return {'archivo':inp.name,'status':'SIN_GEOMETRIA','seconds':round(time.time()-t0,3)}
     base=compact_seed(pieces);attempts=[]
     def try_gap(final_gap,seconds):
         gap=final_gap+SEARCH_SAFETY;ev=evaluate(base,gap)
         if ev[1]==0 and ev[2]==0:return [p.clone() for p in base],ev
-        best=None;best_ev=ev;per=max(.35,seconds/3)
-        for s in (17,43,101):
+        best=None;best_ev=ev;per=max(.5,seconds/4)
+        for s in (17,43,101,211):
             cand,cev,meta=anneal(base,gap,per,s);attempts.append({'gap':final_gap,'eval':cev,'meta':meta})
             if (cev[1]+cev[2],cev[0])<(best_ev[1]+best_ev[2],best_ev[0]):best,best_ev=cand,cev
             if cev[1]==0 and cev[2]==0:return cand,cev
@@ -202,11 +233,11 @@ def solve_file(inp,outdir,seconds3=6.,seconds25=10.):
     sol,ev=try_gap(PREFERRED_GAP,seconds3);used=PREFERRED_GAP
     if sol is None or ev[1] or ev[2]:sol,ev=try_gap(MIN_GAP,seconds25);used=MIN_GAP
     if sol is None or ev[1] or ev[2]:return {'archivo':inp.name,'status':'NO_RESUELTO','pieces':len(pieces),'collapsed_internal':collapsed,'conflicts':ev[1],'border_conflicts':ev[2],'min_gap_mm':ev[3],'attempts':attempts,'seconds':round(time.time()-t0,3)}
-    out=outdir/(inp.stem+'__POLIFAN_OK.svg');export(defs,sol,out,{'engine':'Motor Polifan Definitivo V1','source':inp.name,'plate_mm':[PLATE_W,PLATE_H],'target_gap_used_mm':used,'scale':'1:1','piece_count':len(pieces),'collapsed_internal_details':collapsed})
+    out=outdir/(inp.stem+'__POLIFAN_OK.svg');export(defs,sol,out,{'engine':'Motor Polifan Definitivo V1.1','source':inp.name,'plate_mm':[PLATE_W,PLATE_H],'target_gap_used_mm':used,'scale':'1:1','piece_count':len(pieces),'collapsed_internal_details':collapsed})
     val=validate(out,4.0);status='CERTIFICADO' if val['valid'] and val['piece_count']==len(pieces) else 'EXPORT_RECHAZADO'
     return {'archivo':inp.name,'status':status,'pieces':len(pieces),'collapsed_internal':collapsed,'search_gap_used_mm':used,'search_min_gap_mm':ev[3],'validation':val,'output':str(out),'attempts':attempts,'seconds':round(time.time()-t0,3)}
 
-def solve_svg_text(svg_text:str,filename:str='placa.svg',seconds3:float=6.,seconds25:float=10.):
+def solve_svg_text(svg_text:str,filename:str='placa.svg',seconds3:float=8.,seconds25:float=14.):
     with tempfile.TemporaryDirectory(prefix='polifan_def_') as td:
         base=Path(td);safe=Path(filename or 'placa.svg').name
         if not safe.lower().endswith('.svg'):safe+='.svg'
