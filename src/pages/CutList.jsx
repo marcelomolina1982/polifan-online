@@ -13,7 +13,7 @@ function groupedPendingByDelivery(db){
   return pendingCutByDelivery(db)
 }
 
-export default function CutList({db,onSave,goBatches}){
+export default function CutList({db,onSave,goBatches,goMotor}){
   const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
   const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
   const [selectedDate,setSelectedDate]=useState('')
@@ -50,7 +50,7 @@ export default function CutList({db,onSave,goBatches}){
   }
 
   return <>
-    <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={createSuggested}>Crear placa sugerida</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
+    <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={goMotor}>Motor definitivo V1.7</button><button className="ghost" onClick={createSuggested}>Crear placa sugerida</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
     <div className="notice"><b>Cálculo automático</b><span>El stock y las piezas en corte se aplican primero a las entregas más próximas.</span></div>
 
     <div className="panel filters cut-date-filter">
