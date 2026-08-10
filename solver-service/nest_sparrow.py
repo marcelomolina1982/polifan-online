@@ -7,10 +7,14 @@ import json, os, subprocess, tempfile, time
 SPARROW_BIN=os.environ.get('SPARROW_BIN','/usr/local/bin/sparrow')
 PLATE_WIDTH_MM=1220.0
 PLATE_HEIGHT_MM=580.0
+PLATE_AREA_MM2=PLATE_WIDTH_MM*PLATE_HEIGHT_MM
 MIN_COMPLETE=10
 HIGH_DENSITY_COMPLETE=9
 HIGH_DENSITY_MIN=72.0
-ANGLES=[float(a) for a in range(0,360,15)]
+TARGET_DENSITY=80.0
+MAX_COMPLETE=16
+ANGLES_15=[float(a) for a in range(0,360,15)]
+TOTAL_BUDGET_SECONDS=245
 
 
 def _priority(k):
@@ -48,11 +52,13 @@ def _prep_part(part,kit_id,figure):
     geom,trimx,trimy=svg_to_geometry(part.get('svgText') or '',wcm,hcm,solver_tolerance_mm=.22,max_vertices=320)
     if geom.is_empty: raise ValueError('geometría vacía')
     if not geom.is_valid: geom=geom.buffer(0)
+    minx,miny,maxx,maxy=geom.bounds
+    envelope=max(1.0,(maxx-minx)*(maxy-miny))
     return {
         'instanceId':str(part.get('instanceId') or ''),'kitId':str(kit_id),'figure':str(figure),
         'name':str(part.get('name') or ''),'role':str(part.get('role') or 'simple'),
         'geom':geom,'shape':_shape(geom),'trimXmm':float(trimx),'trimYmm':float(trimy),
-        'area':float(geom.area or 0)
+        'area':float(geom.area or 0),'envelope':float(envelope)
     }
 
 
@@ -63,32 +69,54 @@ def _prep_kit(kit,width_mm,height_mm):
     fig=str(kit.get('figure') or '')
     parts=[_prep_part(p,kid,fig) for p in (kit.get('parts') or [])]
     if not parts: raise ValueError('sin componentes')
-    return {'kitId':kid,'figure':fig,'priority':_priority(kit),'parts':parts,'area':sum(p['area'] for p in parts)}
+    area=sum(p['area'] for p in parts)
+    envelope=sum(p['envelope'] for p in parts)
+    solidity=area/max(1.0,envelope)
+    return {'kitId':kid,'figure':fig,'priority':_priority(kit),'parts':parts,'area':area,'envelope':envelope,'solidity':solidity}
 
 
-def _candidate_sets(kits):
-    pool=kits[:24]
-    sets=[]
-    def add(rows,label):
-        if len(rows)<9:return
-        key=tuple(k['kitId'] for k in rows)
-        if any(tuple(k['kitId'] for k in s[0])==key for s in sets):return
-        sets.append((rows,label))
-    add(pool[:10],'10 urgentes')
-    if len(pool)>=10:
-        head=pool[:4]
-        rest=sorted(pool[4:],key=lambda k:(k['area'],k['priority']))
-        add((head+rest)[:10],'10 urgentes + compactas')
-    add(pool[:9],'9 urgentes')
-    return sets
+def _unique_rows(rows):
+    seen=set();out=[]
+    for k in rows:
+        kid=k['kitId']
+        if kid in seen: continue
+        seen.add(kid);out.append(k)
+    return out
 
 
-def _run_sparrow(selected,gap_mm,seconds,seed):
+def _balanced_selection(kits,target):
+    if len(kits)<target:return []
+    # Mantiene mayoría de urgentes y usa el resto para subir área aprovechada.
+    urgent_count=min(target,max(6,int(round(target*.58))))
+    head=kits[:urgent_count]
+    tail=kits[urgent_count:28]
+    dense=sorted(tail,key=lambda k:(-k['area'],-k['solidity'],k['priority']))
+    return _unique_rows(head+dense)[:target]
+
+
+def _compact_selection(kits,target):
+    if len(kits)<target:return []
+    urgent_count=min(target,max(6,int(round(target*.58))))
+    head=kits[:urgent_count]
+    tail=kits[urgent_count:28]
+    compact=sorted(tail,key=lambda k:(-k['solidity'],k['envelope'],-k['area'],k['priority']))
+    return _unique_rows(head+compact)[:target]
+
+
+def _selection_density(rows):
+    return 100.0*sum(k['area'] for k in rows)/PLATE_AREA_MM2 if rows else 0.0
+
+
+def _run_sparrow(selected,gap_mm,seconds,seed,continuous=False):
     started=time.time()
     items=[]; idmap={}; item_id=0
     for kit in selected:
         for part in kit['parts']:
-            items.append({'id':item_id,'demand':1,'allowed_orientations':ANGLES,'shape':part['shape']})
+            row={'id':item_id,'demand':1,'shape':part['shape']}
+            # Jagua/Sparrow usa rotación continua cuando allowed_orientations no se especifica.
+            if not continuous:
+                row['allowed_orientations']=ANGLES_15
+            items.append(row)
             idmap[item_id]=part
             item_id+=1
     instance={'name':'polifan','items':items,'strip_height':PLATE_HEIGHT_MM}
@@ -120,17 +148,36 @@ def _run_sparrow(selected,gap_mm,seconds,seed):
             'trimXCm':part['trimXmm']/10.0,'trimYCm':part['trimYmm']/10.0
         })
     all_parts=len(placements)==len(items)
-    density=100.0*sum(k['area'] for k in selected)/(PLATE_WIDTH_MM*PLATE_HEIGHT_MM)
+    density=_selection_density(selected)
     fits=all_parts and strip_width<=PLATE_WIDTH_MM+0.5
     return {'ok':True,'fits':fits,'stripWidthMm':strip_width,'density':density,'placements':placements,
             'elapsedSeconds':round(time.time()-started,2),'solverDensity':float(sol.get('density') or 0)*100.0,
-            'runTimeSec':sol.get('run_time_sec'),'placedParts':len(placements),'expectedParts':len(items)}
+            'runTimeSec':sol.get('run_time_sec'),'placedParts':len(placements),'expectedParts':len(items),
+            'continuousRotation':bool(continuous)}
+
+
+def _production_ready(target,result):
+    return bool(result.get('fits')) and (target>=MIN_COMPLETE or (target==HIGH_DENSITY_COMPLETE and float(result.get('density') or 0)>=HIGH_DENSITY_MIN))
+
+
+def _score(target,result):
+    # La prioridad principal desde esta versión es el aprovechamiento real de la placa.
+    return (float(result.get('density') or 0),target,-float(result.get('stripWidthMm') or 1e18))
+
+
+def _result_payload(selected,label,result,kits,rejected,attempts,started):
+    target=len(selected)
+    return jsonify(ok=True,engine='Sparrow industrial 80% + V1.7',completeFigures=target,placements=result['placements'],density=result['density'],
+        stripWidthMm=result['stripWidthMm'],rotationStep=('continua' if result.get('continuousRotation') else 15),source='sparrow-jagua-rs',selectionStrategy=label,
+        productionReady=True,reachedMinimum=target>=10,highDensityException=target==9,targetDensity=TARGET_DENSITY,
+        targetDensityReached=float(result.get('density') or 0)>=TARGET_DENSITY,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],attempts=attempts,
+        elapsedSeconds=round(time.time()-started,2))
 
 
 @app.get('/nest-sparrow/health')
 def nest_sparrow_health():
     exists=os.path.exists(SPARROW_BIN) and os.access(SPARROW_BIN,os.X_OK)
-    return jsonify(ok=exists,engine='Sparrow industrial + V1.7',binary=SPARROW_BIN,criterion='10 completas o 9 con >=72%')
+    return jsonify(ok=exists,engine='Sparrow industrial 80% + V1.7',binary=SPARROW_BIN,criterion='10+ buscando >=80%; 9 sólo con >=72%')
 
 
 @app.post('/nest-sparrow')
@@ -143,6 +190,7 @@ def nest_sparrow():
     if abs(width_mm-PLATE_WIDTH_MM)>1 or abs(height_mm-PLATE_HEIGHT_MM)>1:
         return jsonify(ok=False,error='Sparrow producción está fijado a placa 1220×580 mm'),400
     gap=max(2.5,_n(data.get('gapCm'),.3)*10)
+    requested_target=max(75.0,min(90.0,_n(data.get('targetDensity'),TARGET_DENSITY)))
     raw=sorted(data.get('kits') or [],key=lambda k:(_priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:32]
     if not raw:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
     kits=[];rejected=[]
@@ -152,32 +200,60 @@ def nest_sparrow():
     if len(kits)<9:return jsonify(ok=False,error=f'Sólo hay {len(kits)} kits geométricos utilizables',rejected=rejected[:8]),422
 
     best=None; attempts=[]
-    for idx,(selected,label) in enumerate(_candidate_sets(kits)):
-        target=len(selected)
-        if target==10:
-            seconds=62
-        else:
-            seconds=48
-        result=_run_sparrow(selected,gap,seconds,41+idx*17)
-        attempts.append({'label':label,'target':target,'ok':result.get('ok'), 'fits':result.get('fits'), 'stripWidthMm':result.get('stripWidthMm'), 'density':round(float(result.get('density') or 0),1), 'error':result.get('error')})
-        if result.get('ok'):
-            score=(target if result.get('fits') else 0,-float(result.get('stripWidthMm') or 1e18))
-            if best is None or score>best[0]:best=(score,selected,label,result)
-            ready=result.get('fits') and (target>=MIN_COMPLETE or (target==HIGH_DENSITY_COMPLETE and result.get('density',0)>=HIGH_DENSITY_MIN))
-            if ready:
-                return jsonify(ok=True,engine='Sparrow industrial + V1.7',completeFigures=target,placements=result['placements'],density=result['density'],
-                    stripWidthMm=result['stripWidthMm'],rotationStep=15,source='sparrow-jagua-rs',selectionStrategy=label,
-                    productionReady=True,reachedMinimum=target>=10,highDensityException=target==9,
-                    candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],attempts=attempts,
-                    elapsedSeconds=round(time.time()-started,2))
-        if time.time()-started>238:break
 
-    diag=best[3] if best else {}
-    diag_count=len(best[1]) if best else 0
-    diag_width=diag.get('stripWidthMm')
-    msg='Sparrow no logró una placa productiva en los intentos acotados'
-    if diag_count:
-        msg+=f'. Mejor intento: {diag_count} completas en {diag_width:.1f} mm de largo' if isinstance(diag_width,(int,float)) else f'. Mejor intento: {diag_count} completas'
-    return jsonify(ok=False,error=msg,engine='Sparrow industrial + V1.7',bestDiagnosticComplete=diag_count,
-        bestDiagnosticDensity=float(diag.get('density') or 0),bestStripWidthMm=diag_width,attempts=attempts,
-        candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],elapsedSeconds=round(time.time()-started,2)),422
+    def consider(selected,label,result):
+        nonlocal best
+        target=len(selected)
+        attempts.append({'label':label,'target':target,'ok':result.get('ok'),'fits':result.get('fits'),'stripWidthMm':result.get('stripWidthMm'),
+            'density':round(float(result.get('density') or 0),1),'rotation':('continua' if result.get('continuousRotation') else '15°'),'error':result.get('error')})
+        if result.get('ok') and _production_ready(target,result):
+            sc=_score(target,result)
+            if best is None or sc>best[0]: best=(sc,selected,label,result)
+
+    # 1) PISO SEGURO: primero conserva la estrategia que ya produjo un SVG válido en Vector Linker.
+    baseline=kits[:10]
+    if len(baseline)==10:
+        result=_run_sparrow(baseline,gap,42,41,continuous=False)
+        consider(baseline,'10 urgentes · base segura 15°',result)
+        if best and best[3].get('density',0)>=requested_target:
+            return _result_payload(best[1],best[2],best[3],kits,rejected,attempts,started)
+
+    # 2) CRECIMIENTO: prueba más figuras completas con rotación continua.
+    #    Se empieza alto; apenas una solución supera el objetivo >=80%, termina.
+    for target in range(min(MAX_COMPLETE,len(kits)),10,-1):
+        if time.time()-started>TOTAL_BUDGET_SECONDS-40: break
+        selected=_balanced_selection(kits,target)
+        if len(selected)!=target: continue
+        # Si ni siquiera el área teórica del conjunto mejora la mejor placa, no gasta solver.
+        theoretical=_selection_density(selected)
+        if best and theoretical<=best[3].get('density',0)+0.15:
+            continue
+        seconds=26 if target>=14 else 30
+        result=_run_sparrow(selected,gap,seconds,73+target*19,continuous=True)
+        consider(selected,f'{target} completas · mayoría urgentes + área · rotación continua',result)
+        if best and best[3].get('density',0)>=requested_target:
+            return _result_payload(best[1],best[2],best[3],kits,rejected,attempts,started)
+
+    # 3) SEGUNDA OPORTUNIDAD: para el mejor tamaño fallido, prueba una selección más compacta.
+    if time.time()-started<TOTAL_BUDGET_SECONDS-36:
+        current_best_count=len(best[1]) if best else 10
+        retry_target=min(MAX_COMPLETE,max(11,current_best_count+1))
+        compact=_compact_selection(kits,retry_target)
+        if len(compact)==retry_target and (not best or _selection_density(compact)>best[3].get('density',0)+0.15):
+            result=_run_sparrow(compact,gap,34,911+retry_target,continuous=True)
+            consider(compact,f'{retry_target} completas · mayoría urgentes + compactas · rotación continua',result)
+            if best and best[3].get('density',0)>=requested_target:
+                return _result_payload(best[1],best[2],best[3],kits,rejected,attempts,started)
+
+    # 4) Si ningún 10+ fue válido, permite la excepción de 9 sólo con ocupación alta.
+    if best is None and time.time()-started<TOTAL_BUDGET_SECONDS-28:
+        nine=_balanced_selection(kits,9) or kits[:9]
+        result=_run_sparrow(nine,gap,26,1201,continuous=True)
+        consider(nine,'9 completas · excepción alta ocupación',result)
+
+    if best:
+        return _result_payload(best[1],best[2],best[3],kits,rejected,attempts,started)
+
+    msg='Sparrow no logró una placa productiva dentro del presupuesto de optimización'
+    return jsonify(ok=False,error=msg,engine='Sparrow industrial 80% + V1.7',bestDiagnosticComplete=0,bestDiagnosticDensity=0,
+        attempts=attempts,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],elapsedSeconds=round(time.time()-started,2)),422
