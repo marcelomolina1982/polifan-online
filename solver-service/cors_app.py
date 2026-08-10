@@ -1,4 +1,5 @@
-from selftest_nfp2 import app
+from nfp2_patch import app
+import selftest_nfp2  # registra /nest-nfp2/selftest usando el núcleo ya parcheado
 from flask_cors import CORS
 
 # Generador principal: NFP completo estilo SVGnest (inner-fit menos unión de NFPs).
