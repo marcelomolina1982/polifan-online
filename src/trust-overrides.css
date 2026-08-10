@@ -1,0 +1,44 @@
+/* Ajustes de fotos y reseñas del catálogo */
+.trust-photo-grid,.trust-review-grid{
+  grid-template-columns:repeat(auto-fit,minmax(150px,190px));
+  justify-content:start;
+  gap:12px;
+}
+.trust-photo-grid article,.trust-review-grid article{
+  width:100%;
+  max-width:190px;
+  padding:10px;
+}
+.trust-photo-grid img,.trust-review-image{
+  display:block;
+  width:100%;
+  height:150px;
+  aspect-ratio:auto;
+  object-fit:contain;
+  object-position:center;
+  background:#f8fafc;
+  border-radius:10px;
+}
+.trust-review-image{margin-bottom:9px}
+.trust-admin-item img{
+  width:64px;
+  height:64px;
+  object-fit:contain;
+  background:#f8fafc;
+}
+.trust-upload-preview{
+  width:120px;
+  height:120px;
+  margin:8px 0 10px;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  background:#f8fafc;
+  padding:6px;
+}
+.trust-upload-preview img{width:100%;height:100%;object-fit:contain;border-radius:8px}
+.trust-review-upload{display:block;margin:10px 0}.trust-review-upload b{display:block;margin-bottom:6px}
+@media(max-width:600px){
+  .trust-photo-grid,.trust-review-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .trust-photo-grid article,.trust-review-grid article{max-width:none;padding:8px}
+  .trust-photo-grid img,.trust-review-image{height:125px}
+}
