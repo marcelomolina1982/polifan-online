@@ -1,0 +1,128 @@
+name: Smoke Sparrow WASM Polifan
+
+on:
+  push:
+    branches:
+      - lab/sparrow-wasm-3mm
+    paths:
+      - '.github/workflows/smoke-sparrow-wasm-polifan.yml'
+      - 'public/sparroWASM/**'
+      - 'public/sparrow-lab.html'
+      - 'vercel.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify custom 3mm manifest
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('public/sparroWASM/polifan-manifest.json'))
+          assert p['engine']=='Sparrow WASM + jagua-rs'
+          assert p['min_item_separation_mm']==3.0
+          print(p)
+          PY
+
+      - name: Start cross-origin-isolated static server
+        run: |
+          cat > /tmp/polifan_server.py <<'PY'
+          from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          import os
+          os.chdir('public')
+          class H(SimpleHTTPRequestHandler):
+              def end_headers(self):
+                  self.send_header('Cross-Origin-Opener-Policy','same-origin')
+                  self.send_header('Cross-Origin-Embedder-Policy','require-corp')
+                  self.send_header('Cross-Origin-Resource-Policy','same-origin')
+                  self.send_header('Permissions-Policy','cross-origin-isolated=(self)')
+                  super().end_headers()
+          ThreadingHTTPServer(('127.0.0.1',8080),H).serve_forever()
+          PY
+          python /tmp/polifan_server.py >/tmp/polifan-server.log 2>&1 &
+          echo $! >/tmp/polifan-server.pid
+          sleep 2
+          curl -fsSI http://127.0.0.1:8080/sparrow-lab.html | grep -Ei 'Cross-Origin-(Opener|Embedder)-Policy'
+
+      - name: Install Playwright Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Execute Sparrow in real browser
+        run: |
+          cat > /tmp/smoke.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage();
+          page.on('console',m=>console.log('browser:',m.type(),m.text()));
+          await page.goto('http://127.0.0.1:8080/sparrow-lab.html',{waitUntil:'load'});
+          await page.waitForFunction(()=>window.POLIFAN_LAB?.finished || window.POLIFAN_LAB?.error,{timeout:45000});
+          const r=await page.evaluate(()=>window.POLIFAN_LAB);
+          if(!r.crossOriginIsolated) throw new Error('crossOriginIsolated=false');
+          if(!r.sharedArrayBuffer) throw new Error('SharedArrayBuffer unavailable');
+          if(r.error) throw new Error(r.error);
+          if(!r.finished) throw new Error('Sparrow did not finish');
+          if(r.placed!==43) throw new Error(`Expected 43 placed items, got ${r.placed}`);
+          fs.writeFileSync('/tmp/sparrow-result.svg',r.resultSvg);
+          console.log(JSON.stringify({crossOriginIsolated:r.crossOriginIsolated,sharedArrayBuffer:r.sharedArrayBuffer,placed:r.placed,svgBytes:r.resultSvg.length,manifest:r.manifest},null,2));
+          await browser.close();
+          JS
+          node /tmp/smoke.mjs
+
+      - name: Validate vector result geometry at 3mm
+        run: |
+          pip install --quiet shapely
+          python - <<'PY'
+          import json,re,math,xml.etree.ElementTree as ET
+          from shapely.geometry import Polygon
+          from shapely.affinity import rotate,translate
+          inp=json.load(open('public/sparroWASM/assets/shapes0.json'))
+          by_id={str(x['id']):Polygon(x['shape']['data']) for x in inp['items']}
+          root=ET.parse('/tmp/sparrow-result.svg').getroot()
+          uses=[e for e in root.iter() if e.tag.split('}')[-1]=='use']
+          assert len(uses)==43, len(uses)
+          geoms=[]
+          for e in uses:
+              href=e.attrib.get('{http://www.w3.org/1999/xlink}href') or e.attrib.get('href') or ''
+              m=re.search(r'item[_-]?(\d+)',href)
+              if not m:
+                  raise AssertionError(f'cannot identify item from {href!r}')
+              g=by_id[m.group(1)]
+              tr=e.attrib.get('transform','')
+              tx=ty=ang=0.0
+              mm=re.search(r'translate\s*\(\s*([-+0-9.eE]+)[ ,]+([-+0-9.eE]+)',tr)
+              if mm: tx,ty=map(float,mm.groups())
+              rr=re.search(r'rotate\s*\(\s*([-+0-9.eE]+)',tr)
+              if rr: ang=float(rr.group(1))
+              # SVG order here is translate then rotate in the emitted attribute;
+              # Sparrow's external transformation is rotation followed by translation.
+              g=rotate(g,ang,origin=(0,0),use_radians=False)
+              g=translate(g,xoff=tx,yoff=ty)
+              geoms.append(g)
+          min_gap=1e99
+          overlaps=0
+          for i,a in enumerate(geoms):
+              for b in geoms[i+1:]:
+                  if a.intersection(b).area>1e-7: overlaps+=1
+                  min_gap=min(min_gap,a.distance(b))
+          assert overlaps==0, overlaps
+          assert min_gap>=2.999, min_gap
+          print(json.dumps({'placed':len(geoms),'overlaps':overlaps,'min_gap':min_gap},indent=2))
+          PY
+
+      - name: Upload smoke SVG
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparrow-polifan-smoke-result
+          path: /tmp/sparrow-result.svg
+          retention-days: 7
