@@ -117,5 +117,7 @@ jobs:
             echo 'Vendored build already current.'
           else
             git commit -m 'lab: vendor Sparrow WASM 3mm build'
+            git fetch origin lab/sparrow-wasm-3mm
+            git rebase origin/lab/sparrow-wasm-3mm
             git push origin HEAD:lab/sparrow-wasm-3mm
           fi
