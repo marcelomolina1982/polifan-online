@@ -50,11 +50,9 @@ def _candidate_sets(window,target):
             seen.add(key)
             rows.append((combo,label))
 
-    # Prioridad pura y compactación global.
     add(window[:target],'prioridad-pura')
     add(sorted(window,key=lambda k:(_area(k),_priority(k)))[:target],'compactas-global')
 
-    # Mantiene distintas cantidades de urgentes y rellena con piezas compactas.
     for anchors in (9,8,7,6,5,4,3,2):
         if anchors>=target:
             continue
@@ -64,18 +62,15 @@ def _candidate_sets(window,target):
         compact=sorted(rest,key=lambda k:(_area(k),_priority(k)))
         add(fixed+compact[:target-anchors],f'{anchors}-urgentes+compactas')
 
-    # Barrido por ventanas desplazadas: evita quedar atrapado en las primeras figuras grandes.
     for start in (1,2,3,4,5,6,8,10):
         if start+target<=len(window):
             add(window[start:start+target],f'ventana-{start+1}-{start+target}')
 
-    # Balance prioridad/área con varios pesos.
     plate_area=1220.0*580.0
     for weight in (.012,.02,.035,.055,.08):
         balanced=sorted(window,key=lambda k:(_priority(k)*weight)+(_area(k)/plate_area))
         add(balanced[:target],f'balance-{weight:.3f}')
 
-    # Semillas alternadas entre urgentes y compactas.
     urgent=list(window)
     compact=sorted(window,key=lambda k:(_area(k),_priority(k)))
     for offset in (0,1,2,3):
@@ -151,16 +146,14 @@ def nest_v3():
         if not safe:
             return jsonify(ok=False,error='Ningún kit completo tiene geometría utilizable',rejected=rejected[:10]),422
 
-        # Ventana amplia: el motor puede cambiar figuras grandes por otras compactas sin ignorar urgencia.
         window=safe[:min(30,len(safe))]
         attempts=[]; best=None; best_combo=None; best_label=''; best_step=15
         ranked=[]
 
-        # ETAPA INDUSTRIAL: 10 completas es una condición de producción, no una preferencia.
         if len(window)>=MIN_COMPLETE:
             candidates=_candidate_sets(window,MIN_COMPLETE)
 
-            # Fase 1: barrido amplio, 15 grados, muchos conjuntos y varios órdenes.
+            # Fase 1: búsqueda amplia a 15 grados.
             for combo,label in candidates:
                 if time.time()-started>78: break
                 local_best=None
@@ -177,7 +170,7 @@ def nest_v3():
                     ranked.append((local_best[0],local_best[1],f'{label}/{local_best[2]}'))
                 if best: break
 
-            # Fase 2: sólo los candidatos que más cerca estuvieron, ahora a 10 grados.
+            # Fase 2: candidatos más prometedores a 10 grados.
             if not best:
                 ranked=sorted(ranked,key=lambda x:_attempt_score(x[0]),reverse=True)
                 shortlist=[]; seen=set()
@@ -199,7 +192,7 @@ def nest_v3():
                             break
                     if best: break
 
-            # Fase 3: rescate fino a 5 grados. Sólo se usa antes de rendirse con las 10.
+            # Fase 3: rescate fino a 5 grados antes de aceptar que 10 no fue resuelto.
             if not best:
                 fine_candidates=[]; seen=set()
                 for row,combo,label in sorted(ranked,key=lambda x:_attempt_score(x[0]),reverse=True):
@@ -220,8 +213,8 @@ def nest_v3():
                             break
                     if best: break
 
-        # Excepción: si 10 no fue posible tras la búsqueda profunda, devolver la mejor placa menor,
-        # pero marcada explícitamente como NO lista para producción.
+        # Sólo diagnóstico: busca qué cantidad menor entra, pero nunca la habilita para producción.
+        diagnostic_best=None; diagnostic_combo=None; diagnostic_label=''; diagnostic_step=15
         if not best:
             for fallback_target in (9,8,7,6,5,4,3,2,1):
                 if fallback_target>len(window): continue
@@ -232,44 +225,56 @@ def nest_v3():
                         row=_solve_complete_set(ordered,width_mm,height_mm,spacing_mm,seconds=3,step=15)
                         attempts.append({'target':fallback_target,'strategy':label,'order':order_label,'step':15,'ok':bool(row.get('feasible')),'placed':int(row.get('placedCount',0) or 0)})
                         if row.get('feasible'):
-                            best=row; best_combo=ordered; best_label=f'EXCEPCION-{label}/{order_label}'; best_step=15
+                            diagnostic_best=row; diagnostic_combo=ordered; diagnostic_label=f'{label}/{order_label}'; diagnostic_step=15
                             break
-                    if best: break
-                if best: break
+                    if diagnostic_best: break
+                if diagnostic_best: break
 
-        if not best or not best.get('feasible'):
-            return jsonify(ok=False,error='V3 agotó la búsqueda y no encontró un conjunto completo colocable',candidatePool=len(safe),rejected=rejected[:8],attempts=attempts[-50:],elapsedSeconds=round(time.time()-started,2)),422
+            diag_count=len(diagnostic_combo or []) if diagnostic_best else 0
+            return jsonify(ok=False,
+                error=f'V3.1 agotó la búsqueda profunda de 10 completas. La mejor alternativa encontrada fue de {diag_count}, por eso NO se habilita para producción.',
+                engine='PackingSolver V3.1 · mínimo industrial 10',
+                reachedMinimum=False,
+                productionReady=False,
+                bestDiagnosticComplete=diag_count,
+                diagnosticStrategy=diagnostic_label,
+                diagnosticRotationStep=diagnostic_step,
+                candidatePool=len(safe),
+                rejectedCount=len(rejected),
+                rejected=rejected[:8],
+                attempts=attempts[-50:],
+                elapsedSeconds=round(time.time()-started,2)),422
 
         selected=list(best_combo or [])
         current_best=best
         current_label=best_label
-        reached_minimum=len(selected)>=MIN_COMPLETE
 
-        # Si alcanzó el mínimo industrial, intenta crecer hasta 14 sin sacrificar la placa válida.
-        if reached_minimum:
-            failures=0
-            selected_ids=set(_ids(selected))
-            extras=[k for k in window if str(k.get('kitId') or '') not in selected_ids]
-            extras=sorted(extras,key=lambda k:(_area(k),_priority(k)))
-            for extra in extras:
-                if len(selected)>=MAX_COMPLETE or failures>=4 or time.time()-started>TOTAL_BUDGET_SECONDS: break
-                candidate=selected+[extra]
-                row=_solve_complete_set(candidate,width_mm,height_mm,spacing_mm,seconds=4,step=10)
-                attempts.append({'target':len(candidate),'strategy':'crecimiento','figure':str(extra.get('figure') or ''),'step':10,'ok':bool(row.get('feasible')),'placed':int(row.get('placedCount',0) or 0)})
-                if row.get('feasible'):
-                    selected=candidate; current_best=row; current_label='crecimiento-kit-completo'; best_step=10; failures=0
-                else:
-                    failures+=1
+        # Alcanzadas las 10, intenta crecer hasta 14 sin sacrificar la solución válida.
+        failures=0
+        selected_ids=set(_ids(selected))
+        extras=[k for k in window if str(k.get('kitId') or '') not in selected_ids]
+        extras=sorted(extras,key=lambda k:(_area(k),_priority(k)))
+        for extra in extras:
+            if len(selected)>=MAX_COMPLETE or failures>=4 or time.time()-started>TOTAL_BUDGET_SECONDS: break
+            candidate=selected+[extra]
+            row=_solve_complete_set(candidate,width_mm,height_mm,spacing_mm,seconds=4,step=10)
+            attempts.append({'target':len(candidate),'strategy':'crecimiento','figure':str(extra.get('figure') or ''),'step':10,'ok':bool(row.get('feasible')),'placed':int(row.get('placedCount',0) or 0)})
+            if row.get('feasible'):
+                selected=candidate; current_best=row; current_label='crecimiento-kit-completo'; best_step=10; failures=0
+            else:
+                failures+=1
 
         normalized=_normalize_result(current_best,best_step,'deep-complete-kit-search')
         complete=int(normalized.get('completeFigures',0) or 0)
-        reached_minimum=complete>=MIN_COMPLETE
+        if complete<MIN_COMPLETE:
+            return jsonify(ok=False,error=f'Protección industrial: el resultado normalizado quedó en {complete} completas y fue bloqueado.',productionReady=False,attempts=attempts[-50:],elapsedSeconds=round(time.time()-started,2)),422
+
         return jsonify(ok=True,
             engine='PackingSolver V3.1 · búsqueda profunda 10+ · V1.7 certifier',
             **normalized,
-            reachedMinimum=reached_minimum,
-            productionReady=reached_minimum,
-            minimumTarget=min(MIN_COMPLETE,len(safe)),
+            reachedMinimum=True,
+            productionReady=True,
+            minimumTarget=MIN_COMPLETE,
             candidatePool=len(safe),
             selectionStrategy=current_label,
             searchMode='deep-15-10-5',
