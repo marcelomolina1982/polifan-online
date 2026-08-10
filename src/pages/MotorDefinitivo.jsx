@@ -4,7 +4,7 @@ import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
 
 const TARGET_COMPLETE=10
-const INDUSTRIAL_URL='https://polifan-cnc-solver-test.onrender.com/nest'
+const INDUSTRIAL_URL='https://polifan-cnc-solver-test.onrender.com/nest-v2'
 
 function downloadSvg(name,text){
   if(!text)return
@@ -143,19 +143,22 @@ export default function MotorDefinitivo({db,onSave}){
   async function generateAutomatic(){
     if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
     const industrial=buildIndustrialKits(pending.units)
-    setBusy(true);setPlans([]);setProgress(`Nesting industrial por contorno real · buscando ${TARGET_COMPLETE}+ figuras completas`)
+    setBusy(true);setPlans([]);setProgress(`Nesting industrial V2 por contorno real · buscando ${TARGET_COMPLETE}+ figuras completas`)
     try{
       const r=await fetch(INDUSTRIAL_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({widthCm:122,heightCm:58,gapCm:.3,targetDensity:80,kits:industrial.kits})})
       const data=await r.json().catch(()=>({}))
-      if(!r.ok||!data.ok)throw new Error(data.error||`Motor industrial HTTP ${r.status}`)
+      if(!r.ok||!data.ok){
+        const rejected=Array.isArray(data.rejected)&&data.rejected.length?` · descartadas: ${data.rejected.map(x=>`${x.figure||'figura'} (${x.reason||'inválida'})`).slice(0,3).join(', ')}`:''
+        throw new Error((data.error||`Motor industrial HTTP ${r.status}`)+rejected)
+      }
       const selectedIds=[...new Set((data.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))]
       const selectedUnits=selectedIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
-      if(!selectedUnits.length)throw new Error('El motor industrial no devolvió figuras completas utilizables.')
+      if(!selectedUnits.length)throw new Error('El motor industrial V2 no devolvió figuras completas utilizables.')
       const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
       setProgress(`Encontró ${selectedUnits.length} completas · certificando separación y bordes…`)
       const cert=await certify(composed)
       const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length)}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.source||'industrial-v2'}])
     }catch(error){
       setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null}])
     }finally{setBusy(false);setProgress('')}
@@ -165,33 +168,33 @@ export default function MotorDefinitivo({db,onSave}){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
     if(!confirm(`¿Pasar esta placa a En corte? Recién ahora se descontarán ${plan.units.length} figuras de Para cortar.`))return
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática industrial ${plan.date||today()}`,status:'En corte',notes:`Nesting por contorno real · ${plan.units.length} completas · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items:plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty})),createdAt:new Date().toISOString()}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática industrial ${plan.date||today()}`,status:'En corte',notes:`Nesting por contorno real V2 · ${plan.units.length} completas · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items:plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty})),createdAt:new Date().toISOString()}
     const result=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
     if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
   }
 
   return <>
-    <Title title="Generar placas · Motor industrial" sub="Una sola placa por vez. Selección y nesting por contorno real, micro-rotaciones y objetivo mínimo de 10 figuras completas." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
+    <Title title="Generar placas · Motor industrial V2" sub="Una sola placa por vez. Selección y nesting por contorno real, micro-rotaciones y objetivo mínimo de 10 figuras completas." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
     <div className="notice"><b>Modo seguro</b><span>Nada se descuenta hasta “Pasar a corte”. El motor prueba contornos reales y certifica el SVG final antes de habilitarlo.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
       <div><small>Objetivo por placa</small><b className="block big">10+ completas</b></div>
-      <div><small>Motor</small><b className="block big">Contorno real · 5°/10°/15°</b></div>
+      <div><small>Motor</small><b className="block big">Contorno real V2 · rescate KNAPSACK</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
-    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Puede tardar porque prueba varias combinaciones completas y luego certifica la mejor.</span></div>}
+    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Primero encuentra una base válida; después intenta crecer sin perderla y finalmente certifica el SVG.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
         <td><b>Placa {plan.number}</b><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} figuras completas</small>{plan.units.length<TARGET_COMPLETE&&plan.units.length>0&&<small className="block red-text"><b>Bajo objetivo de 10</b></small>}<small className="block">{plan.deferred} quedan pendientes</small></td>
         <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}`).join(', ')||'-'}</td>
-        <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
+        <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}{plan.rejectedCount>0&&<small className="block">{plan.rejectedCount} candidata(s) descartadas por geometría/medidas</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
-        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{plan.rotationStep!=='-'&&<small className="block">rotación final {plan.rotationStep}°</small>}</td>
+        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{plan.rotationStep!=='-'&&<small className="block">rotación final {plan.rotationStep}°</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-industrial-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. El motor industrial elegirá la mejor combinación completa entre las piezas más urgentes.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. El motor industrial V2 elegirá una base completa válida y después intentará llevarla a 10 o más.</td></tr>}
     </tbody></table></div>
   </>
 }
