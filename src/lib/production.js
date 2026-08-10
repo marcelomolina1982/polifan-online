@@ -2,7 +2,7 @@ export const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
 export const DAILY_PIECE_LIMIT = 90
 export const PIECES_PER_SHEET = 10
 
-export const orderPieces = order => (order?.items || []).reduce((sum,item)=>sum+Number(item.qty||0),0)
+export const orderPieces = order => (order?.items || []).filter(item=>item?.inventoryTracked!==false && item?.manualItem!==true).reduce((sum,item)=>sum+Number(item.qty||0),0)
 export const sheetsForPieces = pieces => Math.ceil(Math.max(0,Number(pieces)||0)/PIECES_PER_SHEET)
 export const daysForPieces = pieces => Math.ceil(Math.max(0,Number(pieces)||0)/DAILY_PIECE_LIMIT)
 
@@ -71,11 +71,6 @@ function firstPlanningDate(closedDates=[]){
   return normalizeOpenDate(afterClosed>today?afterClosed:today,closedDates)
 }
 
-/**
- * Motor único de planificación.
- * Devuelve el último día abierto necesario para cortar todas las piezas nuevas.
- * El catálogo lo presenta como “Producción disponible desde…”.
- */
 export function estimateProductionAvailability(orders,newPieces,closedDates=[]){
   const closed=[...new Set(closedDates||[])].filter(Boolean).sort()
   const lastClosed=latestClosedProductionDate(closed)
@@ -83,8 +78,6 @@ export function estimateProductionAvailability(orders,newPieces,closedDates=[]){
   let remaining=Math.max(0,Number(newPieces)||0)
   let productionDate=localISO(cursor)
   let safety=0
-
-  // Aun con carrito vacío, se informa el primer día abierto real.
   if(remaining===0){
     while(safety<730){
       safety++
@@ -94,34 +87,19 @@ export function estimateProductionAvailability(orders,newPieces,closedDates=[]){
       cursor=nextOpenProductionDate(cursor,closed)
     }
   }
-
   while(remaining>0 && safety<730){
     safety++
     const date=localISO(cursor)
     if(cursor.getDay()!==0 && !isProductionClosed(date,closed)){
       const used=piecesScheduledForDate(orders,date)
       const available=Math.max(0,DAILY_PIECE_LIMIT-used)
-      if(available>0){
-        remaining-=Math.min(available,remaining)
-        productionDate=date
-      }
+      if(available>0){remaining-=Math.min(available,remaining);productionDate=date}
     }
     if(remaining>0) cursor=nextOpenProductionDate(cursor,closed)
   }
-
-  return {
-    productionDate,
-    availableFrom:productionDate,
-    from:productionDate,
-    to:productionDate,
-    deliveryDate:productionDate,
-    deliveryTo:productionDate,
-    lastClosed,
-    pending:(orders||[]).filter(o=>!['Entregado','Cancelado'].includes(o.status)).reduce((s,o)=>s+orderPieces(o),0)
-  }
+  return {productionDate,availableFrom:productionDate,from:productionDate,to:productionDate,deliveryDate:productionDate,deliveryTo:productionDate,lastClosed,pending:(orders||[]).filter(o=>!['Entregado','Cancelado'].includes(o.status)).reduce((s,o)=>s+orderPieces(o),0)}
 }
 
-// Compatibilidad con pantallas anteriores: todas consumen el mismo motor.
 export function estimateDeliveryRange(orders,newPieces,shipping=false,closedDates=[]){
   return estimateProductionAvailability(orders,newPieces,closedDates)
 }
