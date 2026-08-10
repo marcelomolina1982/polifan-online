@@ -1,4 +1,4 @@
-export const APP_VERSION='24.0.0'
-export const APP_VERSION_LABEL='v24.0.0'
+export const APP_VERSION='24.1.0'
+export const APP_VERSION_LABEL='v24.1.0'
 export const APP_UPDATED_AT='10/08/2026'
-export const APP_VERSION_NAME='Centro operativo · catálogo pro · costos editables'
+export const APP_VERSION_NAME='Motor Definitivo V1.7 integrado · flujo de placas corregido'
