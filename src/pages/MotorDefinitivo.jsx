@@ -3,7 +3,7 @@ import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
 
-const PLATE_W=1220,PLATE_H=580,MARGIN=8
+const PLATE_W=1220,PLATE_H=580,BORDER=3,PACK_GAP=3,TARGET_COMPLETE=10
 
 function downloadSvg(name,text){
   if(!text)return
@@ -92,40 +92,96 @@ function componentBox(comp){
   const h=Math.max(1,Number.isFinite(heightCm)&&heightCm>0?heightCm*10:vbH)
   return {comp,parsed,w,h}
 }
-function tryPlaceUnit(unit,state){
-  let x=state.x,y=state.y,rowH=state.rowH
-  const placements=[]
-  for(const comp of unit.components){
-    const box=componentBox(comp)
-    if(!box)return null
-    if(box.w>PLATE_W-2*MARGIN||box.h>PLATE_H-2*MARGIN)return null
-    if(x+box.w>PLATE_W-MARGIN){
-      x=MARGIN
-      y+=rowH+MARGIN
-      rowH=0
-    }
-    if(y+box.h>PLATE_H-MARGIN)return null
-    placements.push({...box,x,y})
-    x+=box.w+MARGIN
-    rowH=Math.max(rowH,box.h)
-  }
-  return {state:{x,y,rowH},placements}
+function unitStats(unit){
+  const boxes=unit.components.map(componentBox).filter(Boolean)
+  return {area:boxes.reduce((a,b)=>a+b.w*b.h,0),maxSide:boxes.reduce((m,b)=>Math.max(m,b.w,b.h),0)}
 }
-function buildOneSafePlate(units){
-  let state={x:MARGIN,y:MARGIN,rowH:0}
-  const selected=[],placements=[],deferred=[]
-  for(const unit of units){
-    const trial=tryPlaceUnit(unit,state)
-    if(!trial){deferred.push(unit);continue}
-    selected.push(unit)
-    placements.push(...trial.placements)
-    state=trial.state
+function overlaps(a,b){
+  return !(a.x+a.fw+PACK_GAP<=b.x||b.x+b.fw+PACK_GAP<=a.x||a.y+a.fh+PACK_GAP<=b.y||b.y+b.fh+PACK_GAP<=a.y)
+}
+function candidatePoints(placed){
+  const xs=new Set([BORDER]),ys=new Set([BORDER])
+  placed.forEach(r=>{xs.add(r.x+r.fw+PACK_GAP);ys.add(r.y+r.fh+PACK_GAP)})
+  const out=[]
+  const sx=[...xs].filter(x=>x<PLATE_W-BORDER).sort((a,b)=>a-b)
+  const sy=[...ys].filter(y=>y<PLATE_H-BORDER).sort((a,b)=>a-b)
+  sy.forEach(y=>sx.forEach(x=>out.push({x,y})))
+  return out
+}
+function placeBox(box,placed){
+  const orientations=[{rotated:false,fw:box.w,fh:box.h}]
+  if(Math.abs(box.w-box.h)>0.01)orientations.push({rotated:true,fw:box.h,fh:box.w})
+  let best=null
+  for(const o of orientations){
+    for(const pt of candidatePoints(placed)){
+      const c={...box,...o,...pt}
+      if(c.x+c.fw>PLATE_W-BORDER||c.y+c.fh>PLATE_H-BORDER)continue
+      if(placed.some(r=>overlaps(c,r)))continue
+      const maxY=Math.max(c.y+c.fh,...placed.map(r=>r.y+r.fh),0)
+      const maxX=Math.max(c.x+c.fw,...placed.map(r=>r.x+r.fw),0)
+      const score=maxY*PLATE_W+maxX+(c.rotated?0.1:0)
+      if(!best||score<best.score)best={...c,score}
+    }
   }
-  return {units:selected,placements,deferred}
+  return best
+}
+function tryPlaceUnit2D(unit,placed){
+  const boxes=unit.components.map(componentBox)
+  if(boxes.some(x=>!x))return null
+  boxes.sort((a,b)=>b.w*b.h-a.w*a.h)
+  const temp=[...placed],added=[]
+  for(const box of boxes){
+    const p=placeBox(box,temp)
+    if(!p)return null
+    temp.push(p);added.push(p)
+  }
+  return added
+}
+function orderUnits(units,mode){
+  return units.map((u,i)=>({u,i,s:unitStats(u)})).sort((a,b)=>{
+    const da=String(a.u.date||'9999-99-99'),db=String(b.u.date||'9999-99-99')
+    const dc=da.localeCompare(db)
+    if(dc)return dc
+    if(mode==='areaDesc')return b.s.area-a.s.area||a.i-b.i
+    if(mode==='areaAsc')return a.s.area-b.s.area||a.i-b.i
+    if(mode==='maxSideDesc')return b.s.maxSide-a.s.maxSide||a.i-b.i
+    return a.i-b.i
+  }).map(x=>x.u)
+}
+function packOrder(original,ordered){
+  const selected=[],placements=[]
+  for(const unit of ordered){
+    const added=tryPlaceUnit2D(unit,placements)
+    if(!added)continue
+    selected.push(unit);placements.push(...added)
+  }
+  const chosen=new Set(selected)
+  const deferred=original.filter(u=>!chosen.has(u))
+  const originalIndex=new Map(original.map((u,i)=>[u,i]))
+  const priorityPenalty=selected.reduce((a,u)=>a+(originalIndex.get(u)||0),0)
+  const usedArea=placements.reduce((a,p)=>a+p.fw*p.fh,0)
+  return {units:selected,placements,deferred,priorityPenalty,usedArea}
+}
+function buildOptimizedPlate(units){
+  const modes=['areaDesc','maxSideDesc','areaAsc','original']
+  let best=null
+  for(const mode of modes){
+    const draft=packOrder(units,orderUnits(units,mode))
+    if(!best||draft.units.length>best.units.length||
+      (draft.units.length===best.units.length&&draft.priorityPenalty<best.priorityPenalty)||
+      (draft.units.length===best.units.length&&draft.priorityPenalty===best.priorityPenalty&&draft.usedArea>best.usedArea)){
+      best={...draft,strategy:mode}
+    }
+  }
+  return best||{units:[],placements:[],deferred:units,strategy:'none'}
+}
+function renderPlacement(p,n){
+  const inner=cleanInner(p.parsed.root)
+  if(!p.rotated)return `<g data-auto-piece="${n}" transform="translate(${p.x} ${p.y})"><svg width="${p.w}" height="${p.h}" viewBox="${p.parsed.viewBox}" overflow="visible">${inner}</svg></g>`
+  return `<g data-auto-piece="${n}" transform="translate(${p.x+p.h} ${p.y}) rotate(90)"><svg width="${p.w}" height="${p.h}" viewBox="${p.parsed.viewBox}" overflow="visible">${inner}</svg></g>`
 }
 function composePlacedSvg(placements){
-  const parts=placements.map((p,n)=>`<svg data-auto-piece="${n}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" viewBox="${p.parsed.viewBox}" overflow="visible">${cleanInner(p.parsed.root)}</svg>`)
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1220mm" height="580mm" viewBox="0 0 1220 580">${parts.join('')}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1220mm" height="580mm" viewBox="0 0 1220 580">${placements.map(renderPlacement).join('')}</svg>`
 }
 function summarizeUnits(units){
   const m=new Map()
@@ -151,19 +207,19 @@ export default function MotorDefinitivo({db,onSave}){
 
   async function generateAutomatic(){
     if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
-    const draft=buildOneSafePlate(pending.units)
+    const draft=buildOptimizedPlate(pending.units)
     if(!draft.units.length)return alert('No pude prearmar una placa sin superposiciones. Revisá las medidas guardadas en Biblioteca SVG.')
     setBusy(true)
     setPlans([])
-    setProgress(`Generando una sola placa · ${draft.units.length} figuras completas · ${draft.deferred.length} quedan pendientes`)
+    setProgress(`Optimizando una placa · ${draft.units.length} figuras completas · objetivo ${TARGET_COMPLETE}+ · ${draft.deferred.length} quedan pendientes`)
     try{
       const result=await solve(composePlacedSvg(draft.placements),'placa-automatica-01.svg')
       setPlans([{
-        id:crypto.randomUUID(),number:1,units:draft.units,summary:summarizeUnits(draft.units),
+        id:crypto.randomUUID(),number:1,units:draft.units,summary:summarizeUnits(draft.units),strategy:draft.strategy,
         date:draft.units.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:draft.deferred.length,...result
       }])
     }catch(error){
-      setPlans([{id:crypto.randomUUID(),number:1,units:draft.units,summary:summarizeUnits(draft.units),date:draft.units[0]?.date||today(),registered:false,deferred:draft.deferred.length,status:'ERROR',error:error.message,svgText:null,conflicts:'-',border:'-',minGap:'-',seconds:'-'}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:draft.units,summary:summarizeUnits(draft.units),strategy:draft.strategy,date:draft.units[0]?.date||today(),registered:false,deferred:draft.deferred.length,status:'ERROR',error:error.message,svgText:null,conflicts:'-',border:'-',minGap:'-',seconds:'-'}])
     }finally{
       setBusy(false)
       setProgress('')
@@ -195,27 +251,27 @@ export default function MotorDefinitivo({db,onSave}){
   }
 
   return <>
-    <Title title="Generar placas · Motor V1.7" sub="Genera una sola placa por vez. Usa primero las piezas más urgentes que entren sin superposición inicial." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
+    <Title title="Generar placas · Motor V1.7" sub="Genera una sola placa por vez. Prioriza la entrega y busca 10 o más figuras completas cuando geométricamente sea posible." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
     <div className="notice"><b>Modo seguro</b><span>Un clic genera una sola propuesta. Nada se descuenta ni pasa a corte hasta que vos presionás “Pasar a corte”.</span></div>
     <div className="panel">
       <div className="form-grid">
         <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
         <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
-        <div><small>Modo de generación</small><b className="block big">1 placa por vez</b></div>
-        <div><small>Prearmado</small><b className="block big">Sin superposición</b></div>
+        <div><small>Objetivo por placa</small><b className="block big">10+ completas</b></div>
+        <div><small>Prearmado</small><b className="block big">2D + giro 90° · 3 mm</b></div>
       </div>
       {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
-      {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>V1.7 está haciendo el nesting fino y certificando la placa.</span></div>}
+      {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>V1.7 hace el nesting fino y certifica que el resultado final tenga al menos 2,5 mm, 0 conflictos y 0 borde.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Tiempo</th><th>Acciones</th></tr></thead><tbody>
-      {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
-        <td><b>Placa {plan.number}</b><small className="block">Entrega prioritaria: {plan.date||'sin fecha'}</small><small className="block">{plan.units.length} figuras completas</small>{plan.deferred>0&&<small className="block">{plan.deferred} quedan para próximas placas</small>}</td>
+      {plans.map(plan=>{const ok=okStatus(plan.status),targetOk=plan.units.length>=TARGET_COMPLETE;return <tr key={plan.id}>
+        <td><b>Placa {plan.number}</b><small className="block">Entrega prioritaria: {plan.date||'sin fecha'}</small><small className="block">{plan.units.length} figuras completas</small><small className={'block '+(targetOk?'green-text':'red-text')}><b>{targetOk?'Objetivo 10+ cumplido':'Bajo objetivo de 10'}</b></small>{plan.deferred>0&&<small className="block">{plan.deferred} quedan para próximas placas</small>}</td>
         <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}`).join(', ')}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td><td>{plan.seconds} s</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. El sistema tomará primero las entregas más próximas y dejará el resto pendiente.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. El sistema probará varias estrategias 2D, mantendrá prioridad por fecha y elegirá la que coloque más figuras completas.</td></tr>}
     </tbody></table></div>
     <details className="panel"><summary><b>Herramienta manual de certificación SVG</b></summary>
       <div className="actions" style={{marginTop:12}}><label className="ghost filebtn">Elegir SVG<input type="file" accept=".svg,image/svg+xml" multiple onChange={e=>setFiles([...e.target.files])}/></label><button className="ghost" disabled={manualBusy||!files.length} onClick={runManual}>{manualBusy?'Procesando…':'Certificar SVG manualmente'}</button></div>
