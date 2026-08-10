@@ -16,34 +16,25 @@ export const PACKAGING_OPTIONS = [
 ]
 export const PACKAGING_COST = PACKAGING_OPTIONS.find(x=>x.key==='40x30x30').totalCost
 
-export function orderPieces(order){
-  return (order?.items||[]).filter(item=>item?.inventoryTracked!==false && item?.manualItem!==true).reduce((sum,item)=>sum+Number(item.qty||0),0)
+export function financeConfig(settings={}){
+  const sheetCost=Number(settings.sheetCost??SHEET_COST),figuresPerSheet=Math.max(1,Number(settings.figuresPerSheet??FIGURES_PER_SHEET)),laborPerFigure=Number(settings.laborPerFigure??LABOR_COST_PER_FIGURE),glueContainerCost=Number(settings.glueContainerCost??GLUE_CONTAINER_COST),glueYieldFigures=Math.max(1,Number(settings.glueYieldFigures??GLUE_YIELD_FIGURES))
+  const materialPerFigure=sheetCost/figuresPerSheet,gluePerFigure=glueContainerCost/glueYieldFigures,productionPerFigure=materialPerFigure+laborPerFigure+gluePerFigure
+  return {sheetCost,figuresPerSheet,laborPerFigure,glueContainerCost,glueYieldFigures,materialPerFigure,gluePerFigure,productionPerFigure,boxes:settings.boxes||{}}
 }
+export function orderPieces(order){return (order?.items||[]).filter(item=>item?.inventoryTracked!==false&&item?.manualItem!==true).reduce((sum,item)=>sum+Number(item.qty||0),0)}
 export function singlePackagingFor(quantity){const qty=Math.max(0,Number(quantity)||0);return PACKAGING_OPTIONS.find(box=>qty<=box.capacity)||PACKAGING_OPTIONS[PACKAGING_OPTIONS.length-1]}
-export function packagingForPieces(quantity){
-  let remaining=Math.max(0,Number(quantity)||0)
-  if(!remaining) return {parts:[],summary:'Sin caja asignada',total:0}
-  const parts=[]
-  while(remaining>48){const box=PACKAGING_OPTIONS[PACKAGING_OPTIONS.length-1];parts.push({...box,qty:1});remaining-=48}
-  if(remaining>0) parts.push({...singlePackagingFor(remaining),qty:1})
-  const grouped=[]
-  parts.forEach(part=>{const found=grouped.find(x=>x.key===part.key);if(found)found.qty+=1;else grouped.push({...part})})
-  const total=grouped.reduce((sum,part)=>sum+(part.totalCost*part.qty),0)
-  const summary=grouped.map(part=>`${part.qty>1?part.qty+' × ':''}${part.name}`).join(' + ')
+export function packagingForPieces(quantity,settings={}){
+  let remaining=Math.max(0,Number(quantity)||0);if(!remaining)return {parts:[],summary:'Sin caja asignada',total:0}
+  const boxes=PACKAGING_OPTIONS.map(box=>({...box,totalCost:Number(settings?.boxes?.[box.key]??box.totalCost)})),parts=[]
+  while(remaining>48){const box=boxes[boxes.length-1];parts.push({...box,qty:1});remaining-=48}
+  if(remaining>0){const base=singlePackagingFor(remaining);const box=boxes.find(x=>x.key===base.key)||base;parts.push({...box,qty:1})}
+  const grouped=[];parts.forEach(part=>{const found=grouped.find(x=>x.key===part.key);if(found)found.qty+=1;else grouped.push({...part})})
+  const total=grouped.reduce((sum,part)=>sum+(part.totalCost*part.qty),0),summary=grouped.map(part=>`${part.qty>1?part.qty+' × ':''}${part.name}`).join(' + ')
   return {parts:grouped,summary,total}
 }
-export function profitPerPiece(quantity,orderTotal=0){
-  const qty=Number(quantity||0);if(qty<=0)return 0
-  const revenue=Number(orderTotal||0);if(revenue>0)return (revenue/qty)-PRODUCTION_COST_PER_FIGURE
-  const salePerPiece=qty<=5?6000:qty<=11?(25000/6):(40000/12)
-  return salePerPiece-PRODUCTION_COST_PER_FIGURE
-}
-export function estimatedOrderProfit(order){
-  const pieces=orderPieces(order)
-  const revenue=Math.max(0,Number(order?.total||0))
-  const productionCost=pieces*PRODUCTION_COST_PER_FIGURE
-  const base=revenue-productionCost
-  const packagingDetail=order?.shippingPackaging==='Sí' ? packagingForPieces(pieces) : {parts:[],summary:'Sin embalaje',total:0}
-  const packaging=packagingDetail.total
-  return {pieces,revenue,perPiece:profitPerPiece(pieces,revenue),materialCost:pieces*MATERIAL_COST_PER_FIGURE,laborCost:pieces*LABOR_COST_PER_FIGURE,glueCost:pieces*GLUE_COST_PER_FIGURE,productionCost,base,packaging,packagingDetail,total:base-packaging}
+export function profitPerPiece(quantity,orderTotal=0,settings={}){const qty=Number(quantity||0);if(qty<=0)return 0;const cfg=financeConfig(settings),revenue=Number(orderTotal||0);if(revenue>0)return(revenue/qty)-cfg.productionPerFigure;const salePerPiece=qty<=5?6000:qty<=11?(25000/6):(40000/12);return salePerPiece-cfg.productionPerFigure}
+export function estimatedOrderProfit(order,settings={}){
+  const cfg=financeConfig(settings),pieces=orderPieces(order),revenue=Math.max(0,Number(order?.total||0)),materialCost=pieces*cfg.materialPerFigure,laborCost=pieces*cfg.laborPerFigure,glueCost=pieces*cfg.gluePerFigure,productionCost=materialCost+laborCost+glueCost,base=revenue-productionCost
+  const packagingDetail=order?.shippingPackaging==='Sí'?packagingForPieces(pieces,settings):{parts:[],summary:'Sin embalaje',total:0},packaging=packagingDetail.total
+  return {pieces,revenue,perPiece:profitPerPiece(pieces,revenue,settings),materialCost,laborCost,glueCost,productionCost,base,packaging,packagingDetail,total:base-packaging}
 }
