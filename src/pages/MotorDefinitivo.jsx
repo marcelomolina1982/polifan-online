@@ -11,7 +11,7 @@ function downloadSvg(name,text){
   const url=URL.createObjectURL(new Blob([text],{type:'image/svg+xml'}))
   const a=document.createElement('a')
   a.href=url
-  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__INDUSTRIAL_CERTIFICADO.svg'
+  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__NFP_CERTIFICADO.svg'
   document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
 }
 function okStatus(status){return String(status||'').startsWith('CERTIFICADO')}
@@ -135,7 +135,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [progress,setProgress]=useState('')
 
   async function certify(svgText){
-    const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-industrial.svg',svgText})})
+    const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-nfp.svg',svgText})})
     let data={};try{data=await response.json()}catch{}
     return {status:data.status||`HTTP ${response.status}`,minGap:data.validation?.min_gap_mm??data.min_gap_mm??'-',conflicts:data.validation?.conflicts??data.conflicts??'-',border:data.validation?.border_conflicts??data.border_conflicts??'-',seconds:data.seconds??'-',svgText:data.svgText||svgText,error:data.error||''}
   }
@@ -143,23 +143,23 @@ export default function MotorDefinitivo({db,onSave}){
   async function generateAutomatic(){
     if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
     const industrial=buildIndustrialKits(pending.units)
-    setBusy(true);setPlans([]);setProgress('Motor V5.1 · contornos reales + rotaciones completas + diversidad espacial')
+    setBusy(true);setPlans([]);setProgress('Motor NFP · calculando zonas de encastre por contorno real')
     try{
       const r=await fetch(INDUSTRIAL_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({widthCm:122,heightCm:58,gapCm:.3,targetDensity:80,kits:industrial.kits})})
       const data=await r.json().catch(()=>({}))
       if(!r.ok||!data.ok){
         const rejected=Array.isArray(data.rejected)&&data.rejected.length?` · descartadas: ${data.rejected.map(x=>`${x.figure||'figura'} (${x.reason||'inválida'})`).slice(0,3).join(', ')}`:''
         const diagnostic=data.bestDiagnosticComplete?` · mejor parcial: ${data.bestDiagnosticComplete} completas (${Number(data.bestDiagnosticDensity||0).toFixed(1)}%)`:''
-        throw new Error((data.error||`Motor V5.1 HTTP ${r.status}`)+diagnostic+rejected)
+        throw new Error((data.error||`Motor NFP HTTP ${r.status}`)+diagnostic+rejected)
       }
       const selectedIds=[...new Set((data.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))]
       const selectedUnits=selectedIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
-      if(!selectedUnits.length)throw new Error('El Motor V5.1 no devolvió figuras completas utilizables.')
+      if(!selectedUnits.length)throw new Error('El Motor NFP no devolvió figuras completas utilizables.')
       const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-      setProgress(`V5.1 encontró ${selectedUnits.length} completas · V1.7 está certificando separación y bordes…`)
+      setProgress(`NFP encontró ${selectedUnits.length} completas · V1.7 está certificando separación y bordes…`)
       const cert=await certify(composed)
       const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.source||'direct-shapely-diverse-beam'}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.source||'nfp-minkowski'}])
     }catch(error){
       setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null}])
     }finally{setBusy(false);setProgress('')}
@@ -169,22 +169,22 @@ export default function MotorDefinitivo({db,onSave}){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
     if(!confirm(`¿Pasar esta placa a En corte? Recién ahora se descontarán ${plan.units.length} figuras de Para cortar.`))return
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática V5.1 ${plan.date||today()}`,status:'En corte',notes:`Motor V5.1 geométrico + certificador V1.7 · ${plan.units.length} completas · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items:plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty})),createdAt:new Date().toISOString()}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática NFP ${plan.date||today()}`,status:'En corte',notes:`Motor NFP + certificador V1.7 · ${plan.units.length} completas · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items:plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty})),createdAt:new Date().toISOString()}
     const result=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
     if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
   }
 
   return <>
-    <Title title="Generar placas · Motor V5.1 + Certificador V1.7" sub="V5.1 coloca por contorno real, prueba todas las rotaciones y conserva acomodos espaciales distintos. V1.7 certifica la placa final." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
-    <div className="notice"><b>Modo seguro</b><span>Un clic genera una sola propuesta. Nada se descuenta hasta “Pasar a corte”. Base y tapa se optimizan siempre como una figura completa.</span></div>
+    <Title title="Generar placas · Motor NFP + Certificador V1.7" sub="NFP calcula zonas reales de encastre entre siluetas irregulares. V1.7 certifica separación y bordes antes de habilitar producción." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Generando…':'Generar una placa'}</button>}/>
+    <div className="notice"><b>Modo producción NFP</b><span>Un clic genera una sola propuesta. Nada se descuenta hasta “Pasar a corte”. Base y tapa se mantienen como figura completa.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
       <div><small>Criterio productivo</small><b className="block big">10+ · o 9 con ≥72%</b></div>
-      <div><small>Arquitectura</small><b className="block big">V5.1 geométrico · V1.7 certifica</b></div>
+      <div><small>Arquitectura</small><b className="block big">NFP / Minkowski · V1.7 certifica</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
-    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>El motor prueba rotaciones y distintas posiciones reales sobre los contornos antes de descartar una figura.</span></div>}
+    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>El motor calcula fronteras No-Fit Polygon y prueba rotaciones de 15° conservando las mejores distribuciones.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
@@ -192,10 +192,10 @@ export default function MotorDefinitivo({db,onSave}){
         <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}`).join(', ')||'-'}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}{plan.rejectedCount>0&&<small className="block">{plan.rejectedCount} candidata(s) descartadas por geometría/medidas</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
-        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{plan.rotationStep!=='-'&&<small className="block">rotación final {plan.rotationStep}°</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
-        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-v5-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
+        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{plan.rotationStep!=='-'&&<small className="block">rotación {plan.rotationStep}°</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
+        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-nfp-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. V5.1 probará contornos, rotaciones y varias distribuciones reales antes de dar por imposible una combinación.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. El nuevo motor NFP calculará encastres por contorno y V1.7 certificará el resultado antes de producción.</td></tr>}
     </tbody></table></div>
   </>
 }
