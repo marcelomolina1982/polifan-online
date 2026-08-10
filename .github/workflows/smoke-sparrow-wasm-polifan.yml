@@ -63,7 +63,6 @@ jobs:
           import fs from 'node:fs';
           const browser=await chromium.launch({headless:true});
           const page=await browser.newPage();
-          page.on('console',m=>console.log('browser:',m.type(),m.text()));
           await page.goto('http://127.0.0.1:8080/sparrow-lab.html',{waitUntil:'load'});
           await page.waitForFunction(()=>window.POLIFAN_LAB?.finished || window.POLIFAN_LAB?.error,{timeout:45000});
           const r=await page.evaluate(()=>window.POLIFAN_LAB);
@@ -87,18 +86,14 @@ jobs:
           inp=json.load(open('public/sparroWASM/assets/shapes0.json'))
           by_id={str(x['id']):Polygon(x['shape']['data']) for x in inp['items']}
           root=ET.parse('/tmp/sparrow-result.svg').getroot()
-          all_uses=[e for e in root.iter() if e.tag.split('}')[-1]=='use']
-          uses=[e for e in all_uses if 'translate' in e.attrib.get('transform','')]
-          print('all uses',len(all_uses),'transformed uses',len(uses))
-          if len(uses)!=43:
-              print('sample use attrs:',[u.attrib for u in all_uses[:8]])
+          items_group=next(e for e in root if e.attrib.get('id')=='items')
+          uses=[e for e in list(items_group) if e.tag.split('}')[-1]=='use']
           assert len(uses)==43, len(uses)
           geoms=[]
           for e in uses:
               href=e.attrib.get('{http://www.w3.org/1999/xlink}href') or e.attrib.get('href') or ''
               m=re.search(r'item[_-]?(\d+)',href)
-              if not m:
-                  raise AssertionError(f'cannot identify item from {href!r}')
+              if not m: raise AssertionError(f'cannot identify item from {href!r}')
               g=by_id[m.group(1)]
               tr=e.attrib.get('transform','')
               mm=re.search(r'translate\s*\(\s*([-+0-9.eE]+)[ ,]+([-+0-9.eE]+)',tr)
@@ -108,8 +103,7 @@ jobs:
               g=rotate(g,ang,origin=(0,0),use_radians=False)
               g=translate(g,xoff=tx,yoff=ty)
               geoms.append(g)
-          min_gap=1e99
-          overlaps=0
+          min_gap=1e99; overlaps=0
           for i,a in enumerate(geoms):
               for b in geoms[i+1:]:
                   if a.intersection(b).area>1e-7: overlaps+=1
