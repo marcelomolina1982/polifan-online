@@ -111,7 +111,7 @@ export default function App(){
 
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['manualsale','＄','Venta manual'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
-    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','⚙','Motor definitivo'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
+    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','⚙','Generar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
     ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['trust','⭐','Fotos y reseñas'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
@@ -120,7 +120,7 @@ export default function App(){
   return <div className="app">
     <aside className={'sidebar '+(mobileOpen?'open':'')}>
       <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN {APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div>
-      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
+      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{if(id==='new') openNewOrder(); else {setPage(id);setMobileOpen(false)}}><span>{icon}</span>{label}</button>)}</div>)}</nav>
       <div className="side-help"><b>Sistema online</b><small>Pedidos y stock sincronizados en todos tus dispositivos.</small></div>
     </aside>
 
@@ -140,7 +140,7 @@ export default function App(){
         {page==='orders' && <Orders db={db} onSave={saveData} onEdit={(o)=>{setEditingOrder(o);setPage('new')}}/>}
         {page==='manualsale' && <ManualSale db={db} onSave={saveData}/>}  
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
-        {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')} goMotor={()=>setPage('sheetplanner')}/>} 
+        {page==='cut' && <CutList db={db} onSave={saveData} goMotor={()=>setPage('sheetplanner')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
         {page==='sheetplanner' && <MotorDefinitivo db={db} onSave={saveData}/>} 
         {page==='svganalyzer' && <SvgAnalyzer db={db} onSave={saveData}/>} 
