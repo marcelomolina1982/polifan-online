@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -74,10 +74,48 @@ jobs:
           test -n "$(find upstream-sparrow/dist -name '*.wasm' -print -quit)"
           test -n "$(find upstream-sparrow/dist -name 'algorithmWorker-*.js' -print -quit)"
 
+      - name: Vendor exact build into Polifan
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, shutil
+          src=Path('upstream-sparrow/dist')
+          dst=Path('public/sparroWASM')
+          if dst.exists(): shutil.rmtree(dst)
+          shutil.copytree(src,dst)
+          assets=dst/'assets'
+          def one(pattern):
+              matches=sorted(assets.glob(pattern))
+              if len(matches)!=1:
+                  raise SystemExit(f'expected one {pattern}, got {matches}')
+              return matches[0].name
+          manifest={
+              'engine':'Sparrow WASM + jagua-rs',
+              'min_item_separation_mm':3.0,
+              'algorithm_worker':one('algorithmWorker-*.js'),
+              'worker_helpers':one('workerHelpers-*.js'),
+              'wasm_js':one('sparroWASM-*.js'),
+              'wasm_binary':one('sparroWASM_bg-*.wasm')
+          }
+          (dst/'polifan-manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+          print(json.dumps(manifest,indent=2))
+
       - name: Upload custom build
         uses: actions/upload-artifact@v4
         with:
           name: sparrow-wasm-polifan-3mm
-          path: upstream-sparrow/dist/
+          path: public/sparroWASM/
           if-no-files-found: error
           retention-days: 7
+
+      - name: Commit vendored build to lab branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/sparroWASM
+          if git diff --cached --quiet; then
+            echo 'Vendored build already current.'
+          else
+            git commit -m 'lab: vendor Sparrow WASM 3mm build'
+            git push origin HEAD:lab/sparrow-wasm-3mm
+          fi
