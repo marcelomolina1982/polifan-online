@@ -1,11 +1,32 @@
 {
   "rewrites": [
     {
-      "source": "/((?!assets/).*)",
+      "source": "/sparroWASM/assets/:path*",
+      "destination": "https://jeroengar.github.io/sparroWASM/assets/:path*"
+    },
+    {
+      "source": "/((?!assets/|sparroWASM/).*)",
       "destination": "/"
     }
   ],
   "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "same-origin"
+        }
+      ]
+    },
     {
       "source": "/",
       "headers": [
