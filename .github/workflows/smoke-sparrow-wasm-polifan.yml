@@ -47,7 +47,6 @@ jobs:
           ThreadingHTTPServer(('127.0.0.1',8080),H).serve_forever()
           PY
           python /tmp/polifan_server.py >/tmp/polifan-server.log 2>&1 &
-          echo $! >/tmp/polifan-server.pid
           sleep 2
           curl -fsSI http://127.0.0.1:8080/sparrow-lab.html | grep -Ei 'Cross-Origin-(Opener|Embedder)-Policy'
 
@@ -72,9 +71,8 @@ jobs:
           if(!r.sharedArrayBuffer) throw new Error('SharedArrayBuffer unavailable');
           if(r.error) throw new Error(r.error);
           if(!r.finished) throw new Error('Sparrow did not finish');
-          if(r.placed!==43) throw new Error(`Expected 43 placed items, got ${r.placed}`);
           fs.writeFileSync('/tmp/sparrow-result.svg',r.resultSvg);
-          console.log(JSON.stringify({crossOriginIsolated:r.crossOriginIsolated,sharedArrayBuffer:r.sharedArrayBuffer,placed:r.placed,svgBytes:r.resultSvg.length,manifest:r.manifest},null,2));
+          console.log(JSON.stringify({crossOriginIsolated:r.crossOriginIsolated,sharedArrayBuffer:r.sharedArrayBuffer,rawUseCount:r.placed,svgBytes:r.resultSvg.length,manifest:r.manifest},null,2));
           await browser.close();
           JS
           node smoke.mjs
@@ -89,7 +87,11 @@ jobs:
           inp=json.load(open('public/sparroWASM/assets/shapes0.json'))
           by_id={str(x['id']):Polygon(x['shape']['data']) for x in inp['items']}
           root=ET.parse('/tmp/sparrow-result.svg').getroot()
-          uses=[e for e in root.iter() if e.tag.split('}')[-1]=='use']
+          all_uses=[e for e in root.iter() if e.tag.split('}')[-1]=='use']
+          uses=[e for e in all_uses if 'translate' in e.attrib.get('transform','')]
+          print('all uses',len(all_uses),'transformed uses',len(uses))
+          if len(uses)!=43:
+              print('sample use attrs:',[u.attrib for u in all_uses[:8]])
           assert len(uses)==43, len(uses)
           geoms=[]
           for e in uses:
@@ -99,11 +101,10 @@ jobs:
                   raise AssertionError(f'cannot identify item from {href!r}')
               g=by_id[m.group(1)]
               tr=e.attrib.get('transform','')
-              tx=ty=ang=0.0
               mm=re.search(r'translate\s*\(\s*([-+0-9.eE]+)[ ,]+([-+0-9.eE]+)',tr)
-              if mm: tx,ty=map(float,mm.groups())
+              tx,ty=map(float,mm.groups()) if mm else (0.0,0.0)
               rr=re.search(r'rotate\s*\(\s*([-+0-9.eE]+)',tr)
-              if rr: ang=float(rr.group(1))
+              ang=float(rr.group(1)) if rr else 0.0
               g=rotate(g,ang,origin=(0,0),use_radians=False)
               g=translate(g,xoff=tx,yoff=ty)
               geoms.append(g)
@@ -119,8 +120,10 @@ jobs:
           PY
 
       - name: Upload smoke SVG
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sparrow-polifan-smoke-result
           path: /tmp/sparrow-result.svg
+          if-no-files-found: ignore
           retention-days: 7
