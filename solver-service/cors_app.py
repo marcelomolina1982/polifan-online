@@ -1,4 +1,4 @@
-from nest_nfp2 import app
+from selftest_nfp2 import app
 from flask_cors import CORS
 
 # Generador principal: NFP completo estilo SVGnest (inner-fit menos unión de NFPs).
