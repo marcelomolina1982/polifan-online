@@ -117,7 +117,6 @@ def T_rotate(deg,cx,cy):
     return T_translate(cx,cy)@R@T_translate(-cx,-cy)
 
 def project_inside(p):
-    """Traslada una pieza lo mínimo indispensable para dejarla íntegramente dentro de la placa."""
     q=p.clone();x0,y0,x1,y1=q.geom.bounds;dx=dy=0.0
     if x0<0:dx=-x0
     elif x1>PLATE_W:dx=PLATE_W-x1
@@ -160,7 +159,6 @@ def degrees(pieces,gap):
     return d
 
 def conflict_push(cur,i,gap,rng,strength):
-    """Empuje dirigido: aleja la pieza elegida del centroide de sus bloqueadores."""
     g=cur[i].geom;c=g.centroid;vx=vy=0.0;n=0
     for j,p in enumerate(cur):
         if j==i:continue
@@ -177,17 +175,17 @@ def anneal(pieces,gap,seconds,seed):
     while time.time()-start<seconds:
         iters+=1;deg=degrees(cur,gap)
         i=rng.choices(range(len(cur)),weights=[1+x*x for x in deg],k=1)[0] if max(deg,default=0)>0 and rng.random()<.88 else rng.randrange(len(cur))
-        old=cur[i].clone();c=old.geom.centroid;e=(time.time()-start)/seconds
-        # Movimientos grandes al principio para escapar de mínimos locales; finos al final.
-        sc=max(.25,8.0*(1-e)**1.7)
+        old=cur[i].clone();c=old.geom.centroid
+        e=min(1.0,max(0.0,(time.time()-start)/max(seconds,1e-9)))
+        remain=max(0.0,1.0-e)
+        sc=max(.25,8.0*(remain**1.7))
         if deg[i]>0 and rng.random()<.68:dx,dy=conflict_push(cur,i,gap,rng,sc)
         else:dx,dy=rng.gauss(0,sc),rng.gauss(0,sc)
         ang=rng.choice([0,0,0,0,-.5,.5,-1,1,-1.5,1.5,-2,2]);q=old.clone();M=np.eye(3)
         if ang:q.geom=affinity.rotate(q.geom,ang,origin=(c.x,c.y));M=T_rotate(ang,c.x,c.y)@M
         q.geom=affinity.translate(q.geom,dx,dy);M=T_translate(dx,dy)@M;q.matrix=M@q.matrix
-        # Regla nueva: ningún candidato puede permanecer fuera de la placa.
         q=project_inside(q);cur[i]=q
-        ns=evaluate(cur,gap);delta=ns[0]-cs[0];temp=max(.05,10*(1-e))
+        ns=evaluate(cur,gap);delta=ns[0]-cs[0];temp=max(.05,10*remain)
         if delta<=0 or rng.random()<math.exp(-delta/temp):
             cs=ns
             if (ns[1]+ns[2],ns[0])<(bs[1]+bs[2],bs[0]):best=[p.clone() for p in cur];bs=ns
@@ -233,7 +231,7 @@ def solve_file(inp,outdir,seconds3=8.,seconds25=14.):
     sol,ev=try_gap(PREFERRED_GAP,seconds3);used=PREFERRED_GAP
     if sol is None or ev[1] or ev[2]:sol,ev=try_gap(MIN_GAP,seconds25);used=MIN_GAP
     if sol is None or ev[1] or ev[2]:return {'archivo':inp.name,'status':'NO_RESUELTO','pieces':len(pieces),'collapsed_internal':collapsed,'conflicts':ev[1],'border_conflicts':ev[2],'min_gap_mm':ev[3],'attempts':attempts,'seconds':round(time.time()-t0,3)}
-    out=outdir/(inp.stem+'__POLIFAN_OK.svg');export(defs,sol,out,{'engine':'Motor Polifan Definitivo V1.1','source':inp.name,'plate_mm':[PLATE_W,PLATE_H],'target_gap_used_mm':used,'scale':'1:1','piece_count':len(pieces),'collapsed_internal_details':collapsed})
+    out=outdir/(inp.stem+'__POLIFAN_OK.svg');export(defs,sol,out,{'engine':'Motor Polifan Definitivo V1','source':inp.name,'plate_mm':[PLATE_W,PLATE_H],'target_gap_used_mm':used,'scale':'1:1','piece_count':len(pieces),'collapsed_internal_details':collapsed})
     val=validate(out,4.0);status='CERTIFICADO' if val['valid'] and val['piece_count']==len(pieces) else 'EXPORT_RECHAZADO'
     return {'archivo':inp.name,'status':status,'pieces':len(pieces),'collapsed_internal':collapsed,'search_gap_used_mm':used,'search_min_gap_mm':ev[3],'validation':val,'output':str(out),'attempts':attempts,'seconds':round(time.time()-t0,3)}
 
