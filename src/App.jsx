@@ -23,7 +23,7 @@ import CatalogAssistant from './pages/CatalogAssistant'
 import CustomerTrust from './pages/CustomerTrust'
 import Quotes from './pages/Quotes'
 import ProductionCalendar from './pages/ProductionCalendar'
-import SheetPlanner from './pages/SheetPlanner'
+import MotorDefinitivo from './pages/MotorDefinitivo'
 import SvgLibrary from './pages/SvgLibrary'
 import SvgAnalyzer from './pages/SvgAnalyzer'
 import { APP_VERSION_LABEL, APP_UPDATED_AT } from './version'
@@ -111,7 +111,7 @@ export default function App(){
 
   const navGroups = [
     ['NEGOCIO', [['dashboard','⌂','Inicio'], ['new','＋','Nuevo pedido'], ['manualsale','＄','Venta manual'], ['orders','▤','Pedidos'], ['clients','♙','Clientes']]],
-    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','▧','Diseñar placas'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
+    ['PRODUCCIÓN', [['calendar','🗓','Calendario'], ['cut','✂','Para cortar'], ['cutbatches','▦','En corte'], ['sheetplanner','⚙','Motor definitivo'], ['svganalyzer','⌗','Analizar placas SVG'], ['svglibrary','⌁','Biblioteca SVG'], ['stock','◇','Inventario']]],
     ['VENTAS', [['quotes','🧾','Presupuestos'], ['assistant','🤖','Asistente del catálogo'], ['attention','💬','Centro de Atención'], ['webrequests','🛒','Solicitudes web'], ['trust','⭐','Fotos y reseñas'], ['catalog','▦','Catálogo'], ['analytics','📊','Estadísticas']]],
     ['FINANZAS', [['expenses','💰','Caja y gastos'], ['monthly','▥','Resumen mensual']]],
     ['SISTEMA', [['settings','⚙','Configuración']]],
@@ -142,7 +142,7 @@ export default function App(){
         {page==='calendar' && <ProductionCalendar db={db} onSave={saveData} go={(id)=>id==='new'?openNewOrder():setPage(id)}/>} 
         {page==='cut' && <CutList db={db} onSave={saveData} goBatches={()=>setPage('cutbatches')}/>} 
         {page==='cutbatches' && <CutBatches db={db} onSave={saveData}/>} 
-        {page==='sheetplanner' && <SheetPlanner db={db} onSave={saveData}/>} 
+        {page==='sheetplanner' && <MotorDefinitivo db={db} onSave={saveData}/>} 
         {page==='svganalyzer' && <SvgAnalyzer db={db} onSave={saveData}/>} 
         {page==='svglibrary' && <SvgLibrary db={db} onSave={saveData}/>} 
         {page==='stock' && <Stock db={db} onSave={saveData}/>} 
