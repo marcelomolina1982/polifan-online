@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Title } from '../components/UI'
-import { today } from '../lib/format'
 import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 
 function dateLabel(value){
@@ -13,27 +12,24 @@ function groupedPendingByDelivery(db){
   return pendingCutByDelivery(db)
 }
 
-export default function CutList({db,onSave,goBatches,goMotor}){
+export default function CutList({db,onSave,goMotor}){
   const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
   const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
   const [selectedDate,setSelectedDate]=useState('')
+  const cleanupStarted=useRef(false)
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
-  async function createSuggested(){
-    if(!rows.length)return alert('No hay piezas pendientes para enviar a corte.')
-    const batch={
-      id:crypto.randomUUID(),
-      number:String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),
-      date:today(),
-      name:'Placa sugerida '+today(),
-      status:'En corte',
-      notes:'Generada automáticamente desde las piezas pendientes.',
-      items:rows.map(r=>({figure:r.figure,qty:r.pending})),
-      createdAt:new Date().toISOString()
-    }
-    await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
-    if(confirm('Placa sugerida creada. ¿Ir a la sección En corte para revisarla?')) goBatches()
-  }
+  // Corrección puntual: la antigua acción “Crear placa sugerida” metió todo lo
+  // pendiente en corte. Se elimina exclusivamente la placa automática #038
+  // creada el 10/08/2026 para que esas piezas vuelvan inmediatamente a pendientes.
+  useEffect(()=>{
+    if(cleanupStarted.current)return
+    const batches=db.cutBatches||[]
+    const bad=batches.find(b=>String(b.number)==='038'&&b.name==='Placa sugerida 2026-08-10'&&b.notes==='Generada automáticamente desde las piezas pendientes.')
+    if(!bad)return
+    cleanupStarted.current=true
+    onSave({...db,cutBatches:batches.filter(b=>b.id!==bad.id)})
+  },[db,onSave])
 
   function printDailyList(){
     if(!visibleGroups.length) return alert('No hay piezas pendientes para la fecha seleccionada.')
@@ -50,8 +46,8 @@ export default function CutList({db,onSave,goBatches,goMotor}){
   }
 
   return <>
-    <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={goMotor}>Motor definitivo V1.7</button><button className="ghost" onClick={createSuggested}>Crear placa sugerida</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo automático</b><span>El stock y las piezas en corte se aplican primero a las entregas más próximas.</span></div>
+    <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
+    <div className="notice"><b>Cálculo automático</b><span>El stock y las piezas en corte se aplican primero a las entregas más próximas. Las placas se generan únicamente desde “Generar placas” con el Motor Definitivo V1.7.</span></div>
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
