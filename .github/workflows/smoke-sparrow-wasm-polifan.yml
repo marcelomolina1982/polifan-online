@@ -59,7 +59,7 @@ jobs:
 
       - name: Execute Sparrow in real browser
         run: |
-          cat > /tmp/smoke.mjs <<'JS'
+          cat > smoke.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
           const browser=await chromium.launch({headless:true});
@@ -77,13 +77,13 @@ jobs:
           console.log(JSON.stringify({crossOriginIsolated:r.crossOriginIsolated,sharedArrayBuffer:r.sharedArrayBuffer,placed:r.placed,svgBytes:r.resultSvg.length,manifest:r.manifest},null,2));
           await browser.close();
           JS
-          node /tmp/smoke.mjs
+          node smoke.mjs
 
       - name: Validate vector result geometry at 3mm
         run: |
           pip install --quiet shapely
           python - <<'PY'
-          import json,re,math,xml.etree.ElementTree as ET
+          import json,re,xml.etree.ElementTree as ET
           from shapely.geometry import Polygon
           from shapely.affinity import rotate,translate
           inp=json.load(open('public/sparroWASM/assets/shapes0.json'))
@@ -104,8 +104,6 @@ jobs:
               if mm: tx,ty=map(float,mm.groups())
               rr=re.search(r'rotate\s*\(\s*([-+0-9.eE]+)',tr)
               if rr: ang=float(rr.group(1))
-              # SVG order here is translate then rotate in the emitted attribute;
-              # Sparrow's external transformation is rotation followed by translation.
               g=rotate(g,ang,origin=(0,0),use_radians=False)
               g=translate(g,xoff=tx,yoff=ty)
               geoms.append(g)
