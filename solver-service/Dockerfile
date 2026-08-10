@@ -22,4 +22,4 @@ COPY *.py .
 
 EXPOSE 10000
 
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "180", "cors_app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "300", "cors_app:app"]
