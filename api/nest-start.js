@@ -1,3 +1,5 @@
+export const config={maxDuration:60}
+
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({ok:false,error:'Método no permitido'})
   const testBase='https://polifan-cnc-solver-test.onrender.com'
