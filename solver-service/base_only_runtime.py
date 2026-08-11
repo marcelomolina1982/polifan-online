@@ -19,7 +19,8 @@ def _base_only_nest_sparrow():
     if abs(width_mm-ns.PLATE_WIDTH_MM)>1 or abs(height_mm-ns.PLATE_HEIGHT_MM)>1:
         return jsonify(ok=False,error='Sparrow producción está fijado a placa 1220×580 mm'),400
 
-    gap=max(2.5,ns._n(data.get('gapCm'),.3)*10)
+    # Producción: 3,0 mm es el mínimo real. Nunca se relaja a 2,5 mm en Sparrow.
+    gap=max(3.0,ns._n(data.get('gapCm'),.3)*10)
     raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:32]
     if not raw:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
 
@@ -70,16 +71,17 @@ def _base_only_nest_sparrow():
                 'engine':'Sparrow asíncrono · base protegida + relleno fijo + V1.7',
                 'baseOnly':True,'baseSeed':seed,'baseProtected':True,
                 'baseSearchSeconds':round(time.time()-started,2),
-                'baseAttempts':len(attempts)
+                'baseAttempts':len(attempts),
+                'minimumGapMm':gap,
             })
             return jsonify(payload)
 
     return jsonify(
         ok=False,
-        error='Sparrow agotó la búsqueda ampliada sin encontrar una combinación válida de 10 completas.',
+        error='Sparrow agotó la búsqueda ampliada sin encontrar una combinación válida de 10 completas a 3 mm.',
         engine='Sparrow asíncrono · base protegida + relleno fijo + V1.7',
         attempts=attempts,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],
-        elapsedSeconds=round(time.time()-started,2)
+        elapsedSeconds=round(time.time()-started,2),minimumGapMm=gap
     ),422
 
 
