@@ -1,0 +1,55 @@
+name: Smoke Sparrow browser
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [motor-sparrow-v24-lab]
+    paths:
+      - 'public/sparroWASM/**'
+      - '.github/workflows/smoke-sparrow-browser.yml'
+      - 'vercel.json'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save playwright@1.54.2
+          npx playwright install --with-deps chromium
+      - name: Start isolated static server
+        run: |
+          cat > /tmp/server.py <<'PY'
+          from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          class H(SimpleHTTPRequestHandler):
+              def end_headers(self):
+                  self.send_header('Cross-Origin-Opener-Policy','same-origin')
+                  self.send_header('Cross-Origin-Embedder-Policy','require-corp')
+                  self.send_header('Cross-Origin-Resource-Policy','same-origin')
+                  super().end_headers()
+          ThreadingHTTPServer(('127.0.0.1',4173),H).serve_forever()
+          PY
+          python /tmp/server.py > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+      - name: Run Sparrow smoke
+        run: |
+          cat > /tmp/smoke.mjs <<'JS'
+          import { chromium } from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage();
+          page.on('console',m=>console.log('BROWSER',m.type(),m.text()));
+          await page.goto('http://127.0.0.1:4173/public/sparroWASM/smoke.html');
+          await page.waitForFunction(()=>['done','error'].includes(window.__SPARROW_SMOKE__?.status),null,{timeout:55000});
+          const result=await page.evaluate(()=>window.__SPARROW_SMOKE__);
+          console.log(JSON.stringify(result,null,2));
+          await browser.close();
+          if(result.status!=='done'||result.crossOriginIsolated!==true||result.sharedArrayBuffer!==true||result.uses!==20||result.validTransforms!==20) process.exit(1);
+          JS
+          node /tmp/smoke.mjs
