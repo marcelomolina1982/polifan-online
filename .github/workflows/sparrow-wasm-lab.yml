@@ -1,0 +1,25 @@
+name: Sparrow WASM lab
+on:
+  push:
+    branches: [sparrow-wasm-lab]
+    paths:
+      - 'lab/**'
+      - '.github/workflows/sparrow-wasm-lab.yml'
+jobs:
+  browser-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start COOP COEP server
+        run: |
+          python3 lab/server.py > /tmp/sparrow-server.log 2>&1 &
+          sleep 2
+          curl -sSI http://127.0.0.1:8123/lab/index.html | grep -Ei 'cross-origin-(opener|embedder)-policy'
+      - name: Run Sparrow in headless Chrome
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          echo "Chrome: $CHROME"
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=30000 --dump-dom http://127.0.0.1:8123/lab/index.html > /tmp/sparrow-result.html
+          cat /tmp/sparrow-result.html
+          grep 'data-status="PASS"' /tmp/sparrow-result.html
