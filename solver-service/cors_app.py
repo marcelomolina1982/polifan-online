@@ -1,4 +1,5 @@
 from nest_sparrow import app
+import production_safety_runtime  # gap >=3 mm y ranking por figuras completas primero
 import base_only_runtime  # respaldo historico conocido
 import adaptive_base_runtime  # base dinamica: cambia 1-3 figuras al variar los pendientes
 import fixed_hole_runtime  # despues: rellenar huecos sin mover la base
