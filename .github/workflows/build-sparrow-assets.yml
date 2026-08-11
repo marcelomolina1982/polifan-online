@@ -1,0 +1,63 @@
+name: Build Sparrow WASM assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [motor-sparrow-v24-lab]
+    paths:
+      - '.github/workflows/build-sparrow-assets.yml'
+      - 'scripts/integrate_sparrow.py'
+      - 'src/lib/sparrowEngine.js'
+      - 'src/pages/SheetPlanner.jsx'
+      - 'vercel.json'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply Sparrow integration
+        run: python scripts/integrate_sparrow.py
+      - name: Build upstream Sparrow WASM
+        shell: bash
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/JeroenGar/sparroWASM.git /tmp/sparroWASM
+          cd /tmp/sparroWASM
+          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup default nightly
+          cargo install wasm-pack --locked
+          npm install
+          wasm-pack build --target web --release
+          npm run build
+      - name: Vendor deterministic Sparrow bundle
+        shell: bash
+        run: |
+          rm -rf public/sparroWASM
+          mkdir -p public/sparroWASM
+          cp -R /tmp/sparroWASM/dist/. public/sparroWASM/
+          WORKER=$(basename "$(find public/sparroWASM/assets -maxdepth 1 -name 'algorithmWorker-*.js' | head -1)")
+          test -n "$WORKER"
+          printf 'import "/sparroWASM/assets/%s";\n' "$WORKER" > public/sparroWASM/algorithmWorker.js
+          find public/sparroWASM/assets -maxdepth 1 -name '*.wasm' | grep -q .
+      - name: Build Polifan
+        run: |
+          npm install
+          npm run build
+      - name: Commit generated integration and WASM assets
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/pages/SheetPlanner.jsx src/lib/sparrowEngine.js public/sparroWASM
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "build: integrate Sparrow WASM engine"
+          git push origin HEAD:${{ github.ref_name }}
