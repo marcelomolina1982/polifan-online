@@ -124,3 +124,5 @@ jobs:
           path: /tmp/sparrow-result.svg
           if-no-files-found: ignore
           retention-days: 7
+
+# retrigger after vendored 3.05 mm build
