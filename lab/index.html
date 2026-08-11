@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8"><title>Sparrow lab</title><body data-status="RUNNING">RUNNING<script type="module">
+const body=document.body
+const fail=m=>{body.dataset.status='FAIL';body.textContent='FAIL '+m;console.error(m)}
+try{
+  if(!crossOriginIsolated)throw new Error('main crossOriginIsolated=false')
+  const items=[]
+  // 20 piezas de 100x100 mm, cada una inflada 1.5 mm por lado = separación real mínima 3 mm.
+  for(let i=0;i<20;i++)items.push({id:i,demand:1,allowed_orientations:[0,90,180,270],shape:{type:'simple_polygon',data:[[-1.5,-1.5],[101.5,-1.5],[101.5,101.5],[-1.5,101.5]]}})
+  const instance={name:'polifan-lab',items,strip_height:580}
+  const w=new Worker('./sparrowWorker.js',{type:'module'})
+  const timer=setTimeout(()=>{w.terminate();fail('timeout')},25000)
+  w.onmessage=e=>{
+    const d=e.data||{}
+    if(d.type==='error'){clearTimeout(timer);return fail(d.message)}
+    if(d.type!=='finished')return
+    clearTimeout(timer);w.terminate()
+    const doc=new DOMParser().parseFromString(d.result,'image/svg+xml')
+    const uses=[...doc.querySelectorAll('use')]
+    if(uses.length!==20)return fail('placements '+uses.length+'/20')
+    const placed=[]
+    for(const use of uses){
+      const tr=use.getAttribute('transform')||''
+      const m=tr.match(/translate\(\s*([-+\d.eE]+)[ ,]+([-+\d.eE]+)\s*\).*?rotate\(\s*([-+\d.eE]+)/)
+      if(!m)return fail('transform no parseable')
+      const tx=Number(m[1]),ty=Number(m[2]),a=((Number(m[3])%360)+360)%360
+      // cuadrados: bbox expandido es [tx-1.5, ty-1.5] a [tx+101.5, ty+101.5]
+      placed.push({x:tx-1.5,y:ty-1.5,w:103,h:103,a})
+    }
+    let maxX=0
+    for(let i=0;i<placed.length;i++){
+      const a=placed[i];maxX=Math.max(maxX,a.x+a.w)
+      if(a.x<-0.01||a.y<-0.01||a.y+a.h>580.01)return fail('fuera de placa')
+      for(let j=0;j<i;j++){
+        const b=placed[j]
+        if(a.x<b.x+b.w-0.01&&a.x+a.w>b.x+0.01&&a.y<b.y+b.h-0.01&&a.y+a.h>b.y+0.01)return fail('colision expandida')
+      }
+    }
+    if(maxX>1220.01)return fail('ancho '+maxX)
+    body.dataset.status='PASS';body.textContent='PASS placements=20 maxX='+maxX.toFixed(2)+' crossOriginIsolated='+crossOriginIsolated
+  }
+  w.onerror=e=>{clearTimeout(timer);fail(e.message||'worker error')}
+  w.postMessage({type:'run',instance,timeLimit:6,seed:7,nWorkers:2})
+}catch(e){fail(e.message||String(e))}
+</script>
