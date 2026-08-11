@@ -3,17 +3,19 @@ import time
 import nest_sparrow as ns
 
 MAX_INPUT_POOL=64
-MAX_SEARCH_SECONDS=220
-MAX_VARIANTS=14
+MAX_SEARCH_SECONDS=205
+MAX_RAW_VARIANTS=40
+MAX_SPARROW_VARIANTS=6
+PLATE_AREA=1220.0*580.0
 
 
-def _unique_variants(rows):
+def _unique_variants(rows,limit=MAX_RAW_VARIANTS):
     out=[]; seen=set()
     for label,selected in rows:
         sig=tuple(sorted(str(k.get('kitId') or '') for k in selected))
         if len(selected)!=10 or sig in seen: continue
         seen.add(sig); out.append((label,selected))
-        if len(out)>=MAX_VARIANTS: break
+        if len(out)>=limit: break
     return out
 
 
@@ -21,48 +23,82 @@ def _replacement_pool(kits,used):
     remain=[k for k in kits if k['kitId'] not in used]
     compact=sorted(remain,key=lambda k:(k['envelope'],-k['solidity'],k['priority']))
     dense=sorted(remain,key=lambda k:(-k['solidity'],k['envelope'],k['priority']))
+    small=sorted(remain,key=lambda k:(k['area'],k['envelope'],k['priority']))
     urgent=sorted(remain,key=lambda k:(k['priority'],k['envelope']))
     out=[]; seen=set()
-    for seq in (compact,dense,urgent):
-        for k in seq[:12]:
+    for seq in (compact,dense,small,urgent):
+        for k in seq[:18]:
             if k['kitId'] in seen: continue
             seen.add(k['kitId']); out.append(k)
     return out
 
 
-def _adaptive_variants(kits):
+def _raw_variants(kits):
     variants=list(ns._candidate_selections(kits,10))
-    if not variants: return []
-    base=variants[0][1]
-    used={k['kitId'] for k in base}
-    replacements=_replacement_pool(kits,used)
-    # Las primeras 5 unidades mantienen prioridad. Se reemplazan primero las piezas
-    # más difíciles de las otras 5: gran envelope y baja solidez.
-    tail_indices=list(range(5,10))
-    tail_indices.sort(key=lambda i:(base[i]['envelope'],-base[i]['solidity']),reverse=True)
-    for count in (1,2,3):
-        if len(replacements)<count: break
-        # Dos familias por cantidad: compacta pura y una desplazada para variar forma.
-        for offset in (0,2):
-            chosen=replacements[offset:offset+count]
-            if len(chosen)<count: continue
-            rows=list(base)
-            removed=[]
-            for idx,new in zip(tail_indices[:count],chosen):
-                removed.append(rows[idx]['figure'])
-                rows[idx]=new
-            variants.append((f'adaptativa cambio {count} · '+', '.join(removed)+' → '+', '.join(k['figure'] for k in chosen),rows))
-    # También generar cambios sobre la segunda estrategia original: a veces la base
-    # compacta y la de prioridad fallan por razones geométricas distintas.
-    if len(variants)>1:
-        base2=list(variants[1][1]); used2={k['kitId'] for k in base2}; repl2=_replacement_pool(kits,used2)
-        idxs=list(range(5,10)); idxs.sort(key=lambda i:(base2[i]['envelope'],-base2[i]['solidity']),reverse=True)
-        for count in (1,2):
-            if len(repl2)<count: break
-            rows=list(base2)
-            for idx,new in zip(idxs[:count],repl2[:count]): rows[idx]=new
-            variants.append((f'adaptativa alternativa cambio {count}',rows))
+    bases=[rows for _,rows in variants[:4]]
+    for bidx,base in enumerate(bases):
+        base=list(base); used={k['kitId'] for k in base}; repl=_replacement_pool(kits,used)
+        hard=list(range(10))
+        hard.sort(key=lambda i:(base[i]['envelope'],-base[i]['solidity'],base[i]['priority']),reverse=True)
+        # Mantener al menos 4 de los más urgentes; variar el resto.
+        hard=[i for i in hard if i>=4]+[i for i in hard if i<4]
+        for count in (1,2,3,4):
+            for offset in (0,2,5,8):
+                chosen=repl[offset:offset+count]
+                if len(chosen)<count: continue
+                rows=list(base); removed=[]
+                for idx,new in zip(hard[:count],chosen):
+                    removed.append(rows[idx]['figure']); rows[idx]=new
+                variants.append((f'geo base{bidx+1} cambio {count} off{offset} · '+', '.join(removed),rows))
     return _unique_variants(variants)
+
+
+def _part_dims(part):
+    try:
+        minx,miny,maxx,maxy=part['geom'].bounds
+        return maxx-minx,maxy-miny
+    except Exception:
+        return 1e9,1e9
+
+
+def _geometry_score(selected):
+    # Filtro barato: descarta grupos imposibles por área y castiga piezas con cajas
+    # envolventes grandes. Premia compactación/solidez y un poco de prioridad.
+    area=sum(float(k.get('area') or 0) for k in selected)
+    density=100.0*area/PLATE_AREA
+    if area>PLATE_AREA*0.985: return None
+
+    max_side_penalty=0.0
+    envelope=sum(float(k.get('envelope') or 0) for k in selected)
+    solidity=sum(float(k.get('solidity') or 0) for k in selected)/len(selected)
+    priority=sum(float(k.get('priority') or 0) for k in selected)/len(selected)
+    tall_parts=0; wide_parts=0
+    for kit in selected:
+        for part in kit.get('parts') or []:
+            w,h=_part_dims(part)
+            a,b=min(w,h),max(w,h)
+            if a>580.0+1e-6 or b>1220.0+1e-6: return None
+            if a>430: tall_parts+=1
+            if b>760: wide_parts+=1
+            max_side_penalty+=max(0.0,a-360.0)*0.05+max(0.0,b-700.0)*0.025
+
+    # Objetivo: suficiente material para acercarse a 80%, pero no sobrecargar.
+    density_penalty=abs(78.0-density)*3.0 if density<=88 else (density-88)*8.0
+    envelope_ratio=envelope/max(area,1.0)
+    crowd_penalty=tall_parts*18.0+wide_parts*10.0
+    score=(solidity*260.0) - density_penalty - envelope_ratio*45.0 - crowd_penalty - max_side_penalty - priority*0.12
+    return score,density,solidity,tall_parts,wide_parts
+
+
+def _ranked_variants(kits):
+    ranked=[]
+    for label,rows in _raw_variants(kits):
+        geo=_geometry_score(rows)
+        if geo is None: continue
+        score,density,solidity,tall,wide=geo
+        ranked.append((score,label,rows,{'predDensity':round(density,1),'solidity':round(solidity,3),'tallParts':tall,'wideParts':wide}))
+    ranked.sort(key=lambda x:x[0],reverse=True)
+    return ranked[:MAX_SPARROW_VARIANTS],len(ranked)
 
 
 def adaptive_nest_sparrow():
@@ -76,42 +112,35 @@ def adaptive_nest_sparrow():
     gap=max(3.0,ns._n(data.get('gapCm'),.3)*10)
     raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_INPUT_POOL]
     if not raw:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
+
     kits=[]; rejected=[]
     for k in raw:
         try:kits.append(ns._prep_kit(k,width_mm,height_mm))
         except Exception as exc:rejected.append({'kitId':str(k.get('kitId') or ''),'figure':str(k.get('figure') or ''),'reason':str(exc)})
     if len(kits)<10:return jsonify(ok=False,error=f'Solo hay {len(kits)} kits geometricos utilizables',rejected=rejected[:8]),422
 
-    variants=_adaptive_variants(kits)
-    attempts=[]
-    # Primera pasada: muchas combinaciones, poco tiempo cada una. Si una entra, se corta.
-    for idx,(label,selected) in enumerate(variants):
-        remaining=MAX_SEARCH_SECONDS-(time.time()-started)
-        if remaining<14: break
-        seconds=min(20 if idx<4 else 16,int(remaining-4))
-        seed=429 if idx==0 else 41+idx*137
-        result=ns._run_sparrow(selected,gap,seconds,seed,continuous=False)
-        attempts.append({'label':label,'seed':seed,'seconds':seconds,'fits':result.get('fits'),'placedParts':result.get('placedParts'),'expectedParts':result.get('expectedParts'),'stripWidthMm':result.get('stripWidthMm'),'density':round(float(result.get('density') or 0),1),'error':result.get('error')})
-        if result.get('ok') and result.get('fits'):
-            response=ns._result_payload(selected,f'base 10 adaptativa · {label}',result,kits,rejected,attempts,started,None)
-            payload=response.get_json()
-            payload.update({'engine':'Sparrow adaptativo secuencial + huecos + V1.7','baseProtected':True,'adaptiveBase':True,'baseVariantsGenerated':len(variants),'baseAttempts':len(attempts),'candidatePool':len(kits),'inputKitsReceived':len(data.get('kits') or []),'minimumGapMm':gap})
-            return jsonify(payload)
+    variants,ranked_count=_ranked_variants(kits)
+    if not variants:
+        return jsonify(ok=False,error='El prefiltro geometrico no encontro ningun grupo razonable de 10.',candidatePool=len(kits),rejected=rejected[:8]),422
 
-    # Rescate continuo sólo sobre las mejores 3 variantes, sin volver a barrer todo.
-    for idx,(label,selected) in enumerate(variants[:3]):
+    attempts=[]
+    # Sparrow sólo recibe las mejores 6 combinaciones según geometría.
+    for idx,(geo_score,label,selected,meta) in enumerate(variants):
         remaining=MAX_SEARCH_SECONDS-(time.time()-started)
-        if remaining<16: break
-        seconds=min(22,int(remaining-4))
-        result=ns._run_sparrow(selected,gap,seconds,901+idx*211,continuous=True)
-        attempts.append({'label':'continuo · '+label,'seed':901+idx*211,'seconds':seconds,'fits':result.get('fits'),'placedParts':result.get('placedParts'),'expectedParts':result.get('expectedParts'),'stripWidthMm':result.get('stripWidthMm'),'density':round(float(result.get('density') or 0),1),'error':result.get('error')})
+        if remaining<18: break
+        seconds=min(34 if idx<2 else 26,int(remaining-5))
+        seed=(429,41,701,977,1231,1601)[idx]
+        continuous=(idx>=4)
+        result=ns._run_sparrow(selected,gap,seconds,seed,continuous=continuous)
+        attempts.append({'label':label,'geoScore':round(geo_score,2),**meta,'seed':seed,'seconds':seconds,'rotation':'continua' if continuous else '15°','fits':result.get('fits'),'placedParts':result.get('placedParts'),'expectedParts':result.get('expectedParts'),'stripWidthMm':result.get('stripWidthMm'),'density':round(float(result.get('density') or 0),1),'error':result.get('error')})
         if result.get('ok') and result.get('fits'):
-            response=ns._result_payload(selected,f'base 10 adaptativa continua · {label}',result,kits,rejected,attempts,started,None)
-            payload=response.get_json(); payload.update({'engine':'Sparrow adaptativo secuencial + huecos + V1.7','baseProtected':True,'adaptiveBase':True,'baseVariantsGenerated':len(variants),'baseAttempts':len(attempts),'candidatePool':len(kits),'inputKitsReceived':len(data.get('kits') or []),'minimumGapMm':gap})
+            response=ns._result_payload(selected,f'base 10 prefiltro geometrico · {label}',result,kits,rejected,attempts,started,None)
+            payload=response.get_json()
+            payload.update({'engine':'Sparrow + prefiltro geometrico + huecos + V1.7','baseProtected':True,'adaptiveBase':True,'geometryPrefilter':True,'rankedVariants':ranked_count,'baseAttempts':len(attempts),'candidatePool':len(kits),'inputKitsReceived':len(data.get('kits') or []),'minimumGapMm':gap})
             return jsonify(payload)
 
     best=max(attempts,key=lambda a:(int(a.get('placedParts') or 0),-float(a.get('stripWidthMm') or 1e18))) if attempts else None
-    return jsonify(ok=False,error='Sparrow probo combinaciones consecutivas cambiando 1, 2 y 3 figuras, pero no encontro una base valida de 10 dentro del presupuesto.',engine='Sparrow adaptativo secuencial + huecos + V1.7',attempts=attempts,bestAttempt=best,candidatePool=len(kits),baseVariantsGenerated=len(variants),rejectedCount=len(rejected),rejected=rejected[:8],elapsedSeconds=round(time.time()-started,2),minimumGapMm=gap,inputKitsReceived=len(data.get('kits') or [])),422
+    return jsonify(ok=False,error='El prefiltro geometrico eligio las mejores combinaciones de 10, pero Sparrow no logro una base valida dentro del presupuesto.',engine='Sparrow + prefiltro geometrico + huecos + V1.7',attempts=attempts,bestAttempt=best,candidatePool=len(kits),rankedVariants=ranked_count,rejectedCount=len(rejected),rejected=rejected[:8],elapsedSeconds=round(time.time()-started,2),minimumGapMm=gap,inputKitsReceived=len(data.get('kits') or [])),422
 
 
 ns.nest_sparrow=adaptive_nest_sparrow
