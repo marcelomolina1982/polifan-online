@@ -27,7 +27,10 @@ jobs:
           import json
           p=json.load(open('public/sparroWASM/polifan-manifest.json'))
           assert p['engine']=='Sparrow WASM + jagua-rs'
-          assert p['min_item_separation_mm']==3.0
+          production=p.get('production_min_separation_mm',p.get('min_item_separation_mm'))
+          solver=p.get('solver_min_separation_mm',production)
+          assert production==3.0, production
+          assert solver>=3.0, solver
           print(p)
           PY
 
@@ -109,7 +112,7 @@ jobs:
                   if a.intersection(b).area>1e-7: overlaps+=1
                   min_gap=min(min_gap,a.distance(b))
           assert overlaps==0, overlaps
-          assert min_gap>=2.999, min_gap
+          assert min_gap>=3.0, min_gap
           print(json.dumps({'placed':len(geoms),'overlaps':overlaps,'min_gap':min_gap},indent=2))
           PY
 
