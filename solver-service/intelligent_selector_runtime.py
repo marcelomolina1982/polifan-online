@@ -3,8 +3,10 @@ import time, random
 import nest_sparrow as ns
 
 MAX_POOL=64
-MAX_SECONDS=235
-PORTFOLIO=9
+# La base 10 ya está estable. No debe consumir todo el worker: reservamos tiempo
+# para certificar y para el crecimiento seguro 10 -> 11 -> 12 -> 13.
+MAX_SECONDS=190
+PORTFOLIO=7
 _memory={}
 POSITIVE_NAMES={'gato','gato con luces','auto','chase paw patrol','chopp','abejita','boca','woody toy story'}
 
@@ -25,11 +27,11 @@ def _portfolio(kits):
         sig=tuple(sorted(str(x.get('kitId')) for x in g))
         if sig not in seen:seen.add(sig); groups.append(g)
     add(ordered[:10])
-    for off in (2,5,8,12):add(ordered[off:off+10])
+    for off in (2,5,8):add(ordered[off:off+10])
     anchors=[k for k in ordered if _key(k) in POSITIVE_NAMES]; rest=[k for k in ordered if k not in anchors]
     add((anchors+rest)[:10])
     rng=random.Random(429); top=ordered[:min(30,len(ordered))]
-    for _ in range(12):
+    for _ in range(8):
         add(sorted(rng.sample(top,10),key=_score))
         if len(groups)>=PORTFOLIO:break
     return groups[:PORTFOLIO]
@@ -47,8 +49,10 @@ def intelligent_nest():
     groups=_portfolio(kits); attempts=[]; best=None
     for idx,g in enumerate(groups):
         remaining=MAX_SECONDS-(time.time()-started)
-        if remaining<18:break
-        budget=min(34 if idx<3 else 26,int(remaining-5)); seed=(429,41,1701,7919,31337,97,811,2027,65537)[idx%9]
+        if remaining<16:break
+        # Intentos más cortos: la experiencia ya mostró que la base 10 se encuentra;
+        # el tiempo sobrante pertenece al optimizador posterior, no a repetir Sparrow.
+        budget=min(27 if idx<2 else 22,int(remaining-4)); seed=(429,41,1701,7919,31337,97,811)[idx%7]
         continuous=idx>=3
         r=ns._run_sparrow(g,requested_gap,budget,seed,continuous=continuous)
         attempts.append({'candidate':idx+1,'figures':[x['figure'] for x in g],'fits':r.get('fits'),'placedParts':r.get('placedParts'),'expectedParts':r.get('expectedParts'),'density':round(float(r.get('density') or 0),1),'seconds':budget,'continuous':continuous})
@@ -56,22 +60,19 @@ def intelligent_nest():
             best=(g,r);break
         ratio=float(r.get('placedParts') or 0)/max(1,float(r.get('expectedParts') or 20)); penalty=max(.02,(1-ratio)*.18)
         for x in g:_memory[_key(x)]=min(1.5,_memory.get(_key(x),0.0)+penalty)
-    if not best:return jsonify(ok=False,error='El selector inteligente propuso grupos distintos de 10, pero Sparrow no certificó ninguno dentro del presupuesto.',engine='Selector inteligente + Sparrow + V1.7',selectorVersion='smart-1.1',attempts=attempts,candidatePool=len(kits),elapsedSeconds=round(time.time()-started,1)),422
+    if not best:return jsonify(ok=False,error='El selector inteligente propuso grupos distintos de 10, pero Sparrow no certificó ninguno dentro del presupuesto.',engine='Selector inteligente + Sparrow + V1.7',selectorVersion='smart-1.2',attempts=attempts,candidatePool=len(kits),elapsedSeconds=round(time.time()-started,1)),422
     selected,result=best
     for x in selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.35)
-    # _result_payload está parcheado por production_safety_runtime: aquí ocurre la
-    # certificación geométrica dura. NO sobrescribir minimumGapMm después.
     response=ns._result_payload(selected,'selector inteligente: 10 candidatas aprendidas',result,kits,rejected,attempts,started,None)
     payload=response.get_json()
     if not isinstance(payload,dict):return response
-    # Si certificación rechazó la geometría, preservar su status/error.
     if not payload.get('ok'):
         return response
     certificate=payload.get('productionCertificate') or {}
     measured=certificate.get('minimumGapMmCertified')
     if measured is None or float(measured)<3.0:
         return jsonify(ok=False,error='Bloqueo de seguridad: la placa no alcanza 3 mm reales certificados',productionCertificate=certificate,completeFigures=len(selected)),422
-    payload.update({'engine':'Selector inteligente + Sparrow + V1.7','selectorVersion':'smart-1.1','smartSelection':True,'candidatePool':len(kits),'requestedGapMm':requested_gap,'minimumGapMm':measured,'requiredGapMm':3.0})
+    payload.update({'engine':'Selector inteligente + Sparrow + V1.7','selectorVersion':'smart-1.2','smartSelection':True,'candidatePool':len(kits),'requestedGapMm':requested_gap,'minimumGapMm':measured,'requiredGapMm':3.0,'base10ElapsedSeconds':round(time.time()-started,1)})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
