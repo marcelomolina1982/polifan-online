@@ -2,6 +2,7 @@ from shapely.geometry import box, Polygon, MultiPolygon
 from shapely.affinity import rotate, translate
 from shapely.ops import unary_union
 from shapely.prepared import prep
+import time
 
 PLATE_W=1220.0
 PLATE_H=580.0
@@ -10,6 +11,8 @@ EDGE_MARGIN_MM=1.0
 MIN_GAP_MM=3.0
 FILL_GAP_SAFETY_MM=0.20
 ANGLES=[float(a) for a in range(0,360,15)]
+MAX_POSITION_EVALS=2600
+MAX_POSITION_SECONDS=1.8
 
 
 def _safe_plate():
@@ -28,51 +31,63 @@ def _all_polygons(g):
     return [x for x in getattr(g,'geoms',[]) if isinstance(x,Polygon) and not x.is_empty]
 
 
-def _candidate_positions(part, occupied, gap_mm, step=10.0, max_positions=24):
-    """Return diverse safe placements instead of accepting the first one.
-
-    Candidates are generated in every relevant free region and then interleaved
-    round-robin across regions. This prevents one large/compact hole from using
-    the entire candidate budget before another viable hole is ever tested.
-    """
+def _candidate_positions(part, occupied, gap_mm, step=18.0, max_positions=24):
+    """Búsqueda acotada: explora huecos diversos sin monopolizar el worker de Render."""
+    started=time.monotonic(); evaluations=0
     plate=_safe_plate()
     half_gap=max(0.0,float(gap_mm)/2.0)
     forbidden=occupied.buffer(half_gap,join_style=2) if not occupied.is_empty else occupied
     prepared=prep(forbidden) if not forbidden.is_empty else None
     free=plate.difference(forbidden)
-    regions=sorted(_all_polygons(free),key=lambda p:p.area,reverse=True)[:16]
+    regions=sorted(_all_polygons(free),key=lambda p:p.area,reverse=True)[:12]
     if not regions:return []
 
     by_region=[[] for _ in regions]
     seen_global=set()
-    for angle in ANGLES:
+    # Primero ángulos ortogonales y diagonales; luego refinamiento a 15°.
+    angle_order=[0.,90.,180.,270.,45.,135.,225.,315.]+[a for a in ANGLES if a%45!=0]
+    stop=False
+    for angle in angle_order:
+        if stop:break
         rg=rotate(part['geom'],angle,origin=(0,0),use_radians=False)
         minx,miny,maxx,maxy=rg.bounds; w=maxx-minx; h=maxy-miny
         if w>plate.bounds[2]-plate.bounds[0] or h>plate.bounds[3]-plate.bounds[1]:continue
         for region_index,region in enumerate(regions):
+            if time.monotonic()-started>=MAX_POSITION_SECONDS or evaluations>=MAX_POSITION_EVALS:
+                stop=True;break
             rx0,ry0,rx1,ry1=region.bounds
             if rx1-rx0+1e-6<w or ry1-ry0+1e-6<h:continue
-            seeds=[(rx0,ry0),(rx1-w,ry0),(rx0,ry1-h),(rx1-w,ry1-h)]
-            x=rx0
-            while x<=rx1-w+1e-6:
-                y=ry0
-                while y<=ry1-h+1e-6:
-                    seeds.append((x,y)); y+=step
-                x+=step
+            # Esquinas + centro + una rejilla gruesa. Nada de rejilla masiva con 81 offsets.
+            seeds=[(rx0,ry0),(rx1-w,ry0),(rx0,ry1-h),(rx1-w,ry1-h),
+                   ((rx0+rx1-w)/2.0,(ry0+ry1-h)/2.0)]
+            nx=max(1,min(5,int(max(0.0,rx1-rx0-w)/step)+1))
+            ny=max(1,min(4,int(max(0.0,ry1-ry0-h)/step)+1))
+            for ix in range(nx):
+                fx=0.0 if nx==1 else ix/(nx-1)
+                gx=rx0+fx*max(0.0,rx1-rx0-w)
+                for iy in range(ny):
+                    fy=0.0 if ny==1 else iy/(ny-1)
+                    gy=ry0+fy*max(0.0,ry1-ry0-h)
+                    seeds.append((gx,gy))
             for gx,gy in seeds:
                 tx=gx-minx; ty=gy-miny
-                for dx in (0,-4,4,-2,2,-6,6,-8,8):
-                    for dy in (0,-4,4,-2,2,-6,6,-8,8):
-                        ntx=tx+dx; nty=ty+dy
-                        key=(round(ntx,2),round(nty,2),angle)
-                        if key in seen_global:continue
-                        seen_global.add(key)
-                        pg=translate(rg,xoff=ntx,yoff=nty)
-                        if not plate.covers(pg):continue
-                        test=pg.buffer(half_gap,join_style=2)
-                        if prepared is not None and prepared.intersects(test):continue
-                        score=(pg.bounds[0]+pg.bounds[1],pg.bounds[2],pg.bounds[3],angle)
-                        by_region[region_index].append((score,{'geom':pg,'xMm':ntx,'yMm':nty,'angle':angle}))
+                # Refinamiento pequeño alrededor del punto, acotado a 9 pruebas.
+                for dx,dy in ((0,0),(-3,0),(3,0),(0,-3),(0,3),(-3,-3),(3,-3),(-3,3),(3,3)):
+                    evaluations+=1
+                    if evaluations>=MAX_POSITION_EVALS or time.monotonic()-started>=MAX_POSITION_SECONDS:
+                        stop=True;break
+                    ntx=tx+dx; nty=ty+dy
+                    key=(round(ntx,1),round(nty,1),angle)
+                    if key in seen_global:continue
+                    seen_global.add(key)
+                    pg=translate(rg,xoff=ntx,yoff=nty)
+                    if not plate.covers(pg):continue
+                    test=pg.buffer(half_gap,join_style=2)
+                    if prepared is not None and prepared.intersects(test):continue
+                    score=(pg.bounds[0]+pg.bounds[1],pg.bounds[2],pg.bounds[3],angle)
+                    by_region[region_index].append((score,{'geom':pg,'xMm':ntx,'yMm':nty,'angle':angle}))
+                if stop:break
+            if stop:break
 
     cleaned=[]
     for rows in by_region:
@@ -107,7 +122,7 @@ def _placement_payload(part, found):
 def _place_parts_backtracking(parts, occupied, gap_mm, depth=0):
     if depth>=len(parts):return occupied,[]
     part=parts[depth]
-    limit=24 if depth==0 else 16
+    limit=18 if depth==0 else 12
     for found in _candidate_positions(part,occupied,gap_mm,max_positions=limit):
         next_occupied=unary_union([occupied,found['geom']])
         solved=_place_parts_backtracking(parts,next_occupied,gap_mm,depth+1)
