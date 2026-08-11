@@ -27,20 +27,20 @@ jobs:
           path: upstream-sparrow
           submodules: recursive
 
-      - name: Configure exact Polifan 3mm separation
+      - name: Configure Polifan production separation
         shell: python
         run: |
           from pathlib import Path
           p=Path('upstream-sparrow/src/sparrow.rs')
           s=p.read_text()
           needle='let mut config = DEFAULT_SPARROW_CONFIG;'
-          repl='let mut config = DEFAULT_SPARROW_CONFIG;\n    // POLIFAN: 3.0 mm fixed production separation enforced by jagua-rs.\n    config.min_item_separation = Some(3.0);'
+          repl='let mut config = DEFAULT_SPARROW_CONFIG;\n    // POLIFAN: use 3.05 mm internally so exported transforms remain >= 3.00 mm.\n    config.min_item_separation = Some(3.05);'
           if needle not in s:
               raise SystemExit('upstream patch point not found')
           p.write_text(s.replace(needle,repl,1))
 
-      - name: Assert 3mm patch
-        run: grep -F 'config.min_item_separation = Some(3.0);' upstream-sparrow/src/sparrow.rs
+      - name: Assert separation patch
+        run: grep -F 'config.min_item_separation = Some(3.05);' upstream-sparrow/src/sparrow.rs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -91,7 +91,8 @@ jobs:
               return matches[0].name
           manifest={
               'engine':'Sparrow WASM + jagua-rs',
-              'min_item_separation_mm':3.0,
+              'production_min_separation_mm':3.0,
+              'solver_min_separation_mm':3.05,
               'algorithm_worker':one('algorithmWorker-*.js'),
               'worker_helpers':one('workerHelpers-*.js'),
               'wasm_js':one('sparroWASM-*.js'),
@@ -116,7 +117,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'Vendored build already current.'
           else
-            git commit -m 'lab: vendor Sparrow WASM 3mm build'
+            git commit -m 'lab: vendor Sparrow WASM production-gap build'
             git fetch origin lab/sparrow-wasm-3mm
             git rebase origin/lab/sparrow-wasm-3mm
             git push origin HEAD:lab/sparrow-wasm-3mm
