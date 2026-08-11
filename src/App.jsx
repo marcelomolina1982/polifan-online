@@ -27,6 +27,7 @@ const MotorDefinitivo=lazy(()=>import('./pages/MotorDefinitivo'))
 const SvgLibrary=lazy(()=>import('./pages/SvgLibrary'))
 const OperationsHub=lazy(()=>import('./pages/OperationsHub'))
 const CostSettings=lazy(()=>import('./pages/CostSettings'))
+const Quotes=lazy(()=>import('./pages/Quotes'))
 const Loading=()=> <div className="center-screen">Cargando módulo…</div>
 
 function CatalogAccess(){
@@ -70,13 +71,53 @@ export default function App(){
     savingRef.current=false;setSaving(false)
     return{ok:true,updatedAt:saved?.updated_at||updatedAt}
   }
+  async function saveOrderData(next){
+    const previousIds=new Set((db.orders||[]).map(o=>o.id))
+    const converted=(next.orders||[]).filter(o=>!previousIds.has(o.id)&&o.quoteId)
+    let adjusted=next
+    if(converted.length){
+      const approvedAt=new Date().toISOString()
+      const byQuote=new Map(converted.map(o=>[String(o.quoteId),o]))
+      adjusted={...next,quotes:(next.quotes||db.quotes||[]).map(q=>{
+        const order=byQuote.get(String(q.id))
+        return order?{...q,status:'Aprobado',approvedAt,orderNumber:order.number,updatedAt:approvedAt}:q
+      })}
+    }
+    const saved=await saveData(adjusted)
+    if(saved?.ok===false)return saved
+    for(const order of converted){
+      const quote=(db.quotes||[]).find(q=>String(q.id)===String(order.quoteId))
+      if(quote?.source==='Web'&&quote.sourceId){
+        const {error}=await supabase.from('web_requests').update({status:'Presupuesto aprobado'}).eq('id',quote.sourceId)
+        if(error)console.error('No se pudo actualizar la solicitud web',error)
+      }
+    }
+    return saved
+  }
   async function logout(){await supabase.auth.signOut();setSession(null)}
   if(!session)return <Login/>;if(loading)return <Loading/>
   function go(id){if(id==='new')return openNewOrder();setPage(id);setMobileOpen(false)}
   function openNewOrder(){try{localStorage.removeItem('polifan-order-draft-v1')}catch{}setEditingOrder(null);setPage('new');setMobileOpen(false)}
-  const navGroups=[['NEGOCIO',[['dashboard','⌂','Inicio'],['operations','⚡','Centro operativo'],['new','＋','Nuevo pedido'],['orders','▤','Pedidos'],['clients','♙','Clientes']]],['PRODUCCIÓN',[['calendar','🗓','Calendario'],['cut','✂','Para cortar'],['cutbatches','▦','En corte'],['sheetplanner','⚙','Generar placas'],['svglibrary','⌁','Biblioteca SVG'],['stock','◇','Inventario']]],['VENTAS',[['assistant','🤖','Asistente del catálogo'],['webrequests','🛒','Solicitudes web'],['trust','⭐','Fotos y reseñas'],['catalog','▦','Catálogo'],['analytics','📊','Estadísticas']]],['FINANZAS',[['expenses','💰','Caja y gastos'],['monthly','▥','Resumen mensual'],['costs','🧮','Costos']]],['SISTEMA',[['settings','⚙','Configuración']]]]
+  function openQuoteAsOrder(q){
+    const rawItems=q.items||[]
+    const regular=rawItems.filter(i=>i.inventoryTracked!==false&&!i.manualItem).map(i=>({figure:i.figure||i.name||'',productId:i.productId||'',qty:Number(i.qty||1),inventoryTracked:true}))
+    const manual=rawItems.filter(i=>i.inventoryTracked===false||i.manualItem).map(i=>({figure:i.figure||i.name||'',qty:Number(i.qty||1),unitPrice:Number(i.unitPrice||i.price||0),inventoryTracked:false,manualItem:true}))
+    const customer=q.customer||{}
+    const legacy=String(q.deliveryType||q.carrier||customer.method||'').toLocaleLowerCase('es')
+    const deliveryType=legacy.includes('retiro')?'Retiro en el local':legacy.includes('via cargo')||legacy.includes('vía cargo')?'Vía Cargo':legacy.includes('otro')?'Otro expreso':'Logística GBA/CABA'
+    const fullName=q.client||customer.name||[q.firstName||customer.firstName,q.lastName||customer.lastName].filter(Boolean).join(' ')
+    const draft={
+      id:crypto.randomUUID(),date:q.date||'',firstName:q.firstName||customer.firstName||String(fullName||'').trim().split(/\s+/)[0]||'',lastName:q.lastName||customer.lastName||String(fullName||'').trim().split(/\s+/).slice(1).join(' '),client:fullName||'',
+      phone:q.phone||customer.phone||'',dni:q.dni||customer.dni||'',email:q.email||customer.email||'',address:q.address||customer.address||'',betweenStreets:q.betweenStreets||customer.betweenStreets||'',locality:q.locality||customer.locality||'',district:q.district||customer.district||'',province:q.province||customer.province||'',postalCode:q.postalCode||customer.postalCode||'',zone:q.zone||'',
+      deliveryType,carrier:deliveryType,agencyDelivery:q.agencyDelivery||customer.agencyDelivery||'Envío a domicilio',delivery:q.delivery||'',priority:q.priority||'Normal',status:'Ingresado',paid:'No',shippingCost:q.shippingCost||'',shippingPaid:'Pendiente de pago',shippingPackaging:q.shippingPackaging||'No',
+      notes:[q.notes,`Convertido desde presupuesto ${q.code}`].filter(Boolean).join(' · '),items:regular.length?regular:[{figure:'',qty:1,inventoryTracked:true}],manualItems:manual,quoteId:q.id
+    }
+    try{localStorage.setItem('polifan-order-draft-v1',JSON.stringify(draft))}catch{}
+    setEditingOrder(null);setPage('new');setMobileOpen(false)
+  }
+  const navGroups=[['NEGOCIO',[['dashboard','⌂','Inicio'],['operations','⚡','Centro operativo'],['new','＋','Nuevo pedido'],['orders','▤','Pedidos'],['clients','♙','Clientes']]],['PRODUCCIÓN',[['calendar','🗓','Calendario'],['cut','✂','Para cortar'],['cutbatches','▦','En corte'],['sheetplanner','⚙','Generar placas'],['svglibrary','⌁','Biblioteca SVG'],['stock','◇','Inventario']]],['VENTAS',[['assistant','🤖','Asistente del catálogo'],['quotes','🧾','Presupuestos'],['webrequests','🛒','Solicitudes web'],['trust','⭐','Fotos y reseñas'],['catalog','▦','Catálogo'],['analytics','📊','Estadísticas']]],['FINANZAS',[['expenses','💰','Caja y gastos'],['monthly','▥','Resumen mensual'],['costs','🧮','Costos']]],['SISTEMA',[['settings','⚙','Configuración']]]]
   return <div className="app"><aside className={'sidebar '+(mobileOpen?'open':'')}><div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN</b><span className="version-badge">VERSIÓN {APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div><nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>go(id)}><span>{icon}</span>{label}</button>)}</div>)}</nav><div className="side-help"><b>Sistema online</b><small>Pedidos, producción y costos sincronizados.</small></div></aside><div className="content"><header><button className="menu" onClick={()=>setMobileOpen(v=>!v)}>☰</button><div className="header-right"><span className={'sync '+(saving?'saving':'')}>{saving?'Guardando…':'Guardado online'}</span><div className="avatar">{session.user.email?.[0]?.toUpperCase()||'A'}</div><div className="user"><b>{session.user.email?.split('@')[0]}</b><small>Administrador</small></div><button className="ghost" onClick={logout}>Salir</button></div></header><main><Suspense fallback={<Loading/>}>
-  {page==='dashboard'&&<Dashboard db={db} go={go}/>} {page==='operations'&&<OperationsHub db={db} onSave={saveData} go={go}/>} {page==='new'&&<OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} {page==='orders'&&<><Orders db={db} onSave={saveData} onEdit={o=>{setEditingOrder(o);setPage('new')}}/><OrdersFinance db={db}/></>}
-  {page==='calendar'&&<ProductionCalendar db={db} onSave={saveData} go={go}/>} {page==='cut'&&<CutList db={db} onSave={saveData} goMotor={()=>setPage('sheetplanner')}/>} {page==='cutbatches'&&<CutBatches db={db} onSave={saveData}/>} {page==='sheetplanner'&&<MotorDefinitivo db={db} onSave={saveData}/>} {page==='svglibrary'&&<SvgLibrary db={db} onSave={saveData}/>} {page==='stock'&&<Stock db={db} onSave={saveData}/>} {page==='clients'&&<Clients db={db} onSave={saveData} go={go}/>} {page==='assistant'&&<CatalogAssistant db={db} onSave={saveData}/>} {page==='webrequests'&&<WebRequests db={db} onSave={saveData}/>} {page==='trust'&&<CustomerTrust db={db} onSave={saveData}/>} {page==='catalog'&&<><CatalogAccess/><CatalogAdmin db={db} onSave={saveData}/></>} {page==='analytics'&&<Analytics db={db}/>} {page==='expenses'&&<Expenses db={db} onSave={saveData}/>} {page==='monthly'&&<Monthly db={db}/>} {page==='costs'&&<CostSettings db={db} onSave={saveData}/>} {page==='settings'&&<Settings db={db} onSave={saveData}/>} 
+  {page==='dashboard'&&<Dashboard db={db} go={go}/>} {page==='operations'&&<OperationsHub db={db} onSave={saveData} go={go}/>} {page==='new'&&<OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveOrderData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} {page==='orders'&&<><Orders db={db} onSave={saveData} onEdit={o=>{setEditingOrder(o);setPage('new')}}/><OrdersFinance db={db}/></>}
+  {page==='calendar'&&<ProductionCalendar db={db} onSave={saveData} go={go}/>} {page==='cut'&&<CutList db={db} onSave={saveData} goMotor={()=>setPage('sheetplanner')}/>} {page==='cutbatches'&&<CutBatches db={db} onSave={saveData}/>} {page==='sheetplanner'&&<MotorDefinitivo db={db} onSave={saveData}/>} {page==='svglibrary'&&<SvgLibrary db={db} onSave={saveData}/>} {page==='stock'&&<Stock db={db} onSave={saveData}/>} {page==='clients'&&<Clients db={db} onSave={saveData} go={go}/>} {page==='assistant'&&<CatalogAssistant db={db} onSave={saveData}/>} {page==='quotes'&&<Quotes db={db} onSave={saveData} onOpenOrder={openQuoteAsOrder}/>} {page==='webrequests'&&<WebRequests db={db} onSave={saveData}/>} {page==='trust'&&<CustomerTrust db={db} onSave={saveData}/>} {page==='catalog'&&<><CatalogAccess/><CatalogAdmin db={db} onSave={saveData}/></>} {page==='analytics'&&<Analytics db={db}/>} {page==='expenses'&&<Expenses db={db} onSave={saveData}/>} {page==='monthly'&&<Monthly db={db}/>} {page==='costs'&&<CostSettings db={db} onSave={saveData}/>} {page==='settings'&&<Settings db={db} onSave={saveData}/>} 
  </Suspense></main></div></div>
 }
