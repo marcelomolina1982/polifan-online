@@ -40,7 +40,7 @@ jobs:
           echo $! > /tmp/server.pid
       - name: Run Sparrow smoke
         run: |
-          cat > /tmp/smoke.mjs <<'JS'
+          cat > .sparrow-smoke.mjs <<'JS'
           import { chromium } from 'playwright';
           const browser=await chromium.launch({headless:true});
           const page=await browser.newPage();
@@ -52,4 +52,4 @@ jobs:
           await browser.close();
           if(result.status!=='done'||result.crossOriginIsolated!==true||result.sharedArrayBuffer!==true||result.uses!==20||result.validTransforms!==20) process.exit(1);
           JS
-          node /tmp/smoke.mjs
+          node .sparrow-smoke.mjs
