@@ -1,8 +1,9 @@
 {
   "engine": "Sparrow WASM + jagua-rs",
-  "min_item_separation_mm": 3.0,
-  "algorithm_worker": "algorithmWorker-P8nQe07_.js",
-  "worker_helpers": "workerHelpers-ai4t7rnL.js",
-  "wasm_js": "sparroWASM-Cz5Gk_5u.js",
-  "wasm_binary": "sparroWASM_bg-D5yoFGGT.wasm"
+  "production_min_separation_mm": 3.0,
+  "solver_min_separation_mm": 3.05,
+  "algorithm_worker": "algorithmWorker-CDuwDJR9.js",
+  "worker_helpers": "workerHelpers-y0055jE5.js",
+  "wasm_js": "sparroWASM-BKzsTEG7.js",
+  "wasm_binary": "sparroWASM_bg-CiqjK1sI.wasm"
 }
