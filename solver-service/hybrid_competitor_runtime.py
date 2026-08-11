@@ -4,8 +4,13 @@ import nest_sparrow as ns
 
 try:
     from pyckingsolver import InstanceBuilder, Objective, Solver
-except Exception:
+    PYCKING_AVAILABLE = True
+except Exception as exc:
     InstanceBuilder = Objective = Solver = None
+    PYCKING_AVAILABLE = False
+    PYCKING_IMPORT_ERROR = str(exc)[:180]
+else:
+    PYCKING_IMPORT_ERROR = ''
 
 # Captura la cadena existente (selector + Sparrow + crecimiento seguro).
 _base_nest = ns.nest_sparrow
@@ -15,6 +20,7 @@ MIN_GAP = 3.0
 MAX_COMPETITOR_SECONDS = 42.0
 MAX_CANDIDATES = 6
 ANGLES = [(float(a), float(a)) for a in range(0, 360, 15)]
+RUNTIME_VERSION = 'hybrid-1.1'
 
 
 def _unwrap(value):
@@ -64,7 +70,6 @@ def _selected_from_payload(payload, kits):
 def _candidate_rank(base, kits):
     used = {str(k.get('kitId') or '') for k in base}
     remain = [k for k in kits if str(k.get('kitId') or '') not in used]
-    # Para 11+, primero figuras compactas y sólidas; luego mayor área útil.
     remain.sort(key=lambda k: (
         float(k.get('envelope') or 1) / max(1.0, float(k.get('area') or 1)),
         -float(k.get('solidity') or 0),
@@ -75,8 +80,8 @@ def _candidate_rank(base, kits):
 
 
 def _run_packingsolver(selected, gap_mm, seconds):
-    if InstanceBuilder is None or Solver is None:
-        return None, 'pyckingsolver no disponible'
+    if not PYCKING_AVAILABLE or InstanceBuilder is None or Solver is None:
+        return None, 'pyckingsolver no disponible' + (f': {PYCKING_IMPORT_ERROR}' if PYCKING_IMPORT_ERROR else '')
     try:
         builder = InstanceBuilder(Objective.OPEN_DIMENSION_X)
         builder.set_item_item_minimum_spacing(float(gap_mm))
@@ -85,13 +90,7 @@ def _run_packingsolver(selected, gap_mm, seconds):
         item_type_id = 0
         for kit in selected:
             for part in kit.get('parts') or []:
-                # Un item type por componente permite reconstruir exactamente la identidad.
-                returned = builder.add_item_type(
-                    part['geom'],
-                    copies=1,
-                    allowed_rotations=ANGLES,
-                )
-                # La API devuelve el id; si una versión no lo devuelve, el orden es estable.
+                returned = builder.add_item_type(part['geom'], copies=1, allowed_rotations=ANGLES)
                 type_id = item_type_id if returned is None else int(returned)
                 part_map[type_id] = part
                 item_type_id += 1
@@ -120,21 +119,13 @@ def _run_packingsolver(selected, gap_mm, seconds):
             part = part_map.get(int(item.item_type_id))
             if part is None:
                 return None, 'PackingSolver devolvió un item_type desconocido'
-            # x/y y angle son la transformación reportada por pyckingsolver.
             x = float(item.x)
             y = float(item.y)
             angle = float(item.angle)
             placements.append({
-                'instanceId': part['instanceId'],
-                'kitId': part['kitId'],
-                'figure': part['figure'],
-                'name': part['name'],
-                'role': part['role'],
-                'xCm': x / 10.0,
-                'yCm': y / 10.0,
-                'angle': angle,
-                'trimXCm': part['trimXmm'] / 10.0,
-                'trimYCm': part['trimYmm'] / 10.0,
+                'instanceId': part['instanceId'], 'kitId': part['kitId'], 'figure': part['figure'],
+                'name': part['name'], 'role': part['role'], 'xCm': x / 10.0, 'yCm': y / 10.0,
+                'angle': angle, 'trimXCm': part['trimXmm'] / 10.0, 'trimYCm': part['trimYmm'] / 10.0,
                 'partialExtra': False,
             })
             try:
@@ -142,18 +133,16 @@ def _run_packingsolver(selected, gap_mm, seconds):
             except Exception:
                 pass
         density = 100.0 * sum(float(k.get('area') or 0) for k in selected) / (PLATE_W * PLATE_H)
-        return {
-            'ok': True,
-            'fits': xmax <= PLATE_W + 0.5,
-            'placements': placements,
-            'density': density,
-            'stripWidthMm': xmax,
-            'solverDensity': None,
-            'continuousRotation': False,
-            'source': 'packingsolver-irregular',
-        }, None
+        return {'ok': True, 'fits': xmax <= PLATE_W + 0.5, 'placements': placements,
+                'density': density, 'stripWidthMm': xmax, 'solverDensity': None,
+                'continuousRotation': False, 'source': 'packingsolver-irregular'}, None
     except Exception as exc:
         return None, str(exc)[:220]
+
+
+def _visible_strategy(payload, suffix):
+    base = str(payload.get('selectionStrategy') or '').strip()
+    return (base + ' · ' if base else '') + suffix
 
 
 def hybrid_competition():
@@ -170,34 +159,31 @@ def hybrid_competition():
         validator = getattr(ns, '_validate_final_geometry', None)
         if not callable(validator):
             out = dict(payload)
-            out['hybridStatus'] = 'PackingSolver omitido: certificador no disponible'
+            out.update({'hybridCompetition': True, 'hybridWinner': 'Sparrow', 'hybridRuntimeVersion': RUNTIME_VERSION,
+                        'hybridStatus': 'PackingSolver omitido: certificador no disponible',
+                        'selectionStrategy': _visible_strategy(payload, 'híbrido: PackingSolver OMITIDO (sin certificador)')})
             return jsonify(out)
 
         data = request.get_json(silent=True) or {}
         gap = max(MIN_GAP, ns._n(data.get('gapCm'), .3) * 10)
         kits = _prepare_all(data)
         base = _selected_from_payload(payload, kits)
-        # Esta primera versión compite sobre una base de exactamente 10.
         if len(base) != 10:
             out = dict(payload)
-            out['hybridStatus'] = 'PackingSolver omitido: no se pudo reconstruir la base 10'
+            out.update({'hybridCompetition': True, 'hybridWinner': 'Sparrow', 'hybridRuntimeVersion': RUNTIME_VERSION,
+                        'hybridStatus': 'PackingSolver omitido: no se pudo reconstruir la base 10',
+                        'selectionStrategy': _visible_strategy(payload, 'híbrido: PackingSolver OMITIDO (base no reconstruida)')})
             return jsonify(out)
 
         candidates = _candidate_rank(base, kits)
         best = None
-        for idx, extra in enumerate(candidates):
-            elapsed = time.time() - started
-            remaining = MAX_COMPETITOR_SECONDS - elapsed
+        for extra in candidates:
+            remaining = MAX_COMPETITOR_SECONDS - (time.time() - started)
             if remaining < 5:
                 break
-            # Reacomoda las 10 + candidata desde cero; no depende de huecos fijos.
             result, error = _run_packingsolver(base + [extra], gap, min(8, remaining - 1))
-            row = {
-                'candidate': str(extra.get('figure') or ''),
-                'ok': bool(result and result.get('ok')),
-                'fits': bool(result and result.get('fits')),
-                'error': error,
-            }
+            row = {'candidate': str(extra.get('figure') or ''), 'ok': bool(result and result.get('ok')),
+                   'fits': bool(result and result.get('fits')), 'error': error}
             if result and result.get('fits'):
                 valid, certificate = validator(base + [extra], result)
                 row['certified'] = bool(valid)
@@ -209,44 +195,38 @@ def hybrid_competition():
             diagnostics.append(row)
 
         if best is None:
+            tried = len(diagnostics)
+            first_error = next((str(d.get('error')) for d in diagnostics if d.get('error')), '')
+            suffix = f'híbrido: PackingSolver corrió {tried} candidato(s), ganó Sparrow'
+            if first_error:
+                suffix += f' · {first_error[:90]}'
             out = dict(payload)
-            out.update({
-                'hybridCompetition': True,
-                'hybridWinner': 'Sparrow',
-                'hybridStatus': 'PackingSolver probó reacomodar 10+1; no superó la base certificada',
-                'hybridDiagnostics': diagnostics,
-            })
+            out.update({'hybridCompetition': True, 'hybridWinner': 'Sparrow', 'hybridRuntimeVersion': RUNTIME_VERSION,
+                        'hybridStatus': 'PackingSolver probó reacomodar 10+1; no superó la base certificada',
+                        'hybridDiagnostics': diagnostics, 'selectionStrategy': _visible_strategy(payload, suffix)})
             return jsonify(out)
 
         selected, result, certificate, extra = best
         out = dict(payload)
         out.update({
             'engine': 'Híbrido Sparrow + PackingSolver irregular + Certificador V1.7',
-            'completeFigures': len(selected),
-            'placements': result.get('placements') or [],
-            'density': float(result.get('density') or 0),
-            'stripWidthMm': float(result.get('stripWidthMm') or 0),
-            'selectionStrategy': str(payload.get('selectionStrategy') or '') + ' · PackingSolver +1: ' + str(extra.get('figure') or ''),
+            'completeFigures': len(selected), 'placements': result.get('placements') or [],
+            'density': float(result.get('density') or 0), 'stripWidthMm': float(result.get('stripWidthMm') or 0),
+            'selectionStrategy': _visible_strategy(payload, 'híbrido: GANÓ PackingSolver +1 ' + str(extra.get('figure') or '')),
             'targetDensityReached': float(result.get('density') or 0) >= 80.0,
-            'minimumGapMm': certificate.get('minimumGapMmCertified'),
-            'requiredGapMm': MIN_GAP,
-            'productionCertificate': certificate,
-            'hybridCompetition': True,
-            'hybridWinner': 'PackingSolver',
+            'minimumGapMm': certificate.get('minimumGapMmCertified'), 'requiredGapMm': MIN_GAP,
+            'productionCertificate': certificate, 'hybridCompetition': True, 'hybridWinner': 'PackingSolver',
+            'hybridRuntimeVersion': RUNTIME_VERSION,
             'hybridStatus': 'PackingSolver reacomodó la base y agregó una figura completa',
-            'hybridDiagnostics': diagnostics,
-            'bestSolutionPreserved': True,
+            'hybridDiagnostics': diagnostics, 'bestSolutionPreserved': True,
         })
         return jsonify(out)
     except Exception as exc:
         out = dict(payload)
-        out.update({
-            'hybridCompetition': True,
-            'hybridWinner': 'Sparrow',
-            'hybridStatus': 'Competidor omitido; se conserva Sparrow',
-            'hybridDiagnosticError': str(exc)[:220],
-            'hybridDiagnostics': diagnostics,
-        })
+        out.update({'hybridCompetition': True, 'hybridWinner': 'Sparrow', 'hybridRuntimeVersion': RUNTIME_VERSION,
+                    'hybridStatus': 'Competidor omitido; se conserva Sparrow', 'hybridDiagnosticError': str(exc)[:220],
+                    'hybridDiagnostics': diagnostics,
+                    'selectionStrategy': _visible_strategy(payload, 'híbrido: PackingSolver ERROR · ' + str(exc)[:90])})
         return jsonify(out)
 
 
