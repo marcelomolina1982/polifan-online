@@ -4,11 +4,12 @@ import base_only_runtime
 import adaptive_base_runtime
 import intelligent_selector_runtime  # BASE 10 ESTABLE: decide QUE 10 probar; Sparrow acomoda
 
-# IMPORTANTE: fixed_hole_runtime queda AISLADO durante la validacion de BASE 10.
-# La capa 11+ sigue dependiendo de helpers antiguos y no puede intervenir mientras
-# no este reescrita. Nunca debe romper una placa base de 10 ya resuelta.
+# IMPORTANTE: fixed_hole_runtime viejo queda AISLADO. No se vuelve a importar.
+# La nueva capa safe_hole_growth_runtime trabaja despues de la BASE 10 y ante
+# cualquier fallo devuelve intacta la placa de 10 ya certificada.
 
 import strict_svg_cert_runtime  # segunda barrera: valida el SVG exacto a 3 mm y no mueve piezas
+import safe_hole_growth_runtime  # 10->11->12->13: analiza huecos, filtra candidatas y preserva siempre la base
 import async_jobs
 from flask_cors import CORS
 
