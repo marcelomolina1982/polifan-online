@@ -5,6 +5,7 @@ import {today} from '../lib/format'
 
 const TARGET_COMPLETE=10
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+const MOTOR_TEST_RENDER='https://polifan-cnc-solver-test.onrender.com'
 
 function downloadSvg(name,text){
   if(!text)return
@@ -120,7 +121,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [elapsed,setElapsed]=useState(0)
 
   async function certify(svgText){
-    const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
+    const response=await fetch(MOTOR_TEST_RENDER+'/motor-definitivo/svg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
     let data={};try{data=await response.json()}catch{}
     return {status:data.status||`HTTP ${response.status}`,minGap:data.validation?.min_gap_mm??data.min_gap_mm??'-',conflicts:data.validation?.conflicts??data.conflicts??'-',border:data.validation?.border_conflicts??data.border_conflicts??'-',seconds:data.seconds??'-',svgText:data.svgText||svgText,error:data.error||''}
   }
@@ -145,7 +146,6 @@ export default function MotorDefinitivo({db,onSave}){
       if(job.status==='done')return job.result||{}
       if(job.status==='error')throw new Error(job.result?.error||'Sparrow terminó sin una placa válida.')
       setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s`)
-      // Sólo protege contra un job zombie; no corta una corrida normal del motor.
       if(Date.now()-started>20*60*1000)throw new Error('El trabajo lleva más de 20 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
     }
   }
@@ -168,7 +168,7 @@ export default function MotorDefinitivo({db,onSave}){
       const selectedUnits=selectedIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
       if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
       const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-      setProgress(`Sparrow encontró ${selectedUnits.length} completas${data.partialExtra?` + 1 ${data.partialExtra.component} extra`:''} · V1.7 certificando el SVG final…`)
+      setProgress(`Motor encontró ${selectedUnits.length} completas${data.partialExtra?` + 1 ${data.partialExtra.component} extra`:''} · certificando directo en Render…`)
       const cert=await certify(composed)
       const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
       setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||data.baseSearchSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill)}])
@@ -190,13 +190,13 @@ export default function MotorDefinitivo({db,onSave}){
   }
 
   return <>
-    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Sparrow calcula en segundo plano: ya no depende del límite de una petición HTTP. V1.7 certifica exactamente el SVG plano que se descarga." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Calculando…':'Generar una placa'}</button>}/>
-    <div className="notice"><b>Modo producción protegido</b><span>Primero asegura 10 completas. Después rellena huecos sin mover la base. Objetivo ≥80%; una base/tapa extra sólo si la placa final supera 85%.</span></div>
+    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Sparrow calcula en segundo plano y el SVG final se certifica directamente contra Render, sin el salto intermedio de Vercel." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Calculando…':'Generar una placa'}</button>}/>
+    <div className="notice"><b>Modo producción protegido</b><span>Primero asegura 10 completas. Después compiten las optimizaciones 11+. Objetivo ≥80%; siempre conserva una solución certificada como respaldo.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
-      <div><small>Criterio productivo</small><b className="block big">10+ · objetivo ≥80%</b><small className="block">extra parcial sólo si &gt;85%</small></div>
-      <div><small>Arquitectura</small><b className="block big">Sparrow asíncrono · V1.7 certifica</b></div>
+      <div><small>Criterio productivo</small><b className="block big">10+ · objetivo ≥80%</b><small className="block">3 mm reales certificados</small></div>
+      <div><small>Arquitectura</small><b className="block big">Híbrido V3 · Render · V1.7</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
     {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Podés dejar esta pantalla abierta: el cálculo continúa en Render aunque una conexión individual termine. Tiempo: {elapsed}s.</span></div>}
