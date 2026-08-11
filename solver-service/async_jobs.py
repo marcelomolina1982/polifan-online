@@ -2,12 +2,20 @@ import threading, time, uuid, traceback
 from flask import request, jsonify
 from nest_sparrow import app
 
-# Se importa DESPUÉS de base_only_runtime y fixed_hole_runtime, por eso esta
-# referencia apunta al solver final (base protegida + relleno fijo).
-_solver_view = app.view_functions.get('nest_sparrow')
+# IMPORTANTE:
+# No capturamos nest_sparrow al importar este modulo. Las capas runtime (selector,
+# crecimiento seguro, competidores híbridos) pueden reemplazar la view después.
+# Cada job resuelve la vista ACTIVA justo antes de calcular.
 _jobs = {}
 _lock = threading.RLock()
 _active_job_id = None
+
+
+def _active_solver_view():
+    view = app.view_functions.get('nest_sparrow')
+    if not callable(view):
+        raise RuntimeError('No hay un motor nest_sparrow activo en Render')
+    return view
 
 
 def _response_payload(value):
@@ -32,19 +40,26 @@ def _run(job_id, payload):
     global _active_job_id
     with _lock:
         job = _jobs[job_id]
-        job.update(status='running', stage='Sparrow calculando placa base', startedAt=time.time())
+        job.update(status='running', stage='Motor híbrido calculando placa base', startedAt=time.time())
     try:
-        # Creamos un request context propio: el navegador ya no necesita mantener
-        # abierta esta petición durante todo el cálculo.
+        # Resolver el solver final AHORA, no al importar async_jobs.
+        solver_view = _active_solver_view()
         with app.test_request_context('/nest-sparrow', method='POST', json=payload):
-            value = _solver_view()
+            value = solver_view()
             http_status, result = _response_payload(value)
         with _lock:
             job = _jobs[job_id]
             job['httpStatus'] = http_status
             job['result'] = result if isinstance(result, dict) else {'ok': False, 'error': 'Respuesta inválida del solver'}
             job['status'] = 'done' if http_status < 400 and job['result'].get('ok') else 'error'
-            job['stage'] = 'Finalizado' if job['status'] == 'done' else 'El solver terminó sin placa válida'
+            if job['status'] == 'done':
+                winner = str(job['result'].get('hybridWinner') or '').strip()
+                if winner:
+                    job['stage'] = f'Finalizado · ganador: {winner}'
+                else:
+                    job['stage'] = 'Finalizado'
+            else:
+                job['stage'] = 'El solver terminó sin placa válida'
             job['finishedAt'] = time.time()
     except Exception as exc:
         with _lock:
@@ -79,13 +94,13 @@ def start_nest_job():
             _active_job_id = None
         job_id = uuid.uuid4().hex
         _jobs[job_id] = {
-            'jobId': job_id, 'status': 'queued', 'stage': 'En cola',
+            'jobId': job_id, 'status': 'queued', 'stage': 'En cola · motor híbrido',
             'createdAt': time.time(), 'result': None, 'httpStatus': None,
         }
         _active_job_id = job_id
         thread = threading.Thread(target=_run, args=(job_id, payload), daemon=True, name=f'sparrow-{job_id[:8]}')
         thread.start()
-        return jsonify(ok=True, accepted=True, busy=False, jobId=job_id, status='queued', stage='En cola'), 202
+        return jsonify(ok=True, accepted=True, busy=False, jobId=job_id, status='queued', stage='En cola · motor híbrido'), 202
 
 
 @app.get('/nest-jobs/<job_id>')
@@ -98,7 +113,6 @@ def get_nest_job(job_id):
         started = job.get('startedAt') or job.get('createdAt') or now
         out = dict(job)
         out['elapsedSeconds'] = round(max(0, (job.get('finishedAt') or now) - started), 1)
-        # No exponer internals que no aportan al frontend.
         return jsonify(ok=True, **out)
 
 
