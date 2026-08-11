@@ -28,13 +28,15 @@ jobs:
         run: |
           cat > /tmp/server.py <<'PY'
           from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          from functools import partial
           class H(SimpleHTTPRequestHandler):
               def end_headers(self):
                   self.send_header('Cross-Origin-Opener-Policy','same-origin')
                   self.send_header('Cross-Origin-Embedder-Policy','require-corp')
                   self.send_header('Cross-Origin-Resource-Policy','same-origin')
                   super().end_headers()
-          ThreadingHTTPServer(('127.0.0.1',4173),H).serve_forever()
+          handler=partial(H,directory='public')
+          ThreadingHTTPServer(('127.0.0.1',4173),handler).serve_forever()
           PY
           python /tmp/server.py > /tmp/server.log 2>&1 &
           echo $! > /tmp/server.pid
@@ -45,7 +47,8 @@ jobs:
           const browser=await chromium.launch({headless:true});
           const page=await browser.newPage();
           page.on('console',m=>console.log('BROWSER',m.type(),m.text()));
-          await page.goto('http://127.0.0.1:4173/public/sparroWASM/smoke.html');
+          page.on('pageerror',e=>console.log('PAGEERROR',e.message));
+          await page.goto('http://127.0.0.1:4173/sparroWASM/smoke.html');
           await page.waitForFunction(()=>['done','error'].includes(window.__SPARROW_SMOKE__?.status),null,{timeout:55000});
           const result=await page.evaluate(()=>window.__SPARROW_SMOKE__);
           console.log(JSON.stringify(result,null,2));
