@@ -32,7 +32,7 @@ def nest_sparrow_with_fixed_holes():
     height_mm=max(1.0,ns._n(data.get('heightCm'),58)*10)
     # La fase de relleno conserva exactamente la misma regla de producción: 3 mm.
     gap=max(3.0,ns._n(data.get('gapCm'),.3)*10)
-    raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:32]
+    raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:64]
     kits=[]
     for k in raw:
         try:kits.append(ns._prep_kit(k,width_mm,height_mm))
