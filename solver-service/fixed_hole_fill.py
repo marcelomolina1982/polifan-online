@@ -27,11 +27,11 @@ def _all_polygons(g):
 
 
 def _candidate_positions(part, occupied, gap_mm, step=10.0, max_positions=24):
-    """Return several safe placements instead of accepting the first one.
+    """Return diverse safe placements instead of accepting the first one.
 
-    This is the key difference from the old greedy filler.  Candidates are
-    ordered compactly (top/left) so the recursive caller can backtrack if a
-    placement blocks the companion base/tapa.
+    Candidates are generated in every relevant free region and then interleaved
+    round-robin across regions. This prevents one large/compact hole from using
+    the entire candidate budget before another viable hole is ever tested.
     """
     plate=_safe_plate()
     half_gap=max(0.0,float(gap_mm)/2.0)
@@ -41,12 +41,13 @@ def _candidate_positions(part, occupied, gap_mm, step=10.0, max_positions=24):
     regions=sorted(_all_polygons(free),key=lambda p:p.area,reverse=True)[:16]
     if not regions:return []
 
-    candidates=[]; seen_global=set()
+    by_region=[[] for _ in regions]
+    seen_global=set()
     for angle in ANGLES:
         rg=rotate(part['geom'],angle,origin=(0,0),use_radians=False)
         minx,miny,maxx,maxy=rg.bounds; w=maxx-minx; h=maxy-miny
         if w>plate.bounds[2]-plate.bounds[0] or h>plate.bounds[3]-plate.bounds[1]:continue
-        for region in regions:
+        for region_index,region in enumerate(regions):
             rx0,ry0,rx1,ry1=region.bounds
             if rx1-rx0+1e-6<w or ry1-ry0+1e-6<h:continue
             seeds=[(rx0,ry0),(rx1-w,ry0),(rx0,ry1-h),(rx1-w,ry1-h)]
@@ -69,15 +70,28 @@ def _candidate_positions(part, occupied, gap_mm, step=10.0, max_positions=24):
                         test=pg.buffer(half_gap,join_style=2)
                         if prepared is not None and prepared.intersects(test):continue
                         score=(pg.bounds[0]+pg.bounds[1],pg.bounds[2],pg.bounds[3],angle)
-                        candidates.append((score,{'geom':pg,'xMm':ntx,'yMm':nty,'angle':angle}))
-    candidates.sort(key=lambda x:x[0])
-    out=[]; seen=[]
-    for _,candidate in candidates:
-        # Deduplicate near-identical solutions while preserving different rotations.
-        sig=(round(candidate['xMm'],1),round(candidate['yMm'],1),candidate['angle'])
-        if sig in seen:continue
-        seen.append(sig); out.append(candidate)
-        if len(out)>=max_positions:break
+                        by_region[region_index].append((score,{'geom':pg,'xMm':ntx,'yMm':nty,'angle':angle}))
+
+    cleaned=[]
+    for rows in by_region:
+        rows.sort(key=lambda x:x[0])
+        region_out=[]; seen=set()
+        for _,candidate in rows:
+            sig=(round(candidate['xMm'],1),round(candidate['yMm'],1),candidate['angle'])
+            if sig in seen:continue
+            seen.add(sig); region_out.append(candidate)
+        cleaned.append(region_out)
+
+    # Interleave regions so backtracking really explores different holes.
+    out=[]; depth=0
+    while len(out)<max_positions:
+        added=False
+        for rows in cleaned:
+            if depth<len(rows):
+                out.append(rows[depth]); added=True
+                if len(out)>=max_positions:break
+        if not added:break
+        depth+=1
     return out
 
 
@@ -92,9 +106,9 @@ def _placement_payload(part, found):
 def _place_parts_backtracking(parts, occupied, gap_mm, depth=0):
     """Place every component of one kit, backtracking between positions.
 
-    Typical Polifan kits have base+tapa.  The search is intentionally bounded:
-    up to 24 placements for the first part and 16 for the next one, enough to
-    escape the greedy dead-end without turning this phase into a global solver.
+    Typical Polifan kits have base+tapa. The search is intentionally bounded:
+    up to 24 placements for the first part and 16 for the next one, now spread
+    across different free regions so a second viable hole cannot be starved.
     """
     if depth>=len(parts):return occupied,[]
     part=parts[depth]
@@ -127,7 +141,7 @@ def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_can
         p=part_by_instance.get(pl.get('instanceId'))
         if p is None:return None
         g=_placed_geometry(p,pl)
-        # We do not "repair" the protected 10 by moving it.  An unsafe base is
+        # We do not "repair" the protected 10 by moving it. An unsafe base is
         # rejected for fixed-hole growth and must be regenerated upstream.
         if not plate.covers(g):return None
         occupied_geoms.append(g)
