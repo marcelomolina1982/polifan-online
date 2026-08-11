@@ -30,7 +30,8 @@ def nest_sparrow_with_fixed_holes():
     data=request.get_json(silent=True) or {}
     width_mm=max(1.0,ns._n(data.get('widthCm'),122)*10)
     height_mm=max(1.0,ns._n(data.get('heightCm'),58)*10)
-    gap=max(2.5,ns._n(data.get('gapCm'),.3)*10)
+    # La fase de relleno conserva exactamente la misma regla de producción: 3 mm.
+    gap=max(3.0,ns._n(data.get('gapCm'),.3)*10)
     raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:32]
     kits=[]
     for k in raw:
@@ -56,10 +57,12 @@ def nest_sparrow_with_fixed_holes():
     }
 
     added=[]
-    # Crecer de forma conservadora 10 -> 11 -> 12, siempre sin mover las piezas anteriores.
-    for _ in range(3):
-        if len(selected)>=13 or float(result.get('density') or 0)>=80.0:break
-        grown=try_add_complete_fixed(selected,result,kits,gap,max_candidates=12)
+    # El objetivo primario es maximizar figuras completas. La ocupación queda como
+    # métrica secundaria: no detenemos el crecimiento sólo por haber superado 80%.
+    # Se conserva la base certificable y se intenta 10 -> 11 -> ... -> 16.
+    for _ in range(6):
+        if len(selected)>=min(16,len(kits)):break
+        grown=try_add_complete_fixed(selected,result,kits,gap,max_candidates=16)
         if not grown:break
         selected,result,kit=grown
         added.append(kit['figure'])
@@ -77,6 +80,7 @@ def nest_sparrow_with_fixed_holes():
         'targetDensityReached':float(result.get('density') or 0)>=80.0,
         'fixedHoleFill':True,
         'fixedHoleFillAdded':added,
+        'minimumGapMm':gap,
     })
     return jsonify(out)
 
