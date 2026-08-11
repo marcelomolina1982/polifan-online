@@ -7,6 +7,8 @@ PLATE_W=1220.0
 PLATE_H=580.0
 PLATE_AREA=PLATE_W*PLATE_H
 EDGE_MARGIN_MM=1.0
+MIN_GAP_MM=3.0
+FILL_GAP_SAFETY_MM=0.20
 ANGLES=[float(a) for a in range(0,360,15)]
 
 
@@ -82,7 +84,6 @@ def _candidate_positions(part, occupied, gap_mm, step=10.0, max_positions=24):
             seen.add(sig); region_out.append(candidate)
         cleaned.append(region_out)
 
-    # Interleave regions so backtracking really explores different holes.
     out=[]; depth=0
     while len(out)<max_positions:
         added=False
@@ -104,12 +105,6 @@ def _placement_payload(part, found):
 
 
 def _place_parts_backtracking(parts, occupied, gap_mm, depth=0):
-    """Place every component of one kit, backtracking between positions.
-
-    Typical Polifan kits have base+tapa. The search is intentionally bounded:
-    up to 24 placements for the first part and 16 for the next one, now spread
-    across different free regions so a second viable hole cannot be starved.
-    """
     if depth>=len(parts):return occupied,[]
     part=parts[depth]
     limit=24 if depth==0 else 16
@@ -123,15 +118,9 @@ def _place_parts_backtracking(parts, occupied, gap_mm, depth=0):
 
 
 def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_candidates=10):
-    """Add one complete figure without moving any placement of the protected base.
-
-    Safety rules:
-    - production gap is never below 3 mm;
-    - all geometry, including the protected base, must respect a 1 mm inner edge;
-    - the original base placements are copied byte-for-byte into the result;
-    - candidate kit parts are solved with bounded positional backtracking.
-    """
-    gap_mm=max(3.0,float(gap_mm or 0.0))
+    """Add one complete figure without moving any placement of the protected base."""
+    requested_gap=max(MIN_GAP_MM,float(gap_mm or 0.0))
+    search_gap=requested_gap+FILL_GAP_SAFETY_MM
     plate=_safe_plate()
     part_by_instance={}
     for k in base_selected:
@@ -141,8 +130,6 @@ def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_can
         p=part_by_instance.get(pl.get('instanceId'))
         if p is None:return None
         g=_placed_geometry(p,pl)
-        # We do not "repair" the protected 10 by moving it. An unsafe base is
-        # rejected for fixed-hole growth and must be regenerated upstream.
         if not plate.covers(g):return None
         occupied_geoms.append(g)
     occupied=unary_union(occupied_geoms) if occupied_geoms else MultiPolygon([])
@@ -153,7 +140,7 @@ def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_can
 
     for kit in remaining:
         parts=sorted(kit['parts'],key=lambda p:(-p['envelope'],-p['area']))
-        solved=_place_parts_backtracking(parts,occupied,gap_mm)
+        solved=_place_parts_backtracking(parts,occupied,search_gap)
         if solved is None:continue
         current,new_placements=solved
         selected=list(base_selected)+[kit]
@@ -165,7 +152,7 @@ def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_can
             'placedParts':len(list(base_result.get('placements') or []))+len(new_placements),
             'expectedParts':len(list(base_result.get('placements') or []))+len(new_placements),
             'continuousRotation':False,'fixedHoleFill':True,'fixedHoleBacktracking':True,
-            'edgeMarginMm':EDGE_MARGIN_MM,'minimumGapMm':gap_mm
+            'edgeMarginMm':EDGE_MARGIN_MM,'minimumGapMm':requested_gap,'fillSearchGapMm':search_gap
         })
         return selected,result,kit
     return None
