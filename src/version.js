@@ -1,4 +1,4 @@
-export const APP_VERSION='23.4.1'
-export const APP_VERSION_LABEL='v23.4.1'
+export const APP_VERSION='24.6.0'
+export const APP_VERSION_LABEL='v24.6.0'
 export const APP_UPDATED_AT='10/08/2026'
-export const APP_VERSION_NAME='Generar placas con Motor V1.7 · flujo corregido'
+export const APP_VERSION_NAME='Sparrow asíncrono · sin timeout HTTP · base 10 protegida · relleno fijo de huecos · V1.7 certifica'
