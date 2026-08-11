@@ -27,27 +27,19 @@ jobs:
           node-version: '20'
       - name: Apply Sparrow integration
         run: python scripts/integrate_sparrow.py
-      - name: Build upstream Sparrow WASM
+      - name: Vendor upstream prebuilt Sparrow WASM bundle
         shell: bash
         run: |
-          git clone --depth 1 --recurse-submodules https://github.com/JeroenGar/sparroWASM.git /tmp/sparroWASM
-          cd /tmp/sparroWASM
-          rustup toolchain install nightly --profile minimal --component rust-src
-          rustup default nightly
-          cargo install wasm-pack --locked
-          npm install
-          wasm-pack build --target web --release
-          npm run build
-      - name: Vendor deterministic Sparrow bundle
-        shell: bash
-        run: |
-          rm -rf public/sparroWASM
+          rm -rf /tmp/sparrow-pages public/sparroWASM
+          git clone --depth 1 --branch gh-pages https://github.com/JeroenGar/sparroWASM.git /tmp/sparrow-pages
           mkdir -p public/sparroWASM
-          cp -R /tmp/sparroWASM/dist/. public/sparroWASM/
+          cp -R /tmp/sparrow-pages/. public/sparroWASM/
+          rm -rf public/sparroWASM/.git public/sparroWASM/.github
           WORKER=$(basename "$(find public/sparroWASM/assets -maxdepth 1 -name 'algorithmWorker-*.js' | head -1)")
           test -n "$WORKER"
           printf 'import "/sparroWASM/assets/%s";\n' "$WORKER" > public/sparroWASM/algorithmWorker.js
           find public/sparroWASM/assets -maxdepth 1 -name '*.wasm' | grep -q .
+          echo "Vendored $WORKER"
       - name: Build Polifan
         run: |
           npm install
