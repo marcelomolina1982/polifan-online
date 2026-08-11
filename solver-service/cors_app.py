@@ -1,12 +1,12 @@
 from nest_sparrow import app
 import production_safety_runtime  # gap >=3 mm y ranking por figuras completas primero
 import base_only_runtime  # respaldo historico conocido
-import adaptive_base_runtime  # base dinamica: cambia 1-3 figuras al variar los pendientes
-import fixed_hole_runtime  # despues: rellenar huecos sin mover la base
-import async_jobs  # calculo largo desacoplado de la peticion HTTP del navegador
+import adaptive_base_runtime  # respaldo de selección incremental
+import intelligent_selector_runtime  # decide qué 10 probar y aprende de éxitos/fallos
+import fixed_hole_runtime  # después: rellenar huecos sin mover la base
+import async_jobs  # cálculo largo desacoplado de la petición HTTP del navegador
 from flask_cors import CORS
 
-# Generador principal: Sparrow adaptativo -> base protegida -> relleno fijo de huecos.
-# /nest-jobs inicia el calculo y /nest-jobs/<id> permite consultar el estado.
-# V1.7 permanece como certificador final del SVG que se descarga.
+# Generador principal: selector inteligente -> Sparrow acomoda -> V1.7 certifica -> relleno fijo.
+# /nest-jobs inicia el cálculo y /nest-jobs/<id> permite consultar el estado.
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
