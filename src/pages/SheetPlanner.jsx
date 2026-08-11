@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
+import { solveWithSparrow } from '../lib/sparrowEngine'
 
 const COLORS=['#ec2c7c','#14b8b8','#087fc4','#7b3dbb','#f59e0b','#16a34a','#ef4444','#6366f1']
 const PX_PER_CM=10
@@ -725,6 +726,56 @@ function stableSubsetVariants(kits,target){
   return out.slice(0,22)
 }
 
+async function runSparrowStable(kits,wCm,hCm,gapCm,{
+  target=10,targetEfficiency=80,deadlineMs=90000,onProgress=null,shouldStop=null
+}={}){
+  const started=Date.now(),deadline=started+deadlineMs
+  let best=null,tested=0,attempts=[]
+  const better=(a,b)=>!b||Number(a.completeFigures||0)>Number(b.completeFigures||0)||(
+    Number(a.completeFigures||0)===Number(b.completeFigures||0)&&Number(a.validation?.usage||0)>Number(b.validation?.usage||0)
+  )
+  async function tryVariant(variant,wanted,seed){
+    if(Date.now()>=deadline||shouldStop?.())return null
+    tested++
+    const remain=Math.max(5,Math.floor((deadline-Date.now())/1000))
+    const seconds=Math.max(5,Math.min(wanted<=10?16:11,remain))
+    onProgress?.({stage:`Sparrow WASM · ${wanted} figuras · ${variant.label}`,percent:Math.min(92,7+tested*7),completeFigures:Number(best?.completeFigures||0),efficiency:Number(best?.validation?.usage||0)})
+    try{
+      const r=await solveWithSparrow(variant.kits,wCm,hCm,gapCm,{target:wanted,timeLimit:seconds,angleStep:10,nWorkers:Math.max(1,Math.min(4,(navigator.hardwareConcurrency||4)-1)),seed,onProgress:()=>{},shouldStop})
+      const placed=(r.placements||[]).map(q=>({...q,x:num(q.xCm),y:num(q.yCm),angle:num(q.angle),rotated:Math.abs(num(q.angle)%360)>.001,w:num(q.sourceWidth||q.width),h:num(q.sourceHeight||q.height),industrial:false,sparrow:true}))
+      const sheet={number:1,placed}
+      const validation=await precisionValidateSheet(sheet,wCm,hCm,Math.max(.30,num(gapCm,.3)))
+      const completeFigures=kitCountOnSheet(sheet)
+      attempts.push({engine:'sparrow',label:variant.label,target:wanted,seed,completeFigures,usage:Number(validation.usage||0),valid:!!validation.ok,collision:validation.collision||null,usedWidthMm:Number(r.usedWidthMm||0)})
+      const candidate={sheets:[sheet],rejected:[],completeFigures,validation,attempts,tested,engine:r.engine||'Sparrow WASM + jagua-rs'}
+      if(validation.ok&&better(candidate,best))best=candidate
+      return candidate
+    }catch(err){attempts.push({engine:'sparrow',label:variant.label,target:wanted,seed,error:String(err?.message||err),valid:false});return null}
+  }
+
+  const wanted=Math.min(Math.max(1,Number(target)||10),kits.length)
+  const variants=stableSubsetVariants(kits,wanted).slice(0,6)
+  for(const variant of variants){
+    for(const seed of [17,47]){
+      const r=await tryVariant(variant,wanted,seed)
+      if(r?.validation?.ok&&Number(r.completeFigures)>=wanted)break
+    }
+    if(best&&Number(best.completeFigures)>=wanted)break
+  }
+  if(!best||Number(best.completeFigures)<wanted)throw new Error(`Sparrow no certificó todavía el mínimo de ${wanted} figuras completas a ${Math.round(gapCm*10)} mm.`)
+
+  for(let grow=wanted+1;grow<=Math.min(kits.length,wanted+5);grow++){
+    if(Date.now()>=deadline||shouldStop?.())break
+    let improved=false
+    for(const variant of stableSubsetVariants(kits,grow).slice(0,3)){
+      const r=await tryVariant(variant,grow,17+grow)
+      if(r?.validation?.ok&&Number(r.completeFigures)>=grow){improved=true;break}
+    }
+    if(!improved)break
+  }
+  return {...best,attempts,tested}
+}
+
 async function runStableLocalSolver(kits,wCm,hCm,gapCm,{
   target=10,targetEfficiency=80,deadlineMs=110000,onProgress=null,shouldStop=null
 }={}){
@@ -920,14 +971,28 @@ export default function SheetPlanner({db,onSave}){
           allowRotate:part.allowRotate!==false,svgText:part.svgText
         }))}))
       }
-      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo.
-      const local=await runStableLocalSolver(
-        kits,num(sheetW,122),num(sheetH,58),Math.max(.25,num(gap,.3)),{
-          target:Math.min(10,kits.length),targetEfficiency:Math.min(90,Math.max(80,num(minFill,90))),deadlineMs:110000,
-          shouldStop:()=>stopCalcRef.current,
-          onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:Math.max(0,110-(Date.now()-started)/1000)}))
-        }
-      )
+      // Motor principal: Sparrow WASM + jagua-rs. El solver local anterior queda
+      // únicamente como respaldo si el navegador no habilita memoria WASM compartida.
+      let local
+      try{
+        local=await runSparrowStable(
+          kits,num(sheetW,122),num(sheetH,58),Math.max(.30,num(gap,.3)),{
+            target:Math.min(10,kits.length),targetEfficiency:Math.min(90,Math.max(80,num(minFill,90))),deadlineMs:90000,
+            shouldStop:()=>stopCalcRef.current,
+            onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:Math.max(0,90-(Date.now()-started)/1000)}))
+          }
+        )
+      }catch(sparrowError){
+        if(globalThis.crossOriginIsolated===true&&typeof SharedArrayBuffer!=='undefined')throw sparrowError
+        setCalcProgress(v=>({...v,stage:'Sparrow no disponible en este navegador · respaldo local…'}))
+        local=await runStableLocalSolver(
+          kits,num(sheetW,122),num(sheetH,58),Math.max(.30,num(gap,.3)),{
+            target:Math.min(10,kits.length),targetEfficiency:Math.min(90,Math.max(80,num(minFill,90))),deadlineMs:70000,
+            shouldStop:()=>stopCalcRef.current,
+            onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:Math.max(0,70-(Date.now()-started)/1000)}))
+          }
+        )
+      }
       const ls=local.sheets[0],validation=local.validation||{}
       const xs=(ls.placed||[]).map(q=>num(q.x)),ys=(ls.placed||[]).map(q=>num(q.y))
       const x2=(ls.placed||[]).map(q=>num(q.x)+num(q.w)),y2=(ls.placed||[]).map(q=>num(q.y)+num(q.h))
@@ -935,7 +1000,7 @@ export default function SheetPlanner({db,onSave}){
       const materialArea=Number(validation.materialArea||ls.used||0)
       const compactness=usedW*usedH>0?Math.min(100,100*materialArea/(usedW*usedH)):0
       const data={
-        ok:true,localStable:true,engine:'Motor Polifan v23 · local estable · silueta real',
+        ok:true,localStable:true,engine:local.engine||'Sparrow WASM + jagua-rs',
         completeFigures:Number(local.completeFigures||kitCountOnSheet(ls)),
         placements:(ls.placed||[]).map(q=>({instanceId:q.instanceId,kitId:q.kitId,figure:q.figure,name:q.name,role:q.role,xCm:num(q.x),yCm:num(q.y),angle:num(q.angle),trimXCm:0,trimYCm:0})),
         density:Number(validation.usage||ls.efficiency||0),compactness,usedWidthMm:usedW*10,usedHeightMm:usedH*10,

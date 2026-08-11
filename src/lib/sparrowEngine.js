@@ -115,7 +115,7 @@ function parseTransform(s=''){
   let tx=0,ty=0,angle=0
   const tm=String(s).match(/translate\(\s*([-+\d.eE]+)[ ,]+([-+\d.eE]+)\s*\)/i)
   if(tm){tx=num(tm[1]);ty=num(tm[2])}
-  const rm=String(s).match(/rotate\(\s*([-+\d.eE]+)/i);if(rm)angle=-num(rm[1])
+  const rm=String(s).match(/rotate\(\s*([-+\d.eE]+)/i);if(rm)angle=num(rm[1])
   return {tx,ty,angle:((angle%360)+360)%360}
 }
 
@@ -128,7 +128,11 @@ function parseResultSvg(svgText,itemMap){
     const m=href.match(/#item_(\d+)/i);if(!m)return
     const idx=Number(m[1]),meta=itemMap.get(idx);if(!meta)return
     const {tx,ty,angle}=parseTransform(use.getAttribute('transform')||'')
-    placements.push({...meta,xCm:(tx+meta.padMm)/10,yCm:(ty+meta.padMm)/10,angle})
+    const rad=angle*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad),w=meta.widthCm*10,h=meta.heightCm*10,pad=meta.padMm
+    const rawOriginX=tx+pad*c-pad*sn,rawOriginY=ty+pad*sn+pad*c
+    const corners=[[0,0],[w,0],[0,h],[w,h]].map(([x,y])=>[x*c-y*sn,x*sn+y*c])
+    const minX=Math.min(...corners.map(q=>q[0])),minY=Math.min(...corners.map(q=>q[1]))
+    placements.push({...meta,xCm:(rawOriginX+minX)/10,yCm:(rawOriginY+minY)/10,angle})
   })
   if(!placements.length)throw new Error('Sparrow terminó sin transformaciones de piezas')
   return placements
