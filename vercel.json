@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/sparroWASM/assets/:path*",
-      "destination": "https://jeroengar.github.io/sparroWASM/assets/:path*"
-    },
-    {
       "source": "/((?!assets/|sparroWASM/).*)",
       "destination": "/"
     }
