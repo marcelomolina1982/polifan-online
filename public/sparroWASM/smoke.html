@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Sparrow smoke</title>
+<script type="module">
+const out={started:Date.now(),crossOriginIsolated:globalThis.crossOriginIsolated,sharedArrayBuffer:typeof SharedArrayBuffer!=='undefined',status:'starting'};
+window.__SPARROW_SMOKE__=out;
+const set=(x)=>Object.assign(out,x);
+try{
+  if(!out.crossOriginIsolated||!out.sharedArrayBuffer) throw new Error('cross-origin isolation unavailable');
+  const worker=new Worker('/sparroWASM/algorithmWorker.js',{type:'module'});
+  const items=Array.from({length:20},(_,id)=>({id,demand:1,allowed_orientations:[0,90,180,270],shape:{type:'simple_polygon',data:[[0,0],[100,0],[100,40],[0,40],[0,0]]}}));
+  const input=JSON.stringify({name:'polifan-smoke-10-kits',items,strip_height:580});
+  let timer=setTimeout(()=>{set({status:'error',error:'timeout'});worker.terminate()},45000);
+  worker.onerror=e=>{clearTimeout(timer);set({status:'error',error:e.message||'worker error'});worker.terminate()};
+  worker.onmessage=e=>{
+    const d=e.data||{};
+    if(d.type==='error'){clearTimeout(timer);set({status:'error',error:d.message||'sparrow error'});worker.terminate();return}
+    if(d.type==='init_shared_memory'){
+      worker.postMessage({type:'start',payload:{input,optimizationAlgo:'sparrow',showLogsInstant:false,showPreviewSvg:false,timeLimit:4,seed:17n,useEarlyTermination:true,nWorkers:2}});return;
+    }
+    if(d.type==='finished'){
+      clearTimeout(timer);
+      const svg=String(d.result||'');
+      const doc=new DOMParser().parseFromString(svg,'image/svg+xml');
+      const uses=[...doc.querySelectorAll('#items use, use')].filter(u=>/#item_\d+/.test(u.getAttribute('href')||u.getAttribute('xlink:href')||''));
+      const transforms=uses.map(u=>u.getAttribute('transform')||'');
+      const validTransforms=transforms.filter(t=>/translate\([^)]*\).*rotate\([^)]*\)/.test(t)).length;
+      set({status:uses.length===20&&validTransforms===20?'done':'error',uses:uses.length,validTransforms,svgLength:svg.length,error:uses.length===20&&validTransforms===20?null:'unexpected output'});
+      worker.terminate();
+    }
+  };
+  worker.postMessage({type:'init',payload:{nWorkers:2,showLogsInstant:false}});
+}catch(e){set({status:'error',error:String(e?.message||e)})}
+</script>
