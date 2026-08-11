@@ -5,17 +5,17 @@ import nest_sparrow as ns
 import fixed_hole_fill as fh
 
 # -----------------------------------------------------------------------------
-# BASE ESTABLE: primero conseguir 10 completas sin recorrer combinaciones masivas.
+# RECUPERACION ESTABLE: primero reproducir una placa de 10 ya demostrada.
+# El selector heuristico NO puede eliminar la combinacion certificada por recorte.
 # -----------------------------------------------------------------------------
-MAX_BASE_SEARCH_SECONDS=150
+MAX_BASE_SEARCH_SECONDS=72
 MAX_BASE_POOL=24
-MAX_BASE_VARIANTS=5
+MAX_INPUT_POOL=64
+MAX_BASE_VARIANTS=4
 HOLE_EXACT_CANDIDATES=6
 
-# Combinación REAL certificada por el motor el 10/08/2026. Se obtuvo del SVG
-# placa-sparrow-1__SPARROW_CERTIFICADO(1).svg entregado por producción.
-# Si estas unidades siguen pendientes, se prueban primero antes de cualquier
-# selección heurística. No fija posiciones: Sparrow vuelve a resolver el nesting.
+# Combinacion REAL certificada por produccion el 10/08/2026.
+# El objetivo de esta etapa es usarla como piso estable antes de optimizar.
 PROVEN_COUNTS=Counter({
     'abejita':1,
     'chase paw patrol':1,
@@ -28,6 +28,18 @@ PROVEN_COUNTS=Counter({
     'botin':2,
 })
 
+PROVEN_ALIASES={
+    'abejita':('abejita','abeja'),
+    'chase paw patrol':('chase paw patrol','chase'),
+    'escudo river plate':('escudo river plate','river plate','escudo river'),
+    'flor simple':('flor simple',),
+    'jessie toy story':('jessie toy story','jessie'),
+    'stitch cara':('stitch cara','stitch'),
+    'unicornio':('unicornio',),
+    'woody toy story':('woody toy story','woody'),
+    'botin':('botin','botines'),
+}
+
 
 def _norm(value):
     text=unicodedata.normalize('NFD',str(value or '').strip().lower())
@@ -35,53 +47,85 @@ def _norm(value):
     return ' '.join(text.replace('_',' ').replace('-',' ').split())
 
 
-def _proven_selection(kits):
+def _proven_key(value):
+    name=_norm(value)
+    for key,aliases in PROVEN_ALIASES.items():
+        for alias in aliases:
+            a=_norm(alias)
+            if name==a or (len(a)>=5 and (name.startswith(a+' ') or name.endswith(' '+a))):
+                return key
+    return None
+
+
+def _proven_selection(rows):
     remaining=Counter(PROVEN_COUNTS)
     selected=[]
-    for kit in kits:
-        name=_norm(kit.get('figure'))
-        if remaining.get(name,0)>0:
-            selected.append(kit)
-            remaining[name]-=1
+    for row in rows:
+        key=_proven_key(row.get('figure'))
+        if key and remaining.get(key,0)>0:
+            selected.append(row)
+            remaining[key]-=1
     return selected if len(selected)==10 and not any(remaining.values()) else []
 
 
-def _base_plan(variant_count):
-    if variant_count <= 0:return []
-    plan=[
-        (0,41,38,False,'combinación certificada / primera semilla'),
-        (0,429,34,False,'combinación preferida / segunda semilla'),
-        (0,1901,28,True,'combinación preferida / rescate continuo'),
-    ]
-    if variant_count>1:plan.append((1,235,22,False,'alternativa compacta'))
-    if variant_count>2:plan.append((2,941,20,False,'alternativa balanceada'))
+def _unique_raw(rows):
+    out=[];seen=set()
+    for row in rows:
+        kid=str(row.get('kitId') or '')
+        marker=kid or f"{_norm(row.get('figure'))}:{len(out)}"
+        if marker in seen:continue
+        seen.add(marker);out.append(row)
+    return out
+
+
+def _base_plan(has_proven,variant_count):
+    plan=[]
+    if has_proven:
+        # Tres intentos dedicados y cortos. Nunca gastar minutos antes de probar
+        # la combinacion que ya sabemos que fisicamente entra.
+        plan.extend([
+            (0,41,16,False,'BASE CERTIFICADA · semilla 41'),
+            (0,429,16,False,'BASE CERTIFICADA · semilla 429'),
+            (0,1901,18,True,'BASE CERTIFICADA · rotacion continua'),
+        ])
+        first_auto=1
+    else:
+        first_auto=0
+    if variant_count>first_auto:
+        plan.append((first_auto,235,14,False,'rescate automatico compacto'))
+    if variant_count>first_auto+1:
+        plan.append((first_auto+1,941,12,False,'rescate automatico balanceado'))
     return plan
 
 
 def _base_only_nest_sparrow():
     started=time.time(); data=request.get_json(silent=True) or {}
     if not ns.os.path.exists(ns.SPARROW_BIN):
-        return jsonify(ok=False,error='El binario Sparrow no está instalado en Render'),503
+        return jsonify(ok=False,error='El binario Sparrow no esta instalado en Render'),503
 
     width_mm=max(1.0,ns._n(data.get('widthCm'),122)*10)
     height_mm=max(1.0,ns._n(data.get('heightCm'),58)*10)
     if abs(width_mm-ns.PLATE_WIDTH_MM)>1 or abs(height_mm-ns.PLATE_HEIGHT_MM)>1:
-        return jsonify(ok=False,error='Sparrow producción está fijado a placa 1220×580 mm'),400
+        return jsonify(ok=False,error='Sparrow produccion esta fijado a placa 1220x580 mm'),400
 
     gap=max(3.0,ns._n(data.get('gapCm'),.3)*10)
-    raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_BASE_POOL]
-    if not raw:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
+    incoming=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_INPUT_POOL]
+    if not incoming:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
+
+    # IMPORTANTE: buscar la combinacion probada ANTES de recortar a 24.
+    proven_raw=_proven_selection(incoming)
+    raw=_unique_raw(incoming[:MAX_BASE_POOL]+proven_raw)
 
     kits=[]; rejected=[]
     for k in raw:
         try:kits.append(ns._prep_kit(k,width_mm,height_mm))
         except Exception as exc:rejected.append({'kitId':str(k.get('kitId') or ''),'figure':str(k.get('figure') or ''),'reason':str(exc)})
-    if len(kits)<10:return jsonify(ok=False,error=f'Sólo hay {len(kits)} kits geométricos utilizables',rejected=rejected[:8]),422
+    if len(kits)<10:return jsonify(ok=False,error=f'Solo hay {len(kits)} kits geometricos utilizables',rejected=rejected[:8]),422
 
     variants=[]
     proven=_proven_selection(kits)
     if proven:
-        variants.append(('COMBINACIÓN REAL CERTIFICADA 10/08',proven))
+        variants.append(('COMBINACION REAL CERTIFICADA 10/08',proven))
 
     for label,rows in ns._candidate_selections(kits,10):
         sig=tuple(k['kitId'] for k in rows)
@@ -90,11 +134,11 @@ def _base_only_nest_sparrow():
         if len(variants)>=MAX_BASE_VARIANTS:break
 
     attempts=[]
-    for variant_idx,seed,seconds,continuous,tag in _base_plan(len(variants)):
+    for variant_idx,seed,seconds,continuous,tag in _base_plan(bool(proven),len(variants)):
         remaining=MAX_BASE_SEARCH_SECONDS-(time.time()-started)
-        if remaining<12:break
+        if remaining<10:break
         if variant_idx>=len(variants):continue
-        run_seconds=max(12,min(seconds,int(remaining-5)))
+        run_seconds=max(8,min(seconds,int(remaining-4)))
         label,selected=variants[variant_idx]
         result=ns._run_sparrow(selected,gap,run_seconds,seed,continuous=continuous)
         attempts.append({
@@ -105,29 +149,31 @@ def _base_only_nest_sparrow():
             'rotation':('continua' if continuous else '15°'),'error':result.get('error')
         })
         if result.get('ok') and result.get('fits'):
-            response=ns._result_payload(selected,f'base 10 estable · {tag} · {label}',result,kits,rejected,attempts,started,None)
+            response=ns._result_payload(selected,f'base 10 protegida · {tag} · {label}',result,kits,rejected,attempts,started,None)
             payload=response.get_json()
             payload.update({
-                'engine':'Sparrow · base 10 estable + combinación certificada + selector de huecos + V1.7',
+                'engine':'Sparrow · recuperacion base certificada 10 + crecimiento por huecos + V1.7',
                 'baseOnly':True,'baseSeed':seed,'baseProtected':True,
                 'baseSearchSeconds':round(time.time()-started,2),'baseAttempts':len(attempts),
                 'minimumGapMm':gap,'baseCandidatePool':len(kits),'holeCandidateLimit':HOLE_EXACT_CANDIDATES,
-                'provenCombinationAvailable':bool(proven),'provenCombinationUsed':label.startswith('COMBINACIÓN REAL CERTIFICADA'),
+                'provenCombinationAvailable':bool(proven),'provenCombinationUsed':label.startswith('COMBINACION REAL CERTIFICADA'),
+                'provenSearchBeforePoolCut':True,
             })
             return jsonify(payload)
 
     return jsonify(
         ok=False,
-        error='Sparrow no encontró la base de 10 dentro del presupuesto estable. Se probó primero la combinación real certificada si estaba disponible.',
-        engine='Sparrow · base 10 estable + combinación certificada + selector de huecos + V1.7',
+        error='Sparrow no pudo reproducir la base de 10 dentro del presupuesto corto. La combinacion certificada se busco antes del recorte y se probo primero.',
+        engine='Sparrow · recuperacion base certificada 10 + crecimiento por huecos + V1.7',
         attempts=attempts,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],
         elapsedSeconds=round(time.time()-started,2),minimumGapMm=gap,
-        provenCombinationAvailable=bool(proven)
+        provenCombinationAvailable=bool(proven),provenRawAvailable=bool(proven_raw),
+        provenSearchBeforePoolCut=True
     ),422
 
 
 # -----------------------------------------------------------------------------
-# SELECTOR DE HUECOS: se ejecuta DESPUÉS de tener 10 y no mueve la base.
+# SELECTOR DE HUECOS: se ejecuta DESPUES de tener 10 y no mueve la base.
 # -----------------------------------------------------------------------------
 def _free_geometry(occupied,gap_mm):
     plate=fh.box(0,0,fh.PLATE_W,fh.PLATE_H)
