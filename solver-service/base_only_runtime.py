@@ -5,17 +5,15 @@ import nest_sparrow as ns
 import fixed_hole_fill as fh
 
 # -----------------------------------------------------------------------------
-# RECUPERACION ESTABLE: primero reproducir una placa de 10 ya demostrada.
-# El selector heuristico NO puede eliminar la combinacion certificada por recorte.
+# RECUPERACION ESTABLE: primero conseguir 10 con la estrategia que ya funciono.
+# Despues se protege esa base y recien ahi se intenta rellenar huecos.
 # -----------------------------------------------------------------------------
-MAX_BASE_SEARCH_SECONDS=72
-MAX_BASE_POOL=24
+MAX_BASE_SEARCH_SECONDS=168
+MAX_BASE_POOL=32
 MAX_INPUT_POOL=64
-MAX_BASE_VARIANTS=4
+MAX_BASE_VARIANTS=6
 HOLE_EXACT_CANDIDATES=6
 
-# Combinacion REAL certificada por produccion el 10/08/2026.
-# El objetivo de esta etapa es usarla como piso estable antes de optimizar.
 PROVEN_COUNTS=Counter({
     'abejita':1,
     'chase paw patrol':1,
@@ -78,23 +76,35 @@ def _unique_raw(rows):
     return out
 
 
-def _base_plan(has_proven,variant_count):
+def _variant_index(variants,label):
+    for i,(name,_) in enumerate(variants):
+        if name==label:return i
+    return None
+
+
+def _base_plan(variants,has_proven):
     plan=[]
-    if has_proven:
-        # Tres intentos dedicados y cortos. Nunca gastar minutos antes de probar
-        # la combinacion que ya sabemos que fisicamente entra.
+    # Esta fue la seleccion historicamente exitosa antes de la regresion.
+    preferred=_variant_index(variants,'prioridad flexible + compactas')
+    if preferred is not None:
         plan.extend([
-            (0,41,16,False,'BASE CERTIFICADA · semilla 41'),
-            (0,429,16,False,'BASE CERTIFICADA · semilla 429'),
-            (0,1901,18,True,'BASE CERTIFICADA · rotacion continua'),
+            (preferred,429,70,False,'BASE HISTORICA · semilla 429'),
+            (preferred,41,55,False,'BASE HISTORICA · semilla 41'),
+            (preferred,701,28,True,'BASE HISTORICA · rescate continuo'),
         ])
-        first_auto=1
-    else:
-        first_auto=0
-    if variant_count>first_auto:
-        plan.append((first_auto,235,14,False,'rescate automatico compacto'))
-    if variant_count>first_auto+1:
-        plan.append((first_auto+1,941,12,False,'rescate automatico balanceado'))
+
+    # La combinacion extraida de la placa certificada queda como respaldo.
+    proven_idx=_variant_index(variants,'COMBINACION REAL CERTIFICADA 10/08') if has_proven else None
+    if proven_idx is not None and proven_idx!=preferred:
+        plan.extend([
+            (proven_idx,429,24,False,'BASE CERTIFICADA · semilla 429'),
+            (proven_idx,41,20,False,'BASE CERTIFICADA · semilla 41'),
+        ])
+
+    # Si todavia queda presupuesto, probar alternativas sin volver al barrido masivo.
+    for i,(label,_) in enumerate(variants[:MAX_BASE_VARIANTS]):
+        if i in {preferred,proven_idx}:continue
+        plan.append((i,235+i*353,18,False,f'RESCATE · {label}'))
     return plan
 
 
@@ -112,7 +122,9 @@ def _base_only_nest_sparrow():
     incoming=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_INPUT_POOL]
     if not incoming:return jsonify(ok=False,error='No llegaron figuras a Sparrow'),400
 
-    # IMPORTANTE: buscar la combinacion probada ANTES de recortar a 24.
+    # Mantener los primeros 32 exactamente como lo hacia el motor que dio la placa valida.
+    # Si la combinacion certificada esta disponible dentro de lo recibido, agregarla sin
+    # desplazar esos 32 candidatos historicos.
     proven_raw=_proven_selection(incoming)
     raw=_unique_raw(incoming[:MAX_BASE_POOL]+proven_raw)
 
@@ -123,27 +135,32 @@ def _base_only_nest_sparrow():
     if len(kits)<10:return jsonify(ok=False,error=f'Solo hay {len(kits)} kits geometricos utilizables',rejected=rejected[:8]),422
 
     variants=[]
-    proven=_proven_selection(kits)
-    if proven:
-        variants.append(('COMBINACION REAL CERTIFICADA 10/08',proven))
-
+    # Primero reconstruimos las variantes originales de Sparrow.
     for label,rows in ns._candidate_selections(kits,10):
         sig=tuple(k['kitId'] for k in rows)
         if any(tuple(k['kitId'] for k in old)==sig for _,old in variants):continue
         variants.append((label,rows))
         if len(variants)>=MAX_BASE_VARIANTS:break
 
+    proven=_proven_selection(kits)
+    if proven:
+        psig=tuple(k['kitId'] for k in proven)
+        if not any(tuple(k['kitId'] for k in old)==psig for _,old in variants):
+            variants.append(('COMBINACION REAL CERTIFICADA 10/08',proven))
+
     attempts=[]
-    for variant_idx,seed,seconds,continuous,tag in _base_plan(bool(proven),len(variants)):
+    for variant_idx,seed,seconds,continuous,tag in _base_plan(variants,bool(proven)):
         remaining=MAX_BASE_SEARCH_SECONDS-(time.time()-started)
-        if remaining<10:break
-        if variant_idx>=len(variants):continue
-        run_seconds=max(8,min(seconds,int(remaining-4)))
+        if remaining<12:break
+        if variant_idx is None or variant_idx>=len(variants):continue
+        run_seconds=max(10,min(seconds,int(remaining-5)))
         label,selected=variants[variant_idx]
         result=ns._run_sparrow(selected,gap,run_seconds,seed,continuous=continuous)
         attempts.append({
             'label':f'{tag} · {label}','seed':seed,'seconds':run_seconds,
             'ok':result.get('ok'),'fits':result.get('fits'),'stripWidthMm':result.get('stripWidthMm'),
+            'placedParts':result.get('placedParts'),'expectedParts':result.get('expectedParts'),
+            'runTimeSec':result.get('runTimeSec'),
             'density':round(float(result.get('density') or 0),1),
             'solverDensity':round(float(result.get('solverDensity') or 0),1),
             'rotation':('continua' if continuous else '15°'),'error':result.get('error')
@@ -152,23 +169,35 @@ def _base_only_nest_sparrow():
             response=ns._result_payload(selected,f'base 10 protegida · {tag} · {label}',result,kits,rejected,attempts,started,None)
             payload=response.get_json()
             payload.update({
-                'engine':'Sparrow · recuperacion base certificada 10 + crecimiento por huecos + V1.7',
+                'engine':'Sparrow · base historica recuperada + crecimiento por huecos + V1.7',
                 'baseOnly':True,'baseSeed':seed,'baseProtected':True,
                 'baseSearchSeconds':round(time.time()-started,2),'baseAttempts':len(attempts),
                 'minimumGapMm':gap,'baseCandidatePool':len(kits),'holeCandidateLimit':HOLE_EXACT_CANDIDATES,
-                'provenCombinationAvailable':bool(proven),'provenCombinationUsed':label.startswith('COMBINACION REAL CERTIFICADA'),
-                'provenSearchBeforePoolCut':True,
+                'provenCombinationAvailable':bool(proven),
+                'provenCombinationUsed':label.startswith('COMBINACION REAL CERTIFICADA'),
+                'historicalPreferredUsed':label=='prioridad flexible + compactas',
             })
             return jsonify(payload)
 
+    # El error ahora deja visible el mejor diagnostico de Sparrow para no volver a adivinar.
+    best_attempt=None
+    if attempts:
+        best_attempt=max(attempts,key=lambda a:(int(a.get('placedParts') or 0),-float(a.get('stripWidthMm') or 1e18)))
+    proven_received=[]
+    for row in incoming:
+        key=_proven_key(row.get('figure'))
+        if key:proven_received.append(key)
     return jsonify(
         ok=False,
-        error='Sparrow no pudo reproducir la base de 10 dentro del presupuesto corto. La combinacion certificada se busco antes del recorte y se probo primero.',
-        engine='Sparrow · recuperacion base certificada 10 + crecimiento por huecos + V1.7',
-        attempts=attempts,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],
+        error='Sparrow no pudo recuperar la base de 10. Se restauro la estrategia historicamente exitosa (compactas, semilla 429/41) antes de cualquier rescate.',
+        engine='Sparrow · base historica recuperada + crecimiento por huecos + V1.7',
+        attempts=attempts,bestAttempt=best_attempt,candidatePool=len(kits),
+        rejectedCount=len(rejected),rejected=rejected[:8],
         elapsedSeconds=round(time.time()-started,2),minimumGapMm=gap,
         provenCombinationAvailable=bool(proven),provenRawAvailable=bool(proven_raw),
-        provenSearchBeforePoolCut=True
+        provenReceived=proven_received,
+        inputKitsReceived=len(data.get('kits') or []),inputKitsInspected=len(incoming),
+        historicalPreferredAvailable=_variant_index(variants,'prioridad flexible + compactas') is not None
     ),422
 
 
