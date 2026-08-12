@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: polifan-cnc-solver
+    name: polifan-cnc-solver-lab
     runtime: docker
     plan: free
     dockerfilePath: ./solver-service/Dockerfile
