@@ -4,6 +4,8 @@ import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
 
 const TARGET_COMPLETE=10
+const SAFE_EDGE_MM=3
+const PLATE_WIDTH_MM=1220
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 
 function downloadSvg(name,text){
@@ -11,8 +13,13 @@ function downloadSvg(name,text){
   const url=URL.createObjectURL(new Blob([text],{type:'image/svg+xml'}))
   const a=document.createElement('a')
   a.href=url
-  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__SPARROW_CERTIFICADO.svg'
+  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'.svg'
   document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
+}
+function downloadName(plan){
+  const d=String(today()||'').split('-')
+  const date=d.length===3?`${d[2]}-${d[1]}-${d[0]}`:String(today()||'')
+  return `pedido_${date}_placa_${plan.number||1}`
 }
 function okStatus(status){return String(status||'').startsWith('CERTIFICADO')}
 function parseSvg(svg){
@@ -94,8 +101,18 @@ function buildIndustrialKits(units){
   })
   return {kits,partMap,unitMap}
 }
+function placementXBoundsMm(p,meta){
+  const w=Math.max(1,Number(meta.sourceWidthCm||meta.widthCm||1)*10),h=Math.max(1,Number(meta.sourceHeightCm||meta.heightCm||1)*10)
+  const trimX=Number(p.trimXCm||0)*10,trimY=Number(p.trimYCm||0)*10
+  const x=Number(p.xCm||0)*10,angle=Number(p.angle||0)*Math.PI/180
+  const c=Math.cos(angle),s=Math.sin(angle)
+  const corners=[[-trimX,-trimY],[w-trimX,-trimY],[w-trimX,h-trimY],[-trimX,h-trimY]]
+  const xs=corners.map(([cx,cy])=>x+cx*c-cy*s)
+  return {minX:Math.min(...xs),maxX:Math.max(...xs)}
+}
 function composeIndustrialSvg(placements,partMap){
   const pieces=[]
+  let minX=Infinity,maxX=-Infinity
   placements.forEach((p,n)=>{
     const meta=partMap.get(String(p.instanceId||''));if(!meta)return
     const parsed=parseSvg(meta.svgText);if(!parsed)return
@@ -105,10 +122,14 @@ function composeIndustrialSvg(placements,partMap){
     const sx=wmm/vw,sy=hmm/vh
     const x=Number(p.xCm||0)*10,y=Number(p.yCm||0)*10,angle=Number(p.angle||0)
     const trimX=Number(p.trimXCm||0)*10,trimY=Number(p.trimYCm||0)*10
+    const bounds=placementXBoundsMm(p,meta);minX=Math.min(minX,bounds.minX);maxX=Math.max(maxX,bounds.maxX)
     const transform=`translate(${x} ${y}) rotate(${angle}) translate(${-trimX} ${-trimY}) scale(${sx} ${sy}) translate(${-vx} ${-vy})`
     pieces.push(`<g data-industrial-piece="${n}" data-kit="${String(p.kitId||'')}" data-instance="${String(p.instanceId||'')}" data-partial-extra="${p.partialExtra?'1':'0'}" transform="${transform}">${cleanInner(parsed.root)}</g>`)
   })
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1220mm" height="580mm" viewBox="0 0 1220 580" overflow="visible">${pieces.join('')}</svg>`
+  let shiftX=Number.isFinite(minX)?Math.max(0,SAFE_EDGE_MM-minX):0
+  if(Number.isFinite(maxX)&&maxX+shiftX>PLATE_WIDTH_MM-SAFE_EDGE_MM)shiftX=Math.max(0,PLATE_WIDTH_MM-SAFE_EDGE_MM-maxX)
+  const shift=Number(shiftX.toFixed(3))
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1220mm" height="580mm" viewBox="0 0 1220 580" overflow="visible"><g data-auto-shift-mm="${shift}" transform="translate(${shift} 0)">${pieces.join('')}</g></svg>`
 }
 
 export default function MotorDefinitivo({db,onSave}){
@@ -118,6 +139,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [busy,setBusy]=useState(false)
   const [progress,setProgress]=useState('')
   const [elapsed,setElapsed]=useState(0)
+  const [cutChoice,setCutChoice]=useState(null)
 
   async function certify(svgText){
     const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
@@ -145,7 +167,6 @@ export default function MotorDefinitivo({db,onSave}){
       if(job.status==='done')return job.result||{}
       if(job.status==='error')throw new Error(job.result?.error||'Sparrow terminó sin una placa válida.')
       setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s`)
-      // Sólo protege contra un job zombie; no corta una corrida normal del motor.
       if(Date.now()-started>20*60*1000)throw new Error('El trabajo lleva más de 20 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
     }
   }
@@ -177,16 +198,16 @@ export default function MotorDefinitivo({db,onSave}){
     }finally{setBusy(false);setProgress('')}
   }
 
-  async function registerPlan(plan){
+  async function registerPlan(plan,multiplier){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
     const partialText=plan.partialExtra?` + 1 ${plan.partialExtra.component} de ${plan.partialExtra.figure}`:''
-    if(!confirm(`¿Pasar esta placa a En corte? Se registrarán ${plan.units.length} figuras completas${partialText}.`))return
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]
     if(plan.partialExtra&&['base','tapa'].includes(plan.partialExtra.component))items.push({figure:plan.partialExtra.figure,component:plan.partialExtra.component,qty:1})
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · ${plan.units.length} completas${partialText} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items,createdAt:new Date().toISOString()}
+    const cutLabel=multiplier===2?'doble · 2 placas iguales':'simple · 1 placa'
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · corte ${cutLabel} · ${plan.units.length} completas${partialText} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier,items,createdAt:new Date().toISOString()}
     const result=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
-    if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
+    if(result?.ok!==false){setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number,cutMultiplier:multiplier}:x));setCutChoice(null)}
   }
 
   return <>
@@ -208,9 +229,10 @@ export default function MotorDefinitivo({db,onSave}){
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}{plan.rejectedCount>0&&<small className="block">{plan.rejectedCount} candidata(s) descartadas</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=85?'green-text':'')}>{plan.density>=85?'Excelente · >85%':plan.density>=80?'Objetivo ≥80% alcanzado':'Mejor solución válida'}</small>}{plan.fixedHoleFill&&<small className="block green-text">relleno de huecos activo</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
-        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-sparrow-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
+        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(downloadName(plan),plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>setCutChoice(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber} · {plan.cutMultiplier===2?'doble':'simple'}</b></span>}</td>
       </tr>})}
       {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Se inicia un único trabajo en Render y la pantalla consulta su estado hasta terminar.</td></tr>}
     </tbody></table></div>
+    {cutChoice&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.38)',display:'grid',placeItems:'center',zIndex:9999,padding:20}}><div className="panel" style={{width:'min(520px,100%)',margin:0}}><h3>¿Cómo vas a cortar esta placa?</h3><p>La distribución del SVG no cambia. Elegí cuántas placas físicas vas a apilar para este corte.</p><div className="actions" style={{marginTop:16,flexWrap:'wrap'}}><button className="primary" onClick={()=>registerPlan(cutChoice,1)}>Placa simple · 1 placa</button><button className="primary" onClick={()=>registerPlan(cutChoice,2)}>Placa doble · 2 iguales</button><button className="ghost" onClick={()=>setCutChoice(null)}>Cancelar</button></div></div></div>}
   </>
 }
