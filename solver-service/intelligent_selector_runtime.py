@@ -2,14 +2,16 @@ from flask import request, jsonify
 import time, random
 import nest_sparrow as ns
 
-# Selector inteligente especializado: decide QUE 10 probar; Sparrow sólo acomoda.
-# Aprende durante la vida de la instancia de los grupos que fallan/funcionan.
+# Motor Lab smart-2:
+# 1) recupera primero una base certificable de 10 con la estrategia estable;
+# 2) guarda esa solución como piso;
+# 3) intenta 11 y luego 12 completas; si no mejora, devuelve las 10 sin perderlas.
 MAX_POOL=64
-MAX_SECONDS=235
+MAX_SECONDS=270
+BASE_SEARCH_SECONDS=170
 PORTFOLIO=9
+EXPANSION_CANDIDATES=8
 _memory={}
-# Anclas de la primera placa real certificada. Si siguen pendientes, reciben bonus;
-# si ya fueron consumidas simplemente se ignoran.
 POSITIVE_NAMES={'gato','gato con luces','auto','chase paw patrol','chopp','abejita','boca','woody toy story'}
 
 
@@ -31,13 +33,10 @@ def _portfolio(kits):
         sig=tuple(sorted(str(x.get('kitId')) for x in g))
         if sig not in seen: seen.add(sig); groups.append(g)
     add(ordered[:10])
-    # Ventanas diversas: no repetir diez casi iguales.
     for off in (2,5,8,12): add(ordered[off:off+10])
-    # Mezcla anclas conocidas + candidatos compactos actuales.
     anchors=[k for k in ordered if _key(k) in POSITIVE_NAMES]
     rest=[k for k in ordered if k not in anchors]
     add((anchors+rest)[:10])
-    # Exploración determinista de candidatos prioritarios/compactos.
     rng=random.Random(429)
     top=ordered[:min(30,len(ordered))]
     for _ in range(12):
@@ -45,6 +44,20 @@ def _portfolio(kits):
         add(sample)
         if len(groups)>=PORTFOLIO:break
     return groups[:PORTFOLIO]
+
+def _attempt(selected,gap,budget,seed,continuous,attempts,label):
+    r=ns._run_sparrow(selected,gap,budget,seed,continuous=continuous)
+    attempts.append({'phase':label,'figures':[x['figure'] for x in selected],'completeFigures':len(selected),'fits':r.get('fits'),'placedParts':r.get('placedParts'),'expectedParts':r.get('expectedParts'),'density':round(float(r.get('density') or 0),1),'seconds':budget,'continuous':continuous})
+    return r
+
+def _learn_failed(group,result):
+    ratio=float(result.get('placedParts') or 0)/max(1,float(result.get('expectedParts') or max(1,len(group)*2)))
+    penalty=max(.02,(1-ratio)*.18)
+    for x in group:_memory[_key(x)]=min(1.5,_memory.get(_key(x),0.0)+penalty)
+
+def _expansion_pool(kits,selected):
+    used={str(x.get('kitId')) for x in selected}
+    return [x for x in sorted(kits,key=_score) if str(x.get('kitId')) not in used][:EXPANSION_CANDIDATES]
 
 def intelligent_nest():
     started=time.time(); data=request.get_json(silent=True) or {}
@@ -56,28 +69,58 @@ def intelligent_nest():
         try:kits.append(ns._prep_kit(k,width,height))
         except Exception as exc: rejected.append({'figure':str(k.get('figure') or ''),'reason':str(exc)})
     if len(kits)<10:return jsonify(ok=False,error=f'Sólo hay {len(kits)} kits utilizables'),422
-    groups=_portfolio(kits); attempts=[]; best=None
+
+    attempts=[]; base=None
+    groups=_portfolio(kits)
     for idx,g in enumerate(groups):
-        remaining=MAX_SECONDS-(time.time()-started)
-        if remaining<18:break
-        # Sparrow recibe grupos completos de 10; no decide selección.
-        budget=min(34 if idx<3 else 26,int(remaining-5))
+        elapsed=time.time()-started
+        remaining_base=BASE_SEARCH_SECONDS-elapsed
+        if remaining_base<16:break
+        budget=min(34 if idx<3 else 24,int(remaining_base-3))
+        if budget<12:break
         seed=(429,41,1701,7919,31337,97,811,2027,65537)[idx%9]
         continuous=idx>=3
-        r=ns._run_sparrow(g,gap,budget,seed,continuous=continuous)
-        attempts.append({'candidate':idx+1,'figures':[x['figure'] for x in g],'fits':r.get('fits'),'placedParts':r.get('placedParts'),'expectedParts':r.get('expectedParts'),'density':round(float(r.get('density') or 0),1),'seconds':budget,'continuous':continuous})
+        r=_attempt(g,gap,budget,seed,continuous,attempts,'base-10')
         if r.get('ok') and r.get('fits'):
-            best=(g,r); break
-        # Aprendizaje liviano: penalizar especialmente las piezas de grupos que fallan.
-        ratio=float(r.get('placedParts') or 0)/max(1,float(r.get('expectedParts') or 20))
-        penalty=max(.02,(1-ratio)*.18)
-        for x in g:_memory[_key(x)]=min(1.5,_memory.get(_key(x),0.0)+penalty)
-    if not best:
-        return jsonify(ok=False,error='El selector inteligente propuso grupos distintos de 10, pero Sparrow no certificó ninguno dentro del presupuesto.',engine='Selector inteligente + Sparrow + V1.7',selectorVersion='smart-1',attempts=attempts,candidatePool=len(kits),elapsedSeconds=round(time.time()-started,1)),422
-    selected,result=best
-    for x in selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.35)
-    response=ns._result_payload(selected,'selector inteligente: 10 candidatas aprendidas',result,kits,rejected,attempts,started,None)
-    payload=response.get_json(); payload.update({'engine':'Selector inteligente + Sparrow + huecos + V1.7','selectorVersion':'smart-1','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':gap})
+            base=(g,r);break
+        _learn_failed(g,r)
+
+    if not base:
+        return jsonify(ok=False,error='Motor Lab no recuperó la base segura de 10 dentro del presupuesto.',engine='Motor Lab smart-2',selectorVersion='smart-2',attempts=attempts,candidatePool=len(kits),elapsedSeconds=round(time.time()-started,1)),422
+
+    best_selected,best_result=base
+    for x in best_selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.35)
+
+    # Expansión protegida: la base 10 ya está guardada. Cada intento puede mover
+    # las piezas en el laboratorio, pero un fallo jamás reemplaza el piso válido.
+    extras=_expansion_pool(kits,best_selected)
+    for extra_idx,extra in enumerate(extras):
+        remaining=MAX_SECONDS-(time.time()-started)
+        if remaining<18:break
+        candidate=best_selected+[extra]
+        budget=min(24,int(remaining-5))
+        if budget<12:break
+        r=_attempt(candidate,gap,budget,7001+extra_idx*97,True,attempts,'expand-11')
+        if r.get('ok') and r.get('fits'):
+            best_selected,best_result=candidate,r
+            break
+
+    if len(best_selected)>=11:
+        extras12=_expansion_pool(kits,best_selected)
+        for extra_idx,extra in enumerate(extras12[:5]):
+            remaining=MAX_SECONDS-(time.time()-started)
+            if remaining<18:break
+            candidate=best_selected+[extra]
+            budget=min(22,int(remaining-5))
+            if budget<12:break
+            r=_attempt(candidate,gap,budget,17011+extra_idx*101,True,attempts,'expand-12')
+            if r.get('ok') and r.get('fits'):
+                best_selected,best_result=candidate,r
+                break
+
+    label=f'Motor Lab protegido: {len(best_selected)} completas (piso 10 conservado)'
+    response=ns._result_payload(best_selected,label,best_result,kits,rejected,attempts,started,None)
+    payload=response.get_json(); payload.update({'engine':'Motor Lab smart-2 · Sparrow + V1.7','selectorVersion':'smart-2','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':gap,'protectedBase10':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected)})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
