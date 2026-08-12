@@ -1,10 +1,15 @@
 from nest_sparrow import app
-import base_only_runtime  # primero: encontrar 10 con la configuración estable conocida
-import fixed_hole_runtime  # después: rellenar huecos sin mover la base
-import async_jobs  # cálculo largo desacoplado de la petición HTTP del navegador
+import production_safety_runtime
+import base_only_runtime
+import adaptive_base_runtime
+import intelligent_selector_runtime  # BASE 10 ESTABLE: decide QUE 10 probar; Sparrow acomoda y V1.7 certifica
+
+# IMPORTANTE: fixed_hole_runtime queda aislado durante la prueba de estabilidad.
+# El crecimiento 11+ es una optimizacion opcional y nunca debe poder romper
+# una base de 10 que ya demostro estabilidad. Se reactivara en una rama/etapa
+# separada una vez terminadas las pruebas de BASE 10 ESTABLE.
+
+import async_jobs
 from flask_cors import CORS
 
-# Generador principal: Sparrow base protegida + relleno fijo de huecos.
-# /nest-jobs inicia el cálculo y /nest-jobs/<id> permite consultar el estado.
-# V1.7 permanece como certificador final del SVG que se descarga.
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
