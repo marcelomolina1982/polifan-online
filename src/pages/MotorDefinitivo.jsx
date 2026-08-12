@@ -76,6 +76,16 @@ function pendingUnits(db,index){
   }))
   return {units,missing:[...missing.entries()].map(([figure,qty])=>({figure,qty}))}
 }
+function unitsForMultiplier(units,multiplier){
+  if(multiplier<=1)return units.slice()
+  const seen=new Map()
+  return units.filter(unit=>{
+    const key=normalizeFigureKey(unit.figure)
+    const n=seen.get(key)||0
+    seen.set(key,n+1)
+    return n%multiplier===0
+  })
+}
 function summarizeUnits(units){
   const m=new Map();units.forEach(u=>m.set(u.figure,(m.get(u.figure)||0)+1))
   return [...m.entries()].map(([figure,qty])=>({figure,qty}))
@@ -118,13 +128,13 @@ export default function MotorDefinitivo({db,onSave}){
   const [busy,setBusy]=useState(false)
   const [progress,setProgress]=useState('')
   const [elapsed,setElapsed]=useState(0)
+  const [choosingMode,setChoosingMode]=useState(false)
 
   async function certify(svgText){
     const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
     let data={};try{data=await response.json()}catch{}
     return {status:data.status||`HTTP ${response.status}`,minGap:data.validation?.min_gap_mm??data.min_gap_mm??'-',conflicts:data.validation?.conflicts??data.conflicts??'-',border:data.validation?.border_conflicts??data.border_conflicts??'-',seconds:data.seconds??'-',svgText:data.svgText||svgText,error:data.error||''}
   }
-
   async function startJob(payload){
     const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})
     const data=await response.json().catch(()=>({}))
@@ -132,85 +142,98 @@ export default function MotorDefinitivo({db,onSave}){
     if(!data.jobId)throw new Error('Render no devolvió el identificador del cálculo.')
     return data.jobId
   }
-
   async function waitJob(jobId){
     const started=Date.now()
     for(;;){
       await sleep(2000)
       const response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})
       const job=await response.json().catch(()=>({}))
-      const sec=Math.round((Date.now()-started)/1000)
-      setElapsed(sec)
+      const sec=Math.round((Date.now()-started)/1000);setElapsed(sec)
       if(!response.ok)throw new Error(job.error||`No se pudo consultar el cálculo (HTTP ${response.status})`)
       if(job.status==='done')return job.result||{}
       if(job.status==='error')throw new Error(job.result?.error||'Sparrow terminó sin una placa válida.')
       setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s`)
-      // Sólo protege contra un job zombie; no corta una corrida normal del motor.
       if(Date.now()-started>20*60*1000)throw new Error('El trabajo lleva más de 20 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
     }
   }
+  async function runPayload(payload){
+    const jobId=await startJob(payload)
+    setProgress(`Sparrow calculando · trabajo ${jobId.slice(0,8)}`)
+    return await waitJob(jobId)
+  }
 
-  async function generateAutomatic(){
+  async function generateAutomatic(multiplier=1){
+    setChoosingMode(false)
     if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
-    const industrial=buildIndustrialKits(pending.units)
+    const designUnits=unitsForMultiplier(pending.units,multiplier)
+    const industrial=buildIndustrialKits(designUnits)
     const payload={widthCm:122,heightCm:58,gapCm:.3,targetDensity:80,kits:industrial.kits}
-    setBusy(true);setPlans([]);setElapsed(0);setProgress('Iniciando cálculo Sparrow en segundo plano…')
+    setBusy(true);setPlans([]);setElapsed(0);setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · iniciando Sparrow…`)
     try{
-      const jobId=await startJob(payload)
-      setProgress(`Sparrow calculando sin límite de la conexión HTTP · trabajo ${jobId.slice(0,8)}`)
-      const data=await waitJob(jobId)
-      if(!data.ok){
-        const rejected=Array.isArray(data.rejected)&&data.rejected.length?` · descartadas: ${data.rejected.map(x=>`${x.figure||'figura'} (${x.reason||'inválida'})`).slice(0,3).join(', ')}`:''
-        throw new Error((data.error||'Sparrow terminó sin placa válida')+rejected)
+      let data=await runPayload(payload)
+      if(!data.ok)throw new Error(data.error||'Sparrow terminó sin placa válida')
+
+      let completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))]
+      if(completeIds.length>TARGET_COMPLETE&&Number(data.density||0)<80){
+        setProgress(`Encontró ${completeIds.length}, pero con ${Number(data.density||0).toFixed(1)}%. No se acepta crecimiento bajo 80%: recuperando base de 10…`)
+        const selectedSet=new Set(completeIds.slice(0,TARGET_COMPLETE))
+        const fallbackKits=industrial.kits.filter(k=>selectedSet.has(String(k.kitId))).slice(0,TARGET_COMPLETE)
+        if(fallbackKits.length===TARGET_COMPLETE){
+          const fallback=await runPayload({...payload,kits:fallbackKits,targetDensity:80})
+          if(fallback.ok)data=fallback
+        }
+        completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))]
       }
-      const completePlacements=(data.placements||[]).filter(p=>!p.partialExtra)
-      const selectedIds=[...new Set(completePlacements.map(p=>String(p.kitId||'')).filter(Boolean))]
-      const selectedUnits=selectedIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
+
+      const selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
       if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
       const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-      setProgress(`Sparrow encontró ${selectedUnits.length} completas${data.partialExtra?` + 1 ${data.partialExtra.component} extra`:''} · V1.7 certificando el SVG final…`)
+      setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${multiplier===2?'doble':'simple'} · V1.7 certificando…`)
       const cert=await certify(composed)
       const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||data.baseSearchSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill)}])
+      const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
+      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||data.baseSearchSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill),multiplier,produced}])
     }catch(error){
-      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
     }finally{setBusy(false);setProgress('')}
   }
 
   async function registerPlan(plan){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
+    const multiplier=Number(plan.multiplier||1)
     const partialText=plan.partialExtra?` + 1 ${plan.partialExtra.component} de ${plan.partialExtra.figure}`:''
-    if(!confirm(`¿Pasar esta placa a En corte? Se registrarán ${plan.units.length} figuras completas${partialText}.`))return
+    if(!confirm(`¿Pasar esta ${multiplier===2?'placa DOBLE':'placa SIMPLE'} a En corte? El diseño tiene ${plan.units.length} figuras y producirá hasta ${plan.units.length*multiplier} completas${partialText}.`))return
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]
     if(plan.partialExtra&&['base','tapa'].includes(plan.partialExtra.component))items.push({figure:plan.partialExtra.figure,component:plan.partialExtra.component,qty:1})
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · ${plan.units.length} completas${partialText} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier:1,items,createdAt:new Date().toISOString()}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · ${plan.units.length} diseños · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier,items,createdAt:new Date().toISOString()}
     const result=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
     if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
   }
 
   return <>
-    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Sparrow calcula en segundo plano: ya no depende del límite de una petición HTTP. V1.7 certifica exactamente el SVG plano que se descarga." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Calculando…':'Generar una placa'}</button>}/>
-    <div className="notice"><b>Modo producción protegido</b><span>Primero asegura 10 completas. Después rellena huecos sin mover la base. Objetivo ≥80%; una base/tapa extra sólo si la placa final supera 85%.</span></div>
+    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Laboratorio aislado. Antes de calcular elegís placa simple o doble; una mejora por encima de 10 sólo se conserva si alcanza al menos 80% de ocupación." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
+    {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que Sparrow calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Ejemplo: si faltan 3 Minnie, en doble se diseñan 2; al cortar ×2 salen 4 y sobra sólo 1.</small></div>}
+    <div className="notice"><b>Modo laboratorio protegido</b><span>Base estable: 10 completas. Sparrow puede intentar 11 o más, pero el Lab rechaza ese crecimiento si la placa queda por debajo de 80% y vuelve a una base de 10.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
-      <div><small>Criterio productivo</small><b className="block big">10+ · objetivo ≥80%</b><small className="block">extra parcial sólo si &gt;85%</small></div>
+      <div><small>Criterio productivo</small><b className="block big">10 base · crecimiento sólo ≥80%</b><small className="block">simple ×1 / doble ×2 antes del cálculo</small></div>
       <div><small>Arquitectura</small><b className="block big">Sparrow asíncrono · V1.7 certifica</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
-    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Podés dejar esta pantalla abierta: el cálculo continúa en Render aunque una conexión individual termine. Tiempo: {elapsed}s.</span></div>}
+    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Tiempo: {elapsed}s.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
-        <td><b>Placa {plan.number}</b><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} figuras completas</small>{plan.partialExtra&&<small className="block green-text"><b>+ 1 {plan.partialExtra.component} · {plan.partialExtra.figure}</b></small>}<small className="block">{plan.deferred} quedan pendientes</small></td>
-        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}`).join(', ')||'-'}{plan.partialExtra?` + ${plan.partialExtra.figure} (${plan.partialExtra.component})`:''}</td>
-        <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}{plan.rejectedCount>0&&<small className="block">{plan.rejectedCount} candidata(s) descartadas</small>}</td>
+        <td><b>Placa {plan.number}</b><small className="block">Modo: {Number(plan.multiplier||1)===2?'DOBLE ×2':'SIMPLE ×1'}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</small><small className="block">{plan.deferred} quedan pendientes</small></td>
+        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}`).join(', ')||'-'}</td>
+        <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
-        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=85?'green-text':'')}>{plan.density>=85?'Excelente · >85%':plan.density>=80?'Objetivo ≥80% alcanzado':'Mejor solución válida'}</small>}{plan.fixedHoleFill&&<small className="block green-text">relleno de huecos activo</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
-        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('placa-sparrow-1',plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
+        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=80?'green-text':'')}>{plan.density>=80?'Objetivo ≥80% alcanzado':'Base estable conservada'}</small>}</td>
+        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Se inicia un único trabajo en Render y la pantalla consulta su estado hasta terminar.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Primero te va a preguntar SIMPLE o DOBLE y recién después empieza a diseñar.</td></tr>}
     </tbody></table></div>
   </>
 }
