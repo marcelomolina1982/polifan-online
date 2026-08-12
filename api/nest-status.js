@@ -8,6 +8,19 @@ export default async function handler(req,res){
   try{
     const r=await fetch(base+'/nest-jobs/'+encodeURIComponent(id),{headers:{accept:'application/json'}})
     const text=await r.text()
+    let data=null
+    try{data=JSON.parse(text)}catch{}
+    if(data&&data.status==='done'&&data.result){
+      const result={...data.result}
+      result.placements=(result.placements||[]).map(p=>({...p,xCm:Number(p.xCm||0)+0.3}))
+      result.targetDensity=75
+      result.labMarginMm=3
+      data={...data,result}
+      res.status(r.status)
+      res.setHeader('content-type','application/json')
+      res.setHeader('cache-control','no-store')
+      return res.send(JSON.stringify(data))
+    }
     res.status(r.status)
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
     res.setHeader('cache-control','no-store')
