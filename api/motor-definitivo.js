@@ -1,8 +1,8 @@
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({ok:false,error:'Método no permitido'})
-  const productionBase='https://polifan-cnc-solver.onrender.com'
+  const labBase='https://polifan-cnc-solver-lab.onrender.com'
   const envBase=String(process.env.MOTOR_DEFINITIVO_API_URL||'').replace(/\/$/,'')
-  const base=envBase||productionBase
+  const base=envBase||labBase
   try{
     const r=await fetch(base+'/motor-definitivo/svg',{
       method:'POST',
@@ -14,6 +14,6 @@ export default async function handler(req,res){
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
     return res.send(text)
   }catch(e){
-    return res.status(502).json({ok:false,error:'No se pudo conectar con el certificador V1.7 estable: '+(e?.message||String(e))})
+    return res.status(502).json({ok:false,error:'No se pudo conectar con el certificador V1.7 LAB: '+(e?.message||String(e))})
   }
 }
