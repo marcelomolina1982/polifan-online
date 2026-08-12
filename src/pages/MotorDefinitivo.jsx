@@ -5,6 +5,7 @@ import {today} from '../lib/format'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const LAB_STORAGE='polifan-motor-lab-last-plan-v3'
+const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v1'
 
 function loadSavedPlans(){
   try{return JSON.parse(localStorage.getItem(LAB_STORAGE)||'[]')||[]}
@@ -16,6 +17,12 @@ function savePlans(plans){
     localStorage.setItem(LAB_STORAGE,JSON.stringify(compact))
   }catch{}
 }
+function loadActiveJob(){
+  try{return JSON.parse(localStorage.getItem(ACTIVE_JOB_STORAGE)||'null')}
+  catch{return null}
+}
+function saveActiveJob(job){try{localStorage.setItem(ACTIVE_JOB_STORAGE,JSON.stringify(job))}catch{}}
+function clearActiveJob(){try{localStorage.removeItem(ACTIVE_JOB_STORAGE)}catch{}}
 function downloadSvg(name,text){
   if(!text)return
   const url=URL.createObjectURL(new Blob([text],{type:'image/svg+xml'}))
@@ -141,37 +148,70 @@ export default function MotorDefinitivo({db,onSave}){
   const [choosingMode,setChoosingMode]=useState(false)
 
   useEffect(()=>{if(plans.length)savePlans(plans)},[plans])
+  useEffect(()=>{
+    const active=loadActiveJob()
+    if(active?.jobId){resumeActiveJob(active)}
+  },[])
 
   async function certify(svgText){
     const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
     let data={};try{data=await response.json()}catch{}
     return {status:data.status||`HTTP ${response.status}`,minGap:data.validation?.min_gap_mm??data.min_gap_mm??'-',conflicts:data.validation?.conflicts??data.conflicts??'-',border:data.validation?.border_conflicts??data.border_conflicts??'-',seconds:data.seconds??'-',svgText:data.svgText||svgText,error:data.error||''}
   }
-  async function startJob(payload){
+  async function startJob(payload,multiplier){
     const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})
     const data=await response.json().catch(()=>({}))
     if(!response.ok&&!data.jobId)throw new Error(data.error||`No se pudo iniciar Sparrow (HTTP ${response.status})`)
     if(!data.jobId)throw new Error('Render no devolvió el identificador del cálculo.')
+    saveActiveJob({jobId:data.jobId,multiplier:Number(multiplier||1),startedAt:Date.now()})
     return data.jobId
   }
-  async function waitJob(jobId){
-    const started=Date.now()
+  async function waitJob(jobId,originalStartedAt=Date.now()){
     for(;;){
       await sleep(2000)
       const response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})
       const job=await response.json().catch(()=>({}))
-      const sec=Math.round((Date.now()-started)/1000);setElapsed(sec)
+      const sec=Math.round((Date.now()-Number(originalStartedAt||Date.now()))/1000);setElapsed(Math.max(0,sec))
       if(!response.ok)throw new Error(job.error||`No se pudo consultar el cálculo (HTTP ${response.status})`)
       if(job.status==='done')return job.result||{}
       if(job.status==='error')throw new Error(job.result?.error||'Sparrow terminó sin una placa válida.')
-      setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s`)
-      if(Date.now()-started>20*60*1000)throw new Error('El trabajo lleva más de 20 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
+      setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s · podés cambiar de pestaña sin perderlo`)
+      if(Date.now()-Number(originalStartedAt||Date.now())>25*60*1000)throw new Error('El trabajo lleva más de 25 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
     }
   }
-  async function runPayload(payload){
-    const jobId=await startJob(payload)
-    setProgress(`Sparrow calculando · trabajo ${jobId.slice(0,8)}`)
-    return await waitJob(jobId)
+  async function runPayload(payload,multiplier){
+    const jobId=await startJob(payload,multiplier)
+    const active=loadActiveJob()
+    setProgress(`Sparrow calculando · trabajo ${jobId.slice(0,8)} · guardado`)
+    return await waitJob(jobId,active?.startedAt||Date.now())
+  }
+  async function finishResult(data,multiplier,industrial){
+    if(!data.ok)throw new Error(data.error||'Sparrow terminó sin placa válida')
+    const completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))]
+    const selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
+    if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
+    const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
+    setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${multiplier===2?'doble':'simple'} · V1.7 certificando…`)
+    const cert=await certify(composed)
+    const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
+    const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
+    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),stripWidthMm:Number(data.stripWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill),multiplier,produced}
+    setPlans([plan]);savePlans([plan]);clearActiveJob()
+  }
+  async function resumeActiveJob(active){
+    if(!active?.jobId)return
+    const multiplier=Number(active.multiplier||1)
+    const designUnits=unitsForMultiplier(pending.units,multiplier)
+    const industrial=buildIndustrialKits(designUnits)
+    setBusy(true);setElapsed(Math.max(0,Math.round((Date.now()-Number(active.startedAt||Date.now()))/1000)))
+    setProgress(`Recuperando cálculo ${String(active.jobId).slice(0,8)} después de la recarga…`)
+    try{
+      const data=await waitJob(active.jobId,active.startedAt)
+      await finishResult(data,multiplier,industrial)
+    }catch(error){
+      clearActiveJob()
+      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+    }finally{setBusy(false);setProgress('')}
   }
 
   async function generateAutomatic(multiplier=1){
@@ -182,18 +222,10 @@ export default function MotorDefinitivo({db,onSave}){
     const payload={widthCm:122,heightCm:58,gapCm:.3,targetDensity:80,kits:industrial.kits}
     setBusy(true);setPlans([]);setElapsed(0);setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · iniciando Sparrow…`)
     try{
-      const data=await runPayload(payload)
-      if(!data.ok)throw new Error(data.error||'Sparrow terminó sin placa válida')
-      const completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))]
-      const selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
-      if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
-      const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-      setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${multiplier===2?'doble':'simple'} · V1.7 certificando…`)
-      const cert=await certify(composed)
-      const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-      const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
-      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),stripWidthMm:Number(data.stripWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill),multiplier,produced}])
+      const data=await runPayload(payload,multiplier)
+      await finishResult(data,multiplier,industrial)
     }catch(error){
+      clearActiveJob()
       setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
     }finally{setBusy(false);setProgress('')}
   }
@@ -209,9 +241,9 @@ export default function MotorDefinitivo({db,onSave}){
   }
 
   return <>
-    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Laboratorio aislado. Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1220 × 580 mm. El 80% es objetivo, no una barrera." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
+    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Laboratorio aislado. Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1220 × 580 mm. El cálculo activo queda guardado y se recupera después de una recarga." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
     {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que Sparrow calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Ejemplo: si faltan 3 Minnie, en doble se diseñan 2; al cortar ×2 salen 4 y sobra sólo 1.</small></div>}
-    <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1220 × 580 mm. Sparrow puede compactar a la izquierda, pero debe seguir intentando agregar figuras para aprovechar la franja derecha mientras exista una combinación válida.</span></div>
+    <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1220 × 580 mm. Si la web se recarga mientras Sparrow calcula, al volver retoma el mismo trabajo en lugar de empezar de cero.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
@@ -219,7 +251,7 @@ export default function MotorDefinitivo({db,onSave}){
       <div><small>Arquitectura</small><b className="block big">Sparrow asíncrono · V1.7 certifica</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
-    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Tiempo: {elapsed}s.</span></div>}
+    {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Tiempo: {elapsed}s. El ID del trabajo queda guardado.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
@@ -230,7 +262,7 @@ export default function MotorDefinitivo({db,onSave}){
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1220 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=80?'green-text':'')}>{plan.density>=80?'Objetivo ≥80% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Primero te pregunta SIMPLE o DOBLE y luego intenta llenar el ancho real disponible.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Primero te pregunta SIMPLE o DOBLE y, si hay una recarga, retoma automáticamente el trabajo activo.</td></tr>}
     </tbody></table></div>
   </>
 }
