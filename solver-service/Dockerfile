@@ -22,4 +22,6 @@ COPY hole_aware.py .
 
 EXPOSE 10000
 
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "180", "hole_aware:app"]
+# Producción estable: usamos el motor core. La variante hole-aware queda
+# conservada en el repositorio para seguir investigándola sin afectar producción.
+CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "180", "app:app"]
