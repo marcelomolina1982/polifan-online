@@ -1,27 +1,32 @@
+FROM rust:1.91-bookworm AS sparrow-build
+
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/JeroenGar/sparrow.git /sparrow
+WORKDIR /sparrow
+RUN cargo build --release --features only_final_svg --bin sparrow
+
 FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV SPARROW_BIN=/usr/local/bin/sparrow
 
-# Librerías necesarias para PackingSolver
 RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
     libblas3 \
     libgomp1 \
+    libcairo2 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
-COPY hole_aware.py .
+COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
+COPY *.py .
 
 EXPOSE 10000
-
-# Producción estable: usamos el motor core. La variante hole-aware queda
-# conservada en el repositorio para seguir investigándola sin afectar producción.
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "180", "app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "300", "cors_app:app"]
