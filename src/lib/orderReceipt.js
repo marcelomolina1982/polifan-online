@@ -12,6 +12,7 @@ const typeOf=o=>{
   if(k.includes('otro')) return 'Otro expreso'
   return 'Logística'
 }
+const shippingCost=o=>typeOf(o)==='Logística'?Math.max(0,Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0):0
 const shippingData=o=>{
   const type=typeOf(o)
   const fullName=esc(o.client||[o.firstName,o.lastName].filter(Boolean).join(' ')||'-')
@@ -31,6 +32,8 @@ const shippingData=o=>{
 }
 export function receiptHtml(o){
   const products=Number(o.total||0)
+  const shipping=shippingCost(o)
+  const grandTotal=products+shipping
   const rows=(o.items||[]).filter(i=>i.figure&&Number(i.qty)>0).map(i=>`<tr><td>${esc(i.figure)}</td><td>${Number(i.qty)}</td></tr>`).join('')
   return `<div class="receipt">
    <header><img src="/logo-tu-vida-en-tinta.png"><div><small>TU VIDA EN TINTA · POLIFAN</small><h1>COMPROBANTE DE PEDIDO</h1><p>Pedido #${esc(o.number)} · ${esc(o.date||'')}</p></div></header>
@@ -62,7 +65,8 @@ export function receiptHtml(o){
 
    <section class="totals">
      <p><span>Productos</span><b>${money(products)}</b></p>
-     <p class="grand"><span>TOTAL DEL PEDIDO</span><b>${money(products)}</b></p>
+     ${shipping>0?`<p><span>Envío por logística</span><b>${money(shipping)}</b></p>`:''}
+     <p class="grand"><span>TOTAL DEL PEDIDO</span><b>${money(grandTotal)}</b></p>
    </section>
 
    ${o.notes?`<div class="notes"><b>OBSERVACIONES</b><p>${esc(o.notes)}</p></div>`:''}
