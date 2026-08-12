@@ -12,7 +12,8 @@ MIN_PRODUCTION_GAP_MM = 3.0
 # Sparrow trabaja con aproximaciones/serializacion; pedir un poco mas evita que
 # una solucion nominal de 3 mm termine certificando 2.91-2.99 mm al reconstruir.
 SOLVER_GAP_SAFETY_MM = 0.20
-EDGE_MARGIN_MM = 1.0
+# En laboratorio exigimos también 3 mm reales contra los cuatro bordes.
+EDGE_MARGIN_MM = 3.0
 
 _original_run_sparrow = ns._run_sparrow
 _original_result_payload = ns._result_payload
@@ -47,7 +48,7 @@ def _validate_final_geometry(selected, result):
             return False,{'reason':'placement sin geometría origen'}
         g=_geometry_for(part,placement)
         if not safe_plate.covers(g):
-            return False,{'reason':'pieza fuera del margen interno de 1 mm','bounds':tuple(round(v,4) for v in g.bounds)}
+            return False,{'reason':f'pieza fuera del margen interno de {EDGE_MARGIN_MM:g} mm','bounds':tuple(round(v,4) for v in g.bounds)}
         geoms.append((placement.get('instanceId'),g))
     min_gap=None; min_pair=None
     for i in range(len(geoms)):
@@ -57,7 +58,6 @@ def _validate_final_geometry(selected, result):
             if a.intersects(b):return False,{'reason':'colisión geométrica','pair':[ida,idb],'gapMm':0.0}
             d=float(a.distance(b))
             if min_gap is None or d<min_gap:min_gap=d;min_pair=[ida,idb]
-            # Regla dura: CERTIFICADO sólo con 3.000000 mm reales o más.
             if d<MIN_PRODUCTION_GAP_MM:
                 return False,{'reason':'gap geométrico menor a 3 mm','pair':[ida,idb],'gapMm':round(d,9),'requiredGapMm':MIN_PRODUCTION_GAP_MM}
     return True,{'minimumGapMmCertified':round(min_gap,9) if min_gap is not None else None,'minimumGapPair':min_pair,'requiredGapMm':MIN_PRODUCTION_GAP_MM,'solverRequestedGapMm':MIN_PRODUCTION_GAP_MM+SOLVER_GAP_SAFETY_MM,'edgeMarginMmCertified':EDGE_MARGIN_MM,'collisionCount':0,'outsidePlateCount':0}
@@ -72,7 +72,6 @@ def _result_payload_certified(selected,label,result,kits,rejected,attempts,start
         payload=response.get_json()
         if isinstance(payload,dict):
             payload['productionCertificate']=certificate
-            # La UI debe mostrar el valor MEDIDO, no el mínimo solicitado.
             payload['minimumGapMm']=certificate.get('minimumGapMmCertified')
             payload['requiredGapMm']=MIN_PRODUCTION_GAP_MM
             payload['edgeMarginMm']=EDGE_MARGIN_MM
