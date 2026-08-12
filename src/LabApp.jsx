@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react'
+import React,{useEffect,useRef,useState} from 'react'
 import {supabase} from './supabase'
 import {emptyState} from './lib/constants'
 import Login from './pages/Login'
@@ -10,31 +10,51 @@ export default function LabApp(){
   const [session,setSession]=useState(null)
   const [db,setDb]=useState(emptyState())
   const [loading,setLoading]=useState(true)
+  const loadedRef=useRef(false)
+  const mountedRef=useRef(true)
 
   useEffect(()=>{
-    let active=true
+    mountedRef.current=true
     async function init(){
       const {data}=await supabase.auth.getSession()
-      if(!active)return
+      if(!mountedRef.current)return
       setSession(data.session)
-      if(data.session)await loadData()
+      if(data.session)await loadData(true)
       else setLoading(false)
     }
     init()
-    const {data:{subscription}}=supabase.auth.onAuthStateChange(async(_,next)=>{
-      if(!active)return
+
+    // Supabase emite TOKEN_REFRESHED / USER_UPDATED cuando el navegador vuelve
+    // a una pestaña. Antes eso volvía a poner loading=true, desmontaba el motor
+    // y hacía parecer que el cálculo empezaba de cero. Sólo cargamos los datos
+    // cuando realmente inicia una sesión nueva.
+    const {data:{subscription}}=supabase.auth.onAuthStateChange(async(event,next)=>{
+      if(!mountedRef.current)return
       setSession(next)
-      if(next)await loadData()
-      else setLoading(false)
+      if(!next){
+        loadedRef.current=false
+        setDb(emptyState())
+        setLoading(false)
+        return
+      }
+      if(!loadedRef.current && (event==='SIGNED_IN'||event==='INITIAL_SESSION')){
+        await loadData(true)
+      }
     })
-    return()=>{active=false;subscription.unsubscribe()}
+    return()=>{mountedRef.current=false;subscription.unsubscribe()}
   },[])
 
-  async function loadData(){
-    setLoading(true)
+  async function loadData(showSpinner=false){
+    if(showSpinner)setLoading(true)
     const {data,error}=await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
-    if(error){alert('Motor Lab no pudo leer los datos de producción: '+error.message);setLoading(false);return}
+    if(!mountedRef.current)return
+    if(error){
+      alert('Motor Lab no pudo leer los datos de producción: '+error.message)
+      setLoading(false)
+      return
+    }
     setDb(data?.data?{...emptyState(),...data.data}:emptyState())
+    loadedRef.current=true
     setLoading(false)
   }
 
