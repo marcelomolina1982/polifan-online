@@ -87,6 +87,27 @@ function summarizeUnits(units){
   const m=new Map();units.forEach(u=>m.set(u.figure,(m.get(u.figure)||0)+1))
   return [...m.entries()].map(([figure,qty])=>({figure,qty}))
 }
+function designUnitsForMultiplier(units,multiplier){
+  const m=Math.max(1,Number(multiplier)||1)
+  if(m===1)return units
+  const totals=new Map()
+  units.forEach(u=>{const key=normalizeFigureKey(u.figure);totals.set(key,(totals.get(key)||0)+1)})
+  const needed=new Map([...totals.entries()].map(([key,qty])=>[key,Math.ceil(qty/m)]))
+  const used=new Map()
+  return units.filter(u=>{
+    const key=normalizeFigureKey(u.figure),count=used.get(key)||0,limit=needed.get(key)||0
+    if(count>=limit)return false
+    used.set(key,count+1);return true
+  })
+}
+function remainingAfterPlan(pendingUnits,selectedUnits,multiplier){
+  const need=new Map(),produced=new Map()
+  pendingUnits.forEach(u=>{const key=normalizeFigureKey(u.figure);need.set(key,(need.get(key)||0)+1)})
+  selectedUnits.forEach(u=>{const key=normalizeFigureKey(u.figure);produced.set(key,(produced.get(key)||0)+Math.max(1,Number(multiplier)||1))})
+  let remaining=0
+  need.forEach((qty,key)=>{remaining+=Math.max(0,qty-(produced.get(key)||0))})
+  return remaining
+}
 function buildIndustrialKits(units){
   const kits=[],partMap=new Map(),unitMap=new Map()
   units.slice(0,32).forEach((unit,kitIndex)=>{
@@ -139,7 +160,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [busy,setBusy]=useState(false)
   const [progress,setProgress]=useState('')
   const [elapsed,setElapsed]=useState(0)
-  const [cutChoice,setCutChoice]=useState(null)
+  const [generationChoice,setGenerationChoice]=useState(false)
 
   async function certify(svgText){
     const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
@@ -171,14 +192,16 @@ export default function MotorDefinitivo({db,onSave}){
     }
   }
 
-  async function generateAutomatic(){
+  async function generateAutomatic(multiplier){
+    setGenerationChoice(false)
     if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
-    const industrial=buildIndustrialKits(pending.units)
+    const designUnits=designUnitsForMultiplier(pending.units,multiplier)
+    const industrial=buildIndustrialKits(designUnits)
     const payload={widthCm:122,heightCm:58,gapCm:.3,targetDensity:80,kits:industrial.kits}
-    setBusy(true);setPlans([]);setElapsed(0);setProgress('Iniciando cálculo Sparrow en segundo plano…')
+    setBusy(true);setPlans([]);setElapsed(0);setProgress(`Iniciando cálculo Sparrow · corte ${multiplier===2?'doble':'simple'}…`)
     try{
       const jobId=await startJob(payload)
-      setProgress(`Sparrow calculando sin límite de la conexión HTTP · trabajo ${jobId.slice(0,8)}`)
+      setProgress(`Sparrow calculando ${multiplier===2?'para placa doble':'para placa simple'} · trabajo ${jobId.slice(0,8)}`)
       const data=await waitJob(jobId)
       if(!data.ok){
         const rejected=Array.isArray(data.rejected)&&data.rejected.length?` · descartadas: ${data.rejected.map(x=>`${x.figure||'figura'} (${x.reason||'inválida'})`).slice(0,3).join(', ')}`:''
@@ -189,30 +212,32 @@ export default function MotorDefinitivo({db,onSave}){
       const selectedUnits=selectedIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
       if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
       const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-      setProgress(`Sparrow encontró ${selectedUnits.length} completas${data.partialExtra?` + 1 ${data.partialExtra.component} extra`:''} · V1.7 certificando el SVG final…`)
+      setProgress(`Sparrow encontró ${selectedUnits.length} diseños · producirán ${selectedUnits.length*multiplier} figuras con corte ${multiplier===2?'doble':'simple'} · V1.7 certificando…`)
       const cert=await certify(composed)
       const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-selectedUnits.length),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||data.baseSearchSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill)}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:remainingAfterPlan(pending.units,selectedUnits,multiplier),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),industrialSeconds:Number(data.elapsedSeconds||data.baseSearchSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill),cutMultiplier:multiplier}])
     }catch(error){
-      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null}])
+      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,cutMultiplier:multiplier}])
     }finally{setBusy(false);setProgress('')}
   }
 
-  async function registerPlan(plan,multiplier){
+  async function registerPlan(plan){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
+    const multiplier=Math.max(1,Number(plan.cutMultiplier)||1)
     const partialText=plan.partialExtra?` + 1 ${plan.partialExtra.component} de ${plan.partialExtra.figure}`:''
+    if(!confirm(`¿Pasar esta placa ${multiplier===2?'DOBLE':'SIMPLE'} a En corte? El corte producirá ${plan.units.length*multiplier} figuras completas${partialText}.`))return
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]
     if(plan.partialExtra&&['base','tapa'].includes(plan.partialExtra.component))items.push({figure:plan.partialExtra.figure,component:plan.partialExtra.component,qty:1})
     const cutLabel=multiplier===2?'doble · 2 placas iguales':'simple · 1 placa'
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · corte ${cutLabel} · ${plan.units.length} completas${partialText} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier,items,createdAt:new Date().toISOString()}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'En corte',notes:`Sparrow + V1.7 · corte ${cutLabel} · ${plan.units.length} diseños = ${plan.units.length*multiplier} figuras producidas${partialText} · ocupación ${Number(plan.density||0).toFixed(1)}% · separación ${plan.minGap} mm · conflictos 0 · borde 0`,multiplier,items,createdAt:new Date().toISOString()}
     const result=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
-    if(result?.ok!==false){setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number,cutMultiplier:multiplier}:x));setCutChoice(null)}
+    if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
   }
 
   return <>
-    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Sparrow calcula en segundo plano: ya no depende del límite de una petición HTTP. V1.7 certifica exactamente el SVG plano que se descarga." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={generateAutomatic}>{busy?'Calculando…':'Generar una placa'}</button>}/>
-    <div className="notice"><b>Modo producción protegido</b><span>Primero asegura 10 completas. Después rellena huecos sin mover la base. Objetivo ≥80%; una base/tapa extra sólo si la placa final supera 85%.</span></div>
+    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Primero elegís si el corte será simple o doble. Sparrow calcula sólo las copias necesarias para cubrir los pendientes." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setGenerationChoice(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
+    <div className="notice"><b>Modo producción protegido</b><span>Placa simple: 1 diseño = 1 figura. Placa doble: 1 diseño = 2 figuras; el motor reduce automáticamente las copias necesarias antes de acomodarlas.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
@@ -223,16 +248,16 @@ export default function MotorDefinitivo({db,onSave}){
     {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Podés dejar esta pantalla abierta: el cálculo continúa en Render aunque una conexión individual termine. Tiempo: {elapsed}s.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
-      {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
-        <td><b>Placa {plan.number}</b><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} figuras completas</small>{plan.partialExtra&&<small className="block green-text"><b>+ 1 {plan.partialExtra.component} · {plan.partialExtra.figure}</b></small>}<small className="block">{plan.deferred} quedan pendientes</small></td>
-        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}`).join(', ')||'-'}{plan.partialExtra?` + ${plan.partialExtra.figure} (${plan.partialExtra.component})`:''}</td>
+      {plans.map(plan=>{const ok=okStatus(plan.status),multiplier=Math.max(1,Number(plan.cutMultiplier)||1);return <tr key={plan.id}>
+        <td><b>Placa {plan.number} · {multiplier===2?'DOBLE':'SIMPLE'}</b><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} diseños = {plan.units.length*multiplier} figuras al cortar</small>{plan.partialExtra&&<small className="block green-text"><b>+ 1 {plan.partialExtra.component} · {plan.partialExtra.figure}</b></small>}<small className="block">{plan.deferred} piezas quedarían pendientes</small></td>
+        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${multiplier===2?` (produce ${x.qty*2})`:''}`).join(', ')||'-'}{plan.partialExtra?` + ${plan.partialExtra.figure} (${plan.partialExtra.component})`:''}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}{plan.rejectedCount>0&&<small className="block">{plan.rejectedCount} candidata(s) descartadas</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=85?'green-text':'')}>{plan.density>=85?'Excelente · >85%':plan.density>=80?'Objetivo ≥80% alcanzado':'Mejor solución válida'}</small>}{plan.fixedHoleFill&&<small className="block green-text">relleno de huecos activo</small>}{plan.source&&<small className="block">{plan.source}</small>}</td>
-        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(downloadName(plan),plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>setCutChoice(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber} · {plan.cutMultiplier===2?'doble':'simple'}</b></span>}</td>
+        <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(downloadName(plan),plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Pasar a corte</button>}{plan.registered&&<span className="green-text"><b>En corte #{plan.batchNumber} · {multiplier===2?'doble':'simple'}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Se inicia un único trabajo en Render y la pantalla consulta su estado hasta terminar.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa” y elegí primero si vas a cortar una placa simple o dos placas iguales apiladas.</td></tr>}
     </tbody></table></div>
-    {cutChoice&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.38)',display:'grid',placeItems:'center',zIndex:9999,padding:20}}><div className="panel" style={{width:'min(520px,100%)',margin:0}}><h3>¿Cómo vas a cortar esta placa?</h3><p>La distribución del SVG no cambia. Elegí cuántas placas físicas vas a apilar para este corte.</p><div className="actions" style={{marginTop:16,flexWrap:'wrap'}}><button className="primary" onClick={()=>registerPlan(cutChoice,1)}>Placa simple · 1 placa</button><button className="primary" onClick={()=>registerPlan(cutChoice,2)}>Placa doble · 2 iguales</button><button className="ghost" onClick={()=>setCutChoice(null)}>Cancelar</button></div></div></div>}
+    {generationChoice&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.38)',display:'grid',placeItems:'center',zIndex:9999,padding:20}}><div className="panel" style={{width:'min(560px,100%)',margin:0}}><h3>¿Qué tipo de corte vas a hacer?</h3><p>Esta elección se usa <b>antes de diseñar</b>. En doble, Sparrow sabe que cada diseño producirá 2 figuras y evita llenar la placa con copias innecesarias.</p><div className="notice" style={{margin:'14px 0'}}><span>Ejemplo: si faltan 3 Mini, en corte doble diseñará 2 Mini → al cortar salen 4 y sobra sólo 1.</span></div><div className="actions" style={{marginTop:16,flexWrap:'wrap'}}><button className="primary" onClick={()=>generateAutomatic(1)}>Placa simple · 1 placa</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · 2 iguales</button><button className="ghost" onClick={()=>setGenerationChoice(false)}>Cancelar</button></div></div></div>}
   </>
 }
