@@ -18,6 +18,11 @@ function deliveryParts(value){
 }
 
 function formatDelivery(value){return deliveryParts(value).date}
+function todayArgentinaISO(){
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date())
+  const get=type=>parts.find(p=>p.type===type)?.value||''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
 function totalPieces(o){return (o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)}
 function orderAddress(o){return o.address||o.customer?.address||o.shippingAddress||'-'}
 function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zone||'-'}
@@ -196,6 +201,10 @@ export default function Orders({db,onSave,onEdit}){
   const [status,setStatus]=useState('')
   const [sort,setSort]=useState('delivery-asc')
   const [selected,setSelected]=useState([])
+  const [view,setView]=useState('active')
+  const todayKey=todayArgentinaISO()
+  const activeCount=useMemo(()=>db.orders.filter(o=>!o.delivery||String(o.delivery)>=todayKey).length,[db.orders,todayKey])
+  const historyCount=useMemo(()=>db.orders.filter(o=>o.delivery&&String(o.delivery)<todayKey).length,[db.orders,todayKey])
 
   const list=useMemo(()=>{
     const term=q.trim().toLowerCase()
@@ -203,7 +212,9 @@ export default function Orders({db,onSave,onEdit}){
       const delivery=formatDelivery(o.delivery||'')
       const day=deliveryParts(o.delivery).day
       const haystack=(o.client+' '+o.phone+' '+o.number+' '+(o.delivery||'')+' '+delivery+' '+day+' '+(o.items||[]).map(i=>i.figure).join(' ')).toLowerCase()
-      return haystack.includes(term) && (!status || o.status===status)
+      const past=Boolean(o.delivery)&&String(o.delivery)<todayKey
+      const sectionMatch=view==='history'?past:!past
+      return sectionMatch && haystack.includes(term) && (!status || o.status===status)
     })
     return filtered.slice().sort((a,b)=>{
       if(sort==='delivery-desc') return String(b.delivery||'').localeCompare(String(a.delivery||'')) || Number(b.number||0)-Number(a.number||0)
@@ -211,7 +222,7 @@ export default function Orders({db,onSave,onEdit}){
       if(sort==='number-asc') return Number(a.number||0)-Number(b.number||0)
       return String(a.delivery||'9999-12-31').localeCompare(String(b.delivery||'9999-12-31')) || Number(a.number||0)-Number(b.number||0)
     })
-  },[db.orders,q,status,sort])
+  },[db.orders,q,status,sort,view,todayKey])
 
   const selectedOrders=useMemo(()=>db.orders.filter(o=>selected.includes(o.id)),[db.orders,selected])
   const visibleIds=list.map(o=>o.id)
@@ -284,10 +295,18 @@ export default function Orders({db,onSave,onEdit}){
     const index=Number(answer)-1;if(index<0||index>=dates.length)return alert('Opción inválida.');const ids=list.filter(o=>o.delivery===dates[index]).map(o=>o.id);setSelected(prev=>[...new Set([...prev,...ids])])
   }
 
+  function changeView(next){
+    setView(next)
+    setSelected([])
+    if(next==='history')setSort('delivery-desc')
+    else setSort('delivery-asc')
+  }
+
   return <>
-    <Title title="Pedidos" sub="Buscá, editá, seleccioná e imprimí varios pedidos juntos."/>
-    <div className="panel filters"><input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select></div>
-    <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>Cada pedido se imprime en una hoja A4: pedido interno, etiqueta para la caja y detalle de compra.</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
-    <div className="panel table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th>Pedido</th><th>Entrega</th><th>Cliente</th><th>Piezas</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td>#{o.number}</td><td><b>{o.delivery||'Sin fecha'}</b></td><td><b>{o.client}</b><small className="block">{o.phone}</small></td><td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td><td>{money(o.total)}</td><td className="row-actions"><details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu"><button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button><button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button><button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button><button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button><button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button><button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button><button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button></div></details>{o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody></table></div>
+    <Title title="Pedidos" sub={view==='active'?'Pedidos de hoy en adelante. Los pedidos cuya fecha ya pasó se archivan automáticamente.':'Historial automático de pedidos con fecha de entrega anterior a hoy.'}/>
+    <div className="request-tabs"><button className={view==='active'?'active':''} onClick={()=>changeView('active')}>Pedidos activos ({activeCount})</button><button className={view==='history'?'active':''} onClick={()=>changeView('history')}>Historial ({historyCount})</button></div>
+    <div className="panel filters"><input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana / reciente primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select></div>
+    <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>{view==='active'?'Solo se muestran pedidos vigentes; los vencidos pasan solos al Historial.':'Los pedidos del historial siguen guardados y se pueden consultar, imprimir o editar.'}</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
+    <div className="panel table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th>Pedido</th><th>Entrega</th><th>Cliente</th><th>Piezas</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td>#{o.number}</td><td><b>{o.delivery||'Sin fecha'}</b></td><td><b>{o.client}</b><small className="block">{o.phone}</small></td><td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td><td>{money(o.total)}</td><td className="row-actions"><details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu"><button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button><button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button><button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button><button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button><button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button><button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button><button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button></div></details>{o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody></table>{!list.length&&<p>{view==='active'?'No hay pedidos activos con estos filtros.':'No hay pedidos en el historial con estos filtros.'}</p>}</div>
   </>
 }
