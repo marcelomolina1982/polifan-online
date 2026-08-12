@@ -183,3 +183,4 @@
 - Eliminada la acción Duplicar.
 - Catálogo sin bloque “Inspirate”; abre directamente en Carameleras.
 - Solicitudes web con campos condicionales de entrega, email, entre calles y modalidad de agencia/domicilio.
+- Motor Lab activo
