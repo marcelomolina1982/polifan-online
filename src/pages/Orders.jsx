@@ -6,7 +6,7 @@ import { statusColors } from '../lib/constants'
 import { money } from '../lib/format'
 import { downloadOrderReceiptJpg, receiptHtml, receiptCss } from '../lib/orderReceipt'
 
-const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]))
+const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch]))
 
 function deliveryParts(value){
   if(!value) return {day:'SIN FECHA',date:'-',dayClass:'day-none'}
@@ -67,7 +67,6 @@ function itemSummaryHtml(o){
   return `<div class="summary-list ${density}" style="--summary-columns:${columns}">${lines}</div>`
 }
 
-
 function internalShippingHtml(o){
   const type=deliveryType(o)
   if(type==='Retiro en el local') return `<b>RETIRO EN EL LOCAL</b><span><strong>Nombre:</strong> ${esc(o.client)}</span><span><strong>Teléfono:</strong> ${esc(o.phone||'-')}</span>`
@@ -115,6 +114,7 @@ function boxLabelHtml(o){
     <div class="label-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>Pedido #${esc(o.number)}</small></div></div>
     <div class="label-client">${esc(o.client)}</div>
     <div class="label-data">
+      <div><b>DNI</b><span>${esc(o.dni||'-')}</span></div>
       <div><b>Dirección</b><span>${esc(orderAddress(o))}</span></div>
       ${orderBetweenStreets(o)!=='-'?`<div><b>Entre calles</b><span>${esc(orderBetweenStreets(o))}</span></div>`:''}
       <div><b>Localidad</b><span>${esc(orderLocality(o))}</span></div><div><b>Partido / Departamento</b><span>${esc(orderDistrict(o))}</span></div><div><b>Provincia</b><span>${esc(orderProvince(o))}</span></div>
@@ -130,7 +130,6 @@ function boxLabelHtml(o){
 
 function pricedRows(o,items){
   const pieces=totalPieces(o)
-  const shipping=orderShipping(o)
   const productTotal=Math.max(0,Number(o.total||0))
   const fallbackUnit=pieces?productTotal/pieces:0
   return items.map(i=>{
@@ -150,19 +149,21 @@ function purchaseDetailHtml(o){
   const subtotal=Math.max(0,Number(o.total||0))
   const delivery=deliveryParts(o.delivery)
   const isPickup=deliveryType(o)==='Retiro en el local'
+  const shipping=deliveryType(o)==='Logística'?Math.max(0,orderShipping(o)):0
+  const grandTotal=subtotal+shipping
   const customerData=isPickup
     ? `<p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Entrega:</b> Retiro gratuito en el local</p>`
-    : `<p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(deliveryType(o))}</p>`
+    : `<p><b>Cliente:</b> ${esc(o.client)}</p><p><b>DNI:</b> ${esc(o.dni||'-')}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Dirección:</b> ${esc(orderAddress(o))}</p><p><b>Localidad:</b> ${esc(orderLocality(o))}</p><p><b>Partido / Departamento:</b> ${esc(orderDistrict(o))}</p><p><b>Provincia:</b> ${esc(orderProvince(o))}</p><p><b>Código postal:</b> ${esc(orderPostalCode(o))}</p><p><b>Transporte:</b> ${esc(deliveryType(o))}</p>`
   const density=all.length>22?'ultra-rows':all.length>16?'compact-rows':''
   const mainHtml=`<section class="purchase-detail ${density} ${isPickup?'pickup-detail':''}">
     <div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>POLIFAN · COMPROBANTE DE PEDIDO</small></div></div><div><h2>DETALLE DE COMPRA</h2><b>N° ${esc(o.number)}</b></div><div class="invoice-date"><small>FECHA DE SALIDA</small><b>${esc(delivery.date)}</b><span>${esc(delivery.day)}</span></div></div>
     <div class="purchase-grid"><div class="customer-card"><h3>DATOS DEL CLIENTE</h3>${customerData}</div>
     <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,main)}</tbody></table>${extra.length?`<div class="continued-note">+ ${extra.length} modelo${extra.length===1?'':'s'} en la hoja de continuación</div>`:''}</div></div>
-    <div class="purchase-bottom"><div class="payment-card"><h3>ENTREGA</h3><p><b>TIPO</b><span>${isPickup?'Retiro gratuito en el local':esc(deliveryType(o))}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p><p class="grand-total"><span>TOTAL DEL PEDIDO</span><b>${money(subtotal)}</b></p></div></div>
+    <div class="purchase-bottom"><div class="payment-card"><h3>ENTREGA</h3><p><b>TIPO</b><span>${isPickup?'Retiro gratuito en el local':esc(deliveryType(o))}</span></p></div><div class="observations"><b>OBSERVACIONES</b><p>${esc(o.notes||'-')}</p></div><div class="totals"><p><span>Productos</span><b>${money(subtotal)}</b></p>${shipping>0?`<p><span>Envío logística</span><b>${money(shipping)}</b></p>`:''}<p class="grand-total"><span>TOTAL DEL PEDIDO</span><b>${money(grandTotal)}</b></p></div></div>
     <footer class="invoice-footer"><span>♥ ¡Gracias por confiar en Tu Vida En Tinta!</span><span>WhatsApp 11-5919-2358</span><span>@tuvidaentinta</span></footer>
   </section>`
   if(!extra.length) return mainHtml
-  const continuation=`<section class="invoice-continuation"><div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>CONTINUACIÓN DEL DETALLE</small></div></div><div><h2>PEDIDO #${esc(o.number)}</h2><b>${esc(o.client)}</b></div></div><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,extra)}</tbody></table><div class="continuation-total">Total de piezas: <b>${pieces}</b> · Total final: <b>${money(Number(o.total||0))}</b></div></section>`
+  const continuation=`<section class="invoice-continuation"><div class="purchase-head"><div class="invoice-brand"><img src="/logo-tu-vida-en-tinta.png" alt=""><div><b>TU VIDA EN TINTA</b><small>CONTINUACIÓN DEL DETALLE</small></div></div><div><h2>PEDIDO #${esc(o.number)}</h2><b>${esc(o.client)}</b></div></div><table class="invoice-table"><thead><tr><th>FIGURA</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${pricedRows(o,extra)}</tbody></table><div class="continuation-total">Total de piezas: <b>${pieces}</b> · Total final: <b>${money(grandTotal)}</b></div></section>`
   return mainHtml+continuation
 }
 
@@ -184,12 +185,11 @@ async function downloadHtmlAsJpg(bodyHtml,css,filename,width=1100){
 }
 
 function labelHtml(o){return boxLabelHtml(o)}
-function labelStyles(){return printStyles(1)+'.box-label{width:100mm;height:95mm;margin:0 auto}'}
+function labelStyles(){return printStyles(1)+'.box-label{width:100mm;height:150mm;margin:0 auto;overflow:visible}.label-head{overflow:visible!important}'}
 
 function printStyles(){return `
-@page{size:A4 portrait;margin:5mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#121212;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-grid{display:block}.combined-sheet{width:200mm;min-height:287mm;margin:0 auto;break-after:page;page-break-after:always}.combined-sheet:last-child{break-after:auto}.top-print-row{height:137mm;display:grid;grid-template-columns:123mm 2mm 75mm;gap:0}.vertical-cut{border-left:1px dashed #777;display:flex;align-items:flex-start;justify-content:center;font-size:11px;padding-top:2mm}.horizontal-cut{height:4mm;border-top:1px dashed #777;text-align:left;font-size:11px;line-height:3mm}.internal-order,.box-label,.purchase-detail,.invoice-continuation{border:1px solid #b8c1d1;border-radius:3mm;background:#fff;overflow:hidden}.internal-order{display:grid;grid-template-columns:9mm 1fr;height:137mm}.internal-side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.5px}.internal-body{padding:3mm 4mm;display:flex;flex-direction:column;min-width:0}.mini-brand,.label-brand,.invoice-brand{display:flex;align-items:center;gap:2mm}.mini-brand img,.label-brand img,.invoice-brand img{width:15mm;height:15mm;object-fit:contain}.mini-brand b,.label-brand b,.invoice-brand b{display:block;font-size:13px}.mini-brand small,.label-brand small,.invoice-brand small{display:block;font-size:8px;font-weight:700}.internal-title{position:absolute;margin-left:78mm;margin-top:1mm;background:#111;color:#fff;padding:1mm 3mm;border-radius:2mm;font-size:9px;font-weight:900}.internal-delivery{text-align:center;border-radius:2mm;padding:2mm;margin:2mm 0}.internal-delivery small{display:block;font-size:8px;font-weight:900}.internal-delivery strong{display:block;font-size:29px;line-height:1}.internal-delivery span{font-size:15px;font-weight:900}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.internal-client{display:grid;grid-template-columns:1fr 33mm;border-bottom:1px solid #bbb;padding-bottom:2mm}.internal-client small,.internal-kpis small{display:block;font-size:7px;font-weight:900}.internal-client b{font-size:16px}.internal-client>div:last-child{text-align:center;border-left:1px solid #bbb}.internal-kpis{display:grid;grid-template-columns:31mm 35mm 1fr;gap:2mm;margin:2mm 0}.internal-kpis>div{border-right:1px solid #ccc;text-align:center}.internal-kpis>div:last-child{border:0}.internal-kpis b{display:block;font-size:24px;line-height:1}.internal-kpis .qr-kpi{display:flex;flex-direction:column;align-items:center;justify-content:center}.internal-kpis .qr-kpi img{width:18mm;height:18mm;margin:.5mm auto}.internal-kpis .qr-kpi span{background:#111}.internal-kpis span{display:inline-block;background:#1d5fbf;color:#fff;padding:.5mm 2mm;border-radius:1mm;font-size:7px;font-weight:900}.internal-kpis .box-kpi b{font-size:10px;line-height:1.15;margin:2mm 0}.internal-kpis .box-kpi span{background:#111}.priority-line{display:flex;justify-content:space-between;align-items:center;font-size:7px;padding:1mm 2mm;border:1px solid #ccd5e3;border-radius:1.5mm;margin-bottom:1mm}.priority-line span{font-weight:900;padding:.5mm 2mm;border-radius:1mm;background:#e8eef8}.summary-title{text-align:center;font-size:8px;font-weight:900;background:#111;color:#fff;border-radius:2mm;padding:.7mm}.summary-list{display:grid;grid-template-columns:1fr 1fr;column-gap:5mm;row-gap:.2mm;font-size:8px;border:1px solid #aaa;border-radius:2mm;padding:1.5mm;margin-top:1mm;min-height:31mm}.summary-list>div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb}.summary-more{grid-column:1/-1;font-weight:900;justify-content:center!important;border:0!important}.internal-shipping{display:grid;grid-template-columns:1fr 1fr;gap:.4mm 2mm;border:1px solid #b9c6d8;background:#f7f9fc;border-radius:2mm;padding:1.2mm;font-size:6.5px;margin:1mm 0}.internal-shipping>b{grid-column:1/-1;color:#1d5fbf;font-size:7px}.internal-shipping span{white-space:normal}.internal-shipping strong{font-size:6px}.internal-total-bottom{display:flex;justify-content:flex-end;align-items:center;gap:3mm;border-top:2px solid #111;margin-top:1mm;padding-top:1mm;font-weight:900}.internal-total-bottom b{font-size:22px;color:#1d5fbf}.internal-total-bottom span{font-size:8px}.internal-foot{display:block;margin-top:auto}.summary-list.dense{font-size:6.5px;line-height:1.05}.summary-list.ultra{font-size:5.3px;line-height:1}.summary-list.mega{font-size:4.3px;line-height:.95;padding:.8mm}.summary-list{grid-template-columns:repeat(var(--summary-columns,2),1fr);min-height:0;max-height:47mm;overflow:visible}.internal-notes{margin-top:0;border:1px solid #ccd5e3;background:#f4f7fb;border-radius:2mm;padding:1.5mm;font-size:8px;min-height:10mm}.box-label{height:137mm;padding:4mm;display:flex;flex-direction:column}.label-head{border:1px solid #aaa;border-radius:3mm;overflow:hidden;text-align:center}.label-day{font-size:25px;font-weight:900;padding:2mm}.label-date{font-size:14px;font-weight:900;padding:1mm}.label-brand{margin:3mm 0 1mm}.label-client{font-size:23px;font-weight:900;border-bottom:1px solid #aaa;padding-bottom:2mm}.label-data{display:grid;grid-template-columns:1fr;gap:1mm;margin-top:2mm;font-size:9px}.label-data div{display:grid;grid-template-columns:25mm 1fr;border-bottom:1px dotted #bbb;padding:.8mm}.label-data b{font-size:7px;text-transform:uppercase}.label-bottom{display:grid;grid-template-columns:20mm 1fr 22mm;gap:2mm;align-items:center;margin-top:auto}.label-pieces{text-align:center;border:1px solid #aaa;border-radius:2mm;padding:1mm}.label-pieces b{display:block;font-size:23px;color:#e72d62}.label-pieces span{font-size:8px;font-weight:900}.fragile{border:1px solid #e72d62;color:#e72d62;border-radius:2mm;padding:2mm;text-align:center}.fragile b{display:block;font-size:14px}.fragile span{font-size:8px;color:#222}.qr{text-align:center}.qr img{width:20mm;height:20mm}.qr small{display:block;font-size:6px}.purchase-detail{height:146mm;padding:3mm 4mm;display:flex;flex-direction:column}.purchase-head{display:grid;grid-template-columns:1fr 1fr 42mm;align-items:center;border-bottom:2px solid #1d5fbf;padding-bottom:2mm}.purchase-head h2{margin:0;color:#1d5fbf;font-size:16px}.purchase-head>div:nth-child(2){text-align:center}.invoice-date{border:1px solid #b9c6d8;background:#f4f7fb;border-radius:2mm;padding:2mm;text-align:center}.invoice-date small{display:block;font-size:7px}.invoice-date b{display:block;font-size:11px}.invoice-date span{font-size:10px;font-weight:900;color:#1d5fbf}.purchase-grid{display:grid;grid-template-columns:1fr;gap:2mm;margin-top:2mm;min-height:0;flex:1;align-content:start}.customer-card{background:#f4f7fb;border:1px solid #c7d1df;border-radius:2mm;padding:1.5mm 2mm;font-size:7px;display:grid;grid-template-columns:repeat(4,1fr);gap:.5mm 3mm}.customer-card h3{grid-column:1/-1}.customer-card p{margin:.35mm 0}.pickup-detail .customer-card{grid-template-columns:repeat(4,1fr)}.customer-card h3,.payment-card h3{font-size:8px;color:#1d5fbf;text-align:center;margin:0 0 1mm}.customer-card p{margin:.35mm 0}.invoice-table{width:100%;border-collapse:collapse;font-size:8px}.invoice-table th{background:#1d5fbf;color:#fff}.invoice-table th,.invoice-table td{border:1px solid #aeb8c8;padding:1mm}.invoice-table th:nth-child(2),.invoice-table td:nth-child(2){width:13%;text-align:center}.invoice-table th:nth-child(3),.invoice-table td:nth-child(3),.invoice-table th:nth-child(4),.invoice-table td:nth-child(4){width:22%;text-align:right}.compact-rows .invoice-table{font-size:6.7px}.compact-rows .invoice-table th,.compact-rows .invoice-table td{padding:.45mm .65mm}.ultra-rows .invoice-table{font-size:5.8px}.ultra-rows .invoice-table th,.ultra-rows .invoice-table td{padding:.3mm .45mm}.continued-note{text-align:center;font-size:7px;font-weight:900;padding:1mm;background:#fff3cd}.purchase-bottom{display:grid;grid-template-columns:50mm 1fr 57mm;gap:4mm;margin-top:auto}.payment-card,.observations,.totals{border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.payment-card p,.totals p{display:flex;justify-content:space-between;margin:1.5mm 0}.observations p{margin:2mm 0}.grand-total{background:#1d5fbf;color:#fff;padding:2mm;border-radius:1mm;font-size:12px}.invoice-footer{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#fff0f5,#eef7ff);padding:2mm 3mm;margin-top:2mm;font-size:8px;border-radius:2mm}.invoice-footer span:first-child{font-weight:900;font-size:10px}.invoice-continuation{padding:6mm;break-before:page;page-break-before:always;min-height:270mm}.invoice-continuation .purchase-head{grid-template-columns:1fr 1fr}.invoice-continuation .invoice-table{margin-top:8mm;font-size:10px}.continuation-total{text-align:right;font-size:13px;margin-top:5mm}.cut-page{break-after:page}.cut-page table{width:100%;border-collapse:collapse}.cut-page th,.cut-page td{border:1px solid #111;padding:4px}@media print{body{display:block}}
+@page{size:A4 portrait;margin:5mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#121212;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-grid{display:block}.combined-sheet{width:200mm;min-height:287mm;margin:0 auto;break-after:page;page-break-after:always}.combined-sheet:last-child{break-after:auto}.top-print-row{height:137mm;display:grid;grid-template-columns:123mm 2mm 75mm;gap:0}.vertical-cut{border-left:1px dashed #777;display:flex;align-items:flex-start;justify-content:center;font-size:11px;padding-top:2mm}.horizontal-cut{height:4mm;border-top:1px dashed #777;text-align:left;font-size:11px;line-height:3mm}.internal-order,.box-label,.purchase-detail,.invoice-continuation{border:1px solid #b8c1d1;border-radius:3mm;background:#fff;overflow:hidden}.internal-order{display:grid;grid-template-columns:9mm 1fr;height:137mm}.internal-side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.5px}.internal-body{padding:3mm 4mm;display:flex;flex-direction:column;min-width:0}.mini-brand,.label-brand,.invoice-brand{display:flex;align-items:center;gap:2mm}.mini-brand img,.label-brand img,.invoice-brand img{width:15mm;height:15mm;object-fit:contain}.mini-brand b,.label-brand b,.invoice-brand b{display:block;font-size:13px}.mini-brand small,.label-brand small,.invoice-brand small{display:block;font-size:8px;font-weight:700}.internal-title{position:absolute;margin-left:78mm;margin-top:1mm;background:#111;color:#fff;padding:1mm 3mm;border-radius:2mm;font-size:9px;font-weight:900}.internal-delivery{text-align:center;border-radius:2mm;padding:2mm;margin:2mm 0}.internal-delivery small{display:block;font-size:8px;font-weight:900}.internal-delivery strong{display:block;font-size:29px;line-height:1}.internal-delivery span{font-size:15px;font-weight:900}.day-monday{background:#2eaf63;color:#fff}.day-tuesday{background:#2f70d0;color:#fff}.day-wednesday{background:#f3d43b;color:#111}.day-thursday{background:#ee8a2f;color:#111}.day-friday{background:#d94343;color:#fff}.day-saturday{background:#8a55c5;color:#fff}.day-sunday,.day-none{background:#e5e5e5;color:#111}.internal-client{display:grid;grid-template-columns:1fr 33mm;border-bottom:1px solid #bbb;padding-bottom:2mm}.internal-client small,.internal-kpis small{display:block;font-size:7px;font-weight:900}.internal-client b{font-size:16px}.internal-client>div:last-child{text-align:center;border-left:1px solid #bbb}.internal-kpis{display:grid;grid-template-columns:31mm 35mm 1fr;gap:2mm;margin:2mm 0}.internal-kpis>div{border-right:1px solid #ccc;text-align:center}.internal-kpis>div:last-child{border:0}.internal-kpis b{display:block;font-size:24px;line-height:1}.internal-kpis .qr-kpi{display:flex;flex-direction:column;align-items:center;justify-content:center}.internal-kpis .qr-kpi img{width:18mm;height:18mm;margin:.5mm auto}.internal-kpis .qr-kpi span{background:#111}.internal-kpis span{display:inline-block;background:#1d5fbf;color:#fff;padding:.5mm 2mm;border-radius:1mm;font-size:7px;font-weight:900}.internal-kpis .box-kpi b{font-size:10px;line-height:1.15;margin:2mm 0}.internal-kpis .box-kpi span{background:#111}.priority-line{display:flex;justify-content:space-between;align-items:center;font-size:7px;padding:1mm 2mm;border:1px solid #ccd5e3;border-radius:1.5mm;margin-bottom:1mm}.priority-line span{font-weight:900;padding:.5mm 2mm;border-radius:1mm;background:#e8eef8}.summary-title{text-align:center;font-size:8px;font-weight:900;background:#111;color:#fff;border-radius:2mm;padding:.7mm}.summary-list{display:grid;grid-template-columns:1fr 1fr;column-gap:5mm;row-gap:.2mm;font-size:8px;border:1px solid #aaa;border-radius:2mm;padding:1.5mm;margin-top:1mm;min-height:31mm}.summary-list>div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb}.summary-more{grid-column:1/-1;font-weight:900;justify-content:center!important;border:0!important}.internal-shipping{display:grid;grid-template-columns:1fr 1fr;gap:.4mm 2mm;border:1px solid #b9c6d8;background:#f7f9fc;border-radius:2mm;padding:1.2mm;font-size:6.5px;margin:1mm 0}.internal-shipping>b{grid-column:1/-1;color:#1d5fbf;font-size:7px}.internal-shipping span{white-space:normal}.internal-shipping strong{font-size:6px}.internal-total-bottom{display:flex;justify-content:flex-end;align-items:center;gap:3mm;border-top:2px solid #111;margin-top:1mm;padding-top:1mm;font-weight:900}.internal-total-bottom b{font-size:22px;color:#1d5fbf}.internal-total-bottom span{font-size:8px}.internal-foot{display:block;margin-top:auto}.summary-list.dense{font-size:6.5px;line-height:1.05}.summary-list.ultra{font-size:5.3px;line-height:1}.summary-list.mega{font-size:4.3px;line-height:.95;padding:.8mm}.summary-list{grid-template-columns:repeat(var(--summary-columns,2),1fr);min-height:0;max-height:47mm;overflow:visible}.internal-notes{margin-top:0;border:1px solid #ccd5e3;background:#f4f7fb;border-radius:2mm;padding:1.5mm;font-size:8px;min-height:10mm}.box-label{height:137mm;padding:3mm;display:flex;flex-direction:column}.label-head{border:1px solid #aaa;border-radius:3mm;overflow:visible;text-align:center;flex:0 0 auto}.label-day{font-size:21px;line-height:1.05;font-weight:900;padding:2mm 1mm;white-space:nowrap;overflow:visible}.label-date{font-size:14px;line-height:1.05;font-weight:900;padding:1.2mm;white-space:nowrap;overflow:visible}.label-brand{margin:2mm 0 1mm}.label-client{font-size:24px;line-height:1.05;font-weight:900;border-bottom:1px solid #aaa;padding-bottom:1.5mm}.label-data{display:grid;grid-template-columns:1fr;gap:.3mm;margin-top:1.5mm;font-size:10.5px;line-height:1.08}.label-data div{display:grid;grid-template-columns:24mm 1fr;border-bottom:1px dotted #bbb;padding:.5mm}.label-data b{font-size:8px;text-transform:uppercase}.label-data span{font-weight:700}.label-bottom{display:grid;grid-template-columns:20mm 1fr 22mm;gap:2mm;align-items:center;margin-top:auto}.label-pieces{text-align:center;border:1px solid #aaa;border-radius:2mm;padding:1mm}.label-pieces b{display:block;font-size:23px;color:#e72d62}.label-pieces span{font-size:8px;font-weight:900}.fragile{border:1px solid #e72d62;color:#e72d62;border-radius:2mm;padding:2mm;text-align:center}.fragile b{display:block;font-size:14px}.fragile span{font-size:8px;color:#222}.qr{text-align:center}.qr img{width:20mm;height:20mm}.qr small{display:block;font-size:6px}.purchase-detail{height:146mm;padding:3mm 4mm;display:flex;flex-direction:column}.purchase-head{display:grid;grid-template-columns:1fr 1fr 42mm;align-items:center;border-bottom:2px solid #1d5fbf;padding-bottom:2mm}.purchase-head h2{margin:0;color:#1d5fbf;font-size:16px}.purchase-head>div:nth-child(2){text-align:center}.invoice-date{border:1px solid #b9c6d8;background:#f4f7fb;border-radius:2mm;padding:2mm;text-align:center}.invoice-date small{display:block;font-size:7px}.invoice-date b{display:block;font-size:11px}.invoice-date span{font-size:10px;font-weight:900;color:#1d5fbf}.purchase-grid{display:grid;grid-template-columns:1fr;gap:2mm;margin-top:2mm;min-height:0;flex:1;align-content:start}.customer-card{background:#f4f7fb;border:1px solid #c7d1df;border-radius:2mm;padding:1.5mm 2mm;font-size:7px;display:grid;grid-template-columns:repeat(4,1fr);gap:.5mm 3mm}.customer-card h3{grid-column:1/-1}.customer-card p{margin:.35mm 0}.pickup-detail .customer-card{grid-template-columns:repeat(4,1fr)}.customer-card h3,.payment-card h3{font-size:8px;color:#1d5fbf;text-align:center;margin:0 0 1mm}.customer-card p{margin:.35mm 0}.invoice-table{width:100%;border-collapse:collapse;font-size:8px}.invoice-table th{background:#1d5fbf;color:#fff}.invoice-table th,.invoice-table td{border:1px solid #aeb8c8;padding:1mm}.invoice-table th:nth-child(2),.invoice-table td:nth-child(2){width:13%;text-align:center}.invoice-table th:nth-child(3),.invoice-table td:nth-child(3),.invoice-table th:nth-child(4),.invoice-table td:nth-child(4){width:22%;text-align:right}.compact-rows .invoice-table{font-size:6.7px}.compact-rows .invoice-table th,.compact-rows .invoice-table td{padding:.45mm .65mm}.ultra-rows .invoice-table{font-size:5.8px}.ultra-rows .invoice-table th,.ultra-rows .invoice-table td{padding:.3mm .45mm}.continued-note{text-align:center;font-size:7px;font-weight:900;padding:1mm;background:#fff3cd}.purchase-bottom{display:grid;grid-template-columns:50mm 1fr 57mm;gap:4mm;margin-top:auto}.payment-card,.observations,.totals{border:1px solid #c7d1df;border-radius:2mm;padding:2mm;font-size:8px}.payment-card p,.totals p{display:flex;justify-content:space-between;margin:1.5mm 0}.observations p{margin:2mm 0}.grand-total{background:#1d5fbf;color:#fff;padding:2mm;border-radius:1mm;font-size:12px}.invoice-footer{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#fff0f5,#eef7ff);padding:2mm 3mm;margin-top:2mm;font-size:8px;border-radius:2mm}.invoice-footer span:first-child{font-weight:900;font-size:10px}.invoice-continuation{padding:6mm;break-before:page;page-break-before:always;min-height:270mm}.invoice-continuation .purchase-head{grid-template-columns:1fr 1fr}.invoice-continuation .invoice-table{margin-top:8mm;font-size:10px}.continuation-total{text-align:right;font-size:13px;margin-top:5mm}.cut-page{break-after:page}.cut-page table{width:100%;border-collapse:collapse}.cut-page th,.cut-page td{border:1px solid #111;padding:4px}@media print{body{display:block}}
 `}
-
 
 export default function Orders({db,onSave,onEdit}){
   const [q,setQ]=useState('')
@@ -234,61 +234,32 @@ export default function Orders({db,onSave,onEdit}){
     const pieces=(o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)
     const delivery=o.delivery?formatDelivery(o.delivery):'a confirmar'
     const status=String(o.status||'Ingresado')
-    const statusMessages={
-      'Ingresado':'ya fue registrado y está esperando su turno de producción',
-      'En producción':'ya está en producción',
-      'Listo':'ya está listo',
-      'Despachado':'ya fue despachado',
-      'Entregado':'figura como entregado'
-    }
-    const text=[
-      `Hola ${o.client} 😊`,
-      '',
-      `Te escribimos de *Tu Vida En Tinta* por tu pedido *#${o.number}*.`,
-      `📦 Cantidad de piezas: *${pieces}*`,
-      `💰 Total: *${money(o.total)}*`,
-      `📌 Estado: *${status}*`,
-      `📅 Fecha de salida: *${delivery}*`,
-      '',
-      `Tu pedido ${statusMessages[status]||'se encuentra actualizado en nuestro sistema'}.`,
-      'Ante cualquier consulta, podés responder este mensaje.',
-      '',
-      '¡Gracias por elegirnos! 💜'
-    ].join('\n')
+    const statusMessages={'Ingresado':'ya fue registrado y está esperando su turno de producción','En producción':'ya está en producción','Listo':'ya está listo','Despachado':'ya fue despachado','Entregado':'figura como entregado'}
+    const text=[`Hola ${o.client} 😊`,'',`Te escribimos de *Tu Vida En Tinta* por tu pedido *#${o.number}*.`,`📦 Cantidad de piezas: *${pieces}*`,`💰 Total: *${money(o.total)}*`,`📌 Estado: *${status}*`,`📅 Fecha de salida: *${delivery}*`,'',`Tu pedido ${statusMessages[status]||'se encuentra actualizado en nuestro sistema'}.`,'Ante cualquier consulta, podés responder este mensaje.','','¡Gracias por elegirnos! 💜'].join('\n')
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank','noopener,noreferrer')
   }
-
 
   function printLabel(o){
     const win=window.open('','_blank')
     if(!win) return alert('El navegador bloqueó la ventana de impresión.')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta #${esc(o.number)}</title><style>@page{size:100mm 60mm;margin:0}${labelStyles()}</style></head><body>${labelHtml(o)}<script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta #${esc(o.number)}</title><style>@page{size:100mm 150mm;margin:0}${labelStyles()}</style></head><body>${labelHtml(o)}<script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
   }
 
-  function downloadLabelJpg(o){
-    downloadHtmlAsJpg(labelHtml(o),labelStyles(),`etiqueta-pedido-${o.number}.jpg`,430)
-  }
-
+  function downloadLabelJpg(o){downloadHtmlAsJpg(labelHtml(o),labelStyles(),`etiqueta-pedido-${o.number}.jpg`,430)}
   function openPrintDocument(bodyHtml,extraCss='',title='Impresión'){
-    const win=window.open('','_blank')
-    if(!win) return alert('El navegador bloqueó la ventana de impresión.')
-    win.document.open()
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${printStyles()}${extraCss}</style></head><body>${bodyHtml}<script>window.onload=()=>setTimeout(()=>window.print(),350)<\/script></body></html>`)
-    win.document.close()
+    const win=window.open('','_blank');if(!win) return alert('El navegador bloqueó la ventana de impresión.')
+    win.document.open();win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${printStyles()}${extraCss}</style></head><body>${bodyHtml}<script>window.onload=()=>setTimeout(()=>window.print(),350)<\/script></body></html>`);win.document.close()
   }
   function printInternalOnly(o){openPrintDocument(`<div class="single-internal">${internalOrderHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-internal{width:125mm;margin:auto}.single-internal .internal-order{height:190mm}.single-internal .summary-list{max-height:none;font-size:9px}`,`Orden de trabajo #${o.number}`)}
-  function printLabelOnly(o){openPrintDocument(`<div class="single-label">${boxLabelHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-label{width:100mm;margin:auto}.single-label .box-label{height:150mm}`,`Etiqueta #${o.number}`)}
+  function printLabelOnly(o){openPrintDocument(`<div class="single-label">${boxLabelHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-label{width:100mm;margin:auto}.single-label .box-label{height:150mm;overflow:visible}.single-label .label-head{overflow:visible}`,`Etiqueta #${o.number}`)}
   function printReceiptOnly(o){openPrintDocument(`<div class="single-receipt">${purchaseDetailHtml(o)}</div>`,`@page{size:A4 portrait;margin:8mm}.single-receipt{width:194mm;margin:auto}.single-receipt .purchase-detail{height:auto;min-height:135mm}`,`Comprobante cliente #${o.number}`)}
   async function downloadReceiptPdf(o){
     const host=document.createElement('div');host.style.cssText='position:fixed;left:-10000px;top:0;background:#fff;z-index:-1';host.innerHTML=`<style>${receiptCss}</style>${receiptHtml(o)}`;document.body.appendChild(host)
     try{await new Promise(r=>setTimeout(r,250));const node=host.querySelector('.receipt');const canvas=await html2canvas(node,{scale:1.5,useCORS:true,backgroundColor:'#fff'});const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});const img=canvas.toDataURL('image/jpeg',.94);const ratio=Math.min(210/canvas.width,297/canvas.height);const w=canvas.width*ratio,h=canvas.height*ratio;pdf.addImage(img,'JPEG',(210-w)/2,0,w,h);pdf.save(`comprobante-pedido-${o.number}.pdf`)}catch(err){console.error(err);alert('No se pudo generar el PDF.')}finally{host.remove()}
   }
 
-  function downloadKitJpg(o){
-    const css=printStyles()
-    downloadHtmlAsJpg(`<div class="print-grid">${orderAndRemito(o)}</div>`,css,`pedido-completo-${o.number}.jpg`,1100)
-  }
+  function downloadKitJpg(o){const css=printStyles();downloadHtmlAsJpg(`<div class="print-grid">${orderAndRemito(o)}</div>`,css,`pedido-completo-${o.number}.jpg`,1100)}
 
   function printOrders(orders,perPage=2,includeCutList=false){
     if(!orders.length) return alert('Seleccioná al menos un pedido para imprimir.')
@@ -296,87 +267,27 @@ export default function Orders({db,onSave,onEdit}){
     let cutHtml=''
     if(includeCutList){
       const byDate={}
-      sorted.forEach(o=>{
-        const key=o.delivery||'sin-fecha'
-        if(!byDate[key]) byDate[key]={date:o.delivery||'',orders:[],rows:{}}
-        byDate[key].orders.push(o.number)
-        ;(o.items||[]).forEach(i=>{
-          if(!i.figure) return
-          byDate[key].rows[i.figure]=(byDate[key].rows[i.figure]||0)+Number(i.qty||0)
-        })
-      })
-      const sections=Object.values(byDate).map(g=>{
-        const rows=Object.entries(g.rows).sort((a,b)=>a[0].localeCompare(b[0],'es',{sensitivity:'base'})).map(([figure,qty])=>`<tr><td>${esc(figure)}</td><td>${qty}</td></tr>`).join('')
-        const total=Object.values(g.rows).reduce((a,n)=>a+Number(n||0),0)
-        return `<section class="cut-section"><h2>Entrega: ${formatDelivery(g.date)}</h2><p>Pedidos: ${g.orders.map(n=>'#'+esc(n)).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>Total de piezas</th><th>${total}</th></tr></tfoot></table></section>`
-      }).join('')
+      sorted.forEach(o=>{const key=o.delivery||'sin-fecha';if(!byDate[key]) byDate[key]={date:o.delivery||'',orders:[],rows:{}};byDate[key].orders.push(o.number);(o.items||[]).forEach(i=>{if(!i.figure)return;byDate[key].rows[i.figure]=(byDate[key].rows[i.figure]||0)+Number(i.qty||0)})})
+      const sections=Object.values(byDate).map(g=>{const rows=Object.entries(g.rows).sort((a,b)=>a[0].localeCompare(b[0],'es',{sensitivity:'base'})).map(([figure,qty])=>`<tr><td>${esc(figure)}</td><td>${qty}</td></tr>`).join('');const total=Object.values(g.rows).reduce((a,n)=>a+Number(n||0),0);return `<section class="cut-section"><h2>Entrega: ${formatDelivery(g.date)}</h2><p>Pedidos: ${g.orders.map(n=>'#'+esc(n)).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>Total de piezas</th><th>${total}</th></tr></tfoot></table></section>`}).join('')
       cutHtml=`<div class="cut-page"><header><h1>TU VIDA EN TINTA · POLIFAN</h1><b>LISTA DE CORTE DE PEDIDOS SELECCIONADOS</b></header>${sections}<p class="cut-note">Esta lista resume las piezas de los pedidos seleccionados.</p></div>`
     }
-    const win=window.open('','_blank')
-    if(!win) return alert('El navegador bloqueó la ventana de impresión. Permití las ventanas emergentes e intentá nuevamente.')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pedidos seleccionados</title><style>${printStyles(perPage)}
-      .cut-page{break-after:page;font-size:12px}.cut-page header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.cut-page h1{font-size:20px;margin:0 0 4px}.cut-section{break-inside:avoid;margin-bottom:14px}.cut-section h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.cut-section p{font-size:10px;margin:5px 0;color:#444}.cut-section table{margin-top:0}.cut-section tfoot th{background:#f3f3f3}.cut-note{text-align:center;font-size:10px;margin-top:12px}
-    </style></head><body>${cutHtml}<div class="print-grid">${sorted.map(orderAndRemito).join('')}</div><script>window.onload=()=>window.print()</script></body></html>`)
+    const win=window.open('','_blank');if(!win) return alert('El navegador bloqueó la ventana de impresión. Permití las ventanas emergentes e intentá nuevamente.')
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pedidos seleccionados</title><style>${printStyles(perPage)}.cut-page{break-after:page;font-size:12px}.cut-page header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.cut-page h1{font-size:20px;margin:0 0 4px}.cut-section{break-inside:avoid;margin-bottom:14px}.cut-section h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.cut-section p{font-size:10px;margin:5px 0;color:#444}.cut-section table{margin-top:0}.cut-section tfoot th{background:#f3f3f3}.cut-note{text-align:center;font-size:10px;margin-top:12px}</style></head><body>${cutHtml}<div class="print-grid">${sorted.map(orderAndRemito).join('')}</div><script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
   }
 
-  function toggleOne(id){
-    setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])
-  }
-
-  function toggleVisible(){
-    setSelected(prev=>allVisibleSelected?prev.filter(id=>!visibleIds.includes(id)):[...new Set([...prev,...visibleIds])])
-  }
-
+  function toggleOne(id){setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
+  function toggleVisible(){setSelected(prev=>allVisibleSelected?prev.filter(id=>!visibleIds.includes(id)):[...new Set([...prev,...visibleIds])])}
   function selectByDelivery(){
-    const dates=[...new Set(list.map(o=>o.delivery).filter(Boolean))].sort()
-    if(!dates.length) return alert('No hay fechas de entrega en los pedidos visibles.')
-    const options=dates.map((d,i)=>`${i+1}. ${formatDelivery(d)}`).join('\n')
-    const answer=prompt(`Elegí el número de la fecha que querés seleccionar:\n\n${options}`)
-    if(answer===null) return
-    const index=Number(answer)-1
-    if(index<0||index>=dates.length) return alert('Opción inválida.')
-    const ids=list.filter(o=>o.delivery===dates[index]).map(o=>o.id)
-    setSelected(prev=>[...new Set([...prev,...ids])])
+    const dates=[...new Set(list.map(o=>o.delivery).filter(Boolean))].sort();if(!dates.length) return alert('No hay fechas de entrega en los pedidos visibles.')
+    const options=dates.map((d,i)=>`${i+1}. ${formatDelivery(d)}`).join('\n');const answer=prompt(`Elegí el número de la fecha que querés seleccionar:\n\n${options}`);if(answer===null)return
+    const index=Number(answer)-1;if(index<0||index>=dates.length)return alert('Opción inválida.');const ids=list.filter(o=>o.delivery===dates[index]).map(o=>o.id);setSelected(prev=>[...new Set([...prev,...ids])])
   }
 
   return <>
     <Title title="Pedidos" sub="Buscá, editá, seleccioná e imprimí varios pedidos juntos."/>
-    <div className="panel filters">
-      <input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/>
-      <select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select>
-      <select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select>
-    </div>
-
-    <div className="panel bulk-toolbar">
-      <div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>Cada pedido se imprime en una hoja A4: pedido interno, etiqueta para la caja y detalle de compra.</small></div>
-      <div className="bulk-actions">
-        <button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button>
-        <button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button>
-        <button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button>
-        <button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>
-        {selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}
-      </div>
-    </div>
-
-    <div className="panel table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th>Pedido</th><th>Entrega</th><th>Cliente</th><th>Piezas</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
-      <tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td>#{o.number}</td><td><b>{o.delivery||'Sin fecha'}</b></td><td><b>{o.client}</b><small className="block">{o.phone}</small></td>
-        <td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td>
-        <td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td>
-        <td>{money(o.total)}</td><td className="row-actions">
-          <details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu">
-            <button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button>
-            <button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button>
-            <button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button>
-            <button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button>
-            <button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button>
-            <button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button>
-            <button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button>
-          </div></details>
-          {o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}
-          <button className="ghost" onClick={()=>onEdit(o)}>Editar</button>
-          <button className="danger" onClick={()=>remove(o.id)}>Eliminar</button>
-        </td></tr>)}</tbody>
-    </table></div>
+    <div className="panel filters"><input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select></div>
+    <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>Cada pedido se imprime en una hoja A4: pedido interno, etiqueta para la caja y detalle de compra.</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
+    <div className="panel table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th>Pedido</th><th>Entrega</th><th>Cliente</th><th>Piezas</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td>#{o.number}</td><td><b>{o.delivery||'Sin fecha'}</b></td><td><b>{o.client}</b><small className="block">{o.phone}</small></td><td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td><td>{money(o.total)}</td><td className="row-actions"><details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu"><button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button><button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button><button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button><button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button><button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button><button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button><button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button></div></details>{o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody></table></div>
   </>
 }
