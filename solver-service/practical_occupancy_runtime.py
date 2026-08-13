@@ -1,14 +1,13 @@
 from flask import request, jsonify
 import nest_sparrow as ns
 from shapely.affinity import rotate, translate
-from shapely.geometry import box
+from shapely.geometry import box, Polygon, MultiPolygon
 from shapely.ops import unary_union
 
-# LAB: medir ocupación útil de nesting, no sólo área sólida de material.
-# Se conserva densityMaterialPct y density pasa a representar la huella práctica
-# bloqueada por las piezas + la mitad del gap de seguridad alrededor de cada una.
-# Los huecos internos grandes siguen siendo libres; los huecos demasiado chicos
-# se cierran naturalmente con el buffer y dejan de inflar artificialmente el espacio libre.
+# LAB interno: medir ocupación útil REAL según lo que Sparrow puede aprovechar.
+# Importante: la versión actual de Sparrow/Jagua rechaza multipolígonos y por lo tanto
+# no puede colocar piezas dentro de huecos internos. Esos huecos NO deben contarse como
+# espacio útil de nesting aunque geométricamente estén vacíos.
 _original_nest = ns.nest_sparrow
 PLATE = box(0, 0, ns.PLATE_WIDTH_MM, ns.PLATE_HEIGHT_MM)
 PLATE_AREA = float(ns.PLATE_WIDTH_MM * ns.PLATE_HEIGHT_MM)
@@ -37,6 +36,22 @@ def _geometry_for(part, placement):
     return translate(g, xoff=float(placement.get('xCm') or 0) * 10.0, yoff=float(placement.get('yCm') or 0) * 10.0)
 
 
+def _fill_internal_holes(g):
+    """Devuelve la huella que Sparrow realmente trata como ocupada.
+    Como Sparrow no soporta multipolígonos/huecos, cada anillo interior se rellena.
+    """
+    if isinstance(g, Polygon):
+        return Polygon(g.exterior)
+    if isinstance(g, MultiPolygon):
+        return MultiPolygon([Polygon(p.exterior) for p in g.geoms if not p.is_empty])
+    polys=[p for p in getattr(g,'geoms',[]) if isinstance(p,Polygon) and not p.is_empty]
+    if not polys:
+        return g
+    if len(polys)==1:
+        return Polygon(polys[0].exterior)
+    return MultiPolygon([Polygon(p.exterior) for p in polys])
+
+
 def _metrics(payload, data):
     width_mm = max(1.0, ns._n(data.get('widthCm'), 122) * 10)
     height_mm = max(1.0, ns._n(data.get('heightCm'), 58) * 10)
@@ -63,10 +78,13 @@ def _metrics(payload, data):
     if not geoms:
         return None
 
+    # Área física real de polifán, conservando huecos.
     material = unary_union(geoms).intersection(PLATE)
-    # Cada pareja de piezas necesita gap total. Inflar cada contorno gap/2 modela
-    # la superficie que queda realmente bloqueada para otro contorno de corte.
-    blocked = unary_union([g.buffer(gap / 2.0, join_style=2) for g in geoms]).intersection(PLATE)
+
+    # Huella utilizable por el solver: los huecos internos se consideran bloqueados
+    # porque Sparrow actual no puede meter otra pieza dentro de ellos.
+    solver_footprints=[_fill_internal_holes(g) for g in geoms]
+    blocked = unary_union([g.buffer(gap / 2.0, join_style=2) for g in solver_footprints]).intersection(PLATE)
     free = PLATE.difference(blocked)
     free_polys = [g for g in getattr(free, 'geoms', [free]) if not g.is_empty and getattr(g, 'area', 0) > 0]
     largest_free = max((float(g.area) for g in free_polys), default=0.0)
@@ -80,6 +98,8 @@ def _metrics(payload, data):
         'practicalFreePct': free_pct,
         'largestFreeRegionPct': 100.0 * largest_free / PLATE_AREA,
         'occupancyGapMm': gap,
+        'internalHolesUsableBySolver': False,
+        'occupancySolverModel': 'sparrow-simple-polygon-holes-blocked',
     }
 
 
@@ -99,10 +119,9 @@ def nest_with_practical_occupancy():
     old_density = float(payload.get('density') or 0)
     out.update(metrics)
     out['legacyDensityPct'] = old_density
-    # A partir de ahora la UI existente muestra la ocupación práctica de nesting.
     out['density'] = float(metrics['practicalOccupancyPct'])
     out['targetDensityReached'] = float(metrics['practicalOccupancyPct']) >= 80.0
-    out['occupancyMetric'] = 'practical-blocked-footprint-gap-aware'
+    out['occupancyMetric'] = 'solver-aware-blocked-footprint-gap-aware'
     return jsonify(out)
 
 
