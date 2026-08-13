@@ -5,6 +5,8 @@ import Login from './pages/Login'
 import MotorDefinitivo from './pages/MotorDefinitivo'
 
 const Loading=()=> <div className="center-screen">Cargando Motor Lab…</div>
+const sleep=(ms)=>new Promise(resolve=>setTimeout(resolve,ms))
+const isJwtFutureError=(error)=> String(error?.message||'').toLowerCase().includes('jwt issued at future')
 
 export default function LabApp(){
   const [session,setSession]=useState(null)
@@ -24,10 +26,6 @@ export default function LabApp(){
     }
     init()
 
-    // Supabase emite TOKEN_REFRESHED / USER_UPDATED cuando el navegador vuelve
-    // a una pestaña. Antes eso volvía a poner loading=true, desmontaba el motor
-    // y hacía parecer que el cálculo empezaba de cero. Sólo cargamos los datos
-    // cuando realmente inicia una sesión nueva.
     const {data:{subscription}}=supabase.auth.onAuthStateChange(async(event,next)=>{
       if(!mountedRef.current)return
       setSession(next)
@@ -44,10 +42,24 @@ export default function LabApp(){
     return()=>{mountedRef.current=false;subscription.unsubscribe()}
   },[])
 
+  async function readProductionState(){
+    return supabase.from('app_state').select('data').eq('id','main').maybeSingle()
+  }
+
   async function loadData(showSpinner=false){
     if(showSpinner)setLoading(true)
-    const {data,error}=await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
+    let result=await readProductionState()
+
+    // Si PostgREST rechaza temporalmente el JWT por un pequeño desfase de reloj,
+    // no bloquear el laboratorio: esperar y reintentar la lectura sin tocar producción.
+    if(result.error && isJwtFutureError(result.error)){
+      await sleep(7000)
+      if(!mountedRef.current)return
+      result=await readProductionState()
+    }
+
     if(!mountedRef.current)return
+    const {data,error}=result
     if(error){
       alert('Motor Lab no pudo leer los datos de producción: '+error.message)
       setLoading(false)
