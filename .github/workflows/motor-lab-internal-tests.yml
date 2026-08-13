@@ -1,0 +1,20 @@
+name: Motor Lab internal tests
+on:
+  push:
+    branches: [lab/internal-tests-motor]
+  workflow_dispatch:
+
+jobs:
+  motor-internal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal test deps
+        run: pip install 'Flask>=3,<4' 'shapely>=2,<3'
+      - name: Run serious motor regression suite
+        working-directory: solver-service
+        run: python -m unittest discover -s tests -v
