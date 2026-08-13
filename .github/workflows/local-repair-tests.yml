@@ -1,0 +1,37 @@
+name: Local repair motor tests
+on:
+  push:
+    branches: [lab/internal-tests-motor]
+    paths:
+      - 'solver-service/local_repair_growth.py'
+      - 'solver-service/hybrid_strategy_runtime.py'
+      - 'solver-service/tests/test_local_repair_real.py'
+      - 'solver-service/tests/test_homogeneous_boost_real.py'
+      - 'solver-service/tests/test_hybrid_strategy_real.py'
+      - 'solver-service/tests/fixtures/real_geometry_derived.json'
+      - '.github/workflows/local-repair-tests.yml'
+jobs:
+  local-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install 'Flask>=3,<4' 'shapely>=2,<3'
+      - name: Build real Sparrow
+        run: |
+          git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
+          cd /tmp/sparrow
+          cargo build --release --features only_final_svg --bin sparrow
+          cp target/release/sparrow /tmp/sparrow-bin
+      - name: Run focused real-geometry growth tests
+        working-directory: solver-service
+        env:
+          SPARROW_BIN_TEST: /tmp/sparrow-bin
+        run: |
+          python -m unittest tests.test_local_repair_real -v
+          python -m unittest tests.test_homogeneous_boost_real -v
+          python -m unittest tests.test_hybrid_strategy_real -v
