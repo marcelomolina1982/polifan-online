@@ -44,7 +44,7 @@ def star(cx=55,cy=55,r1=52,r2=23,n=5):
 
 @unittest.skipUnless(SPARROW_BIN and os.path.exists(SPARROW_BIN),'Sparrow real no disponible')
 class RealisticGeometryInternalTests(unittest.TestCase):
-    def run_sparrow(self, items, seconds=4, gap=3.2, name='realistic-internal'):
+    def run_raw(self, items, seconds=4, gap=3.2, name='realistic-internal'):
         instance={'name':name,'items':items,'strip_height':580.0}
         with tempfile.TemporaryDirectory(prefix='sparrow-realistic-') as td:
             inp=pathlib.Path(td)/'input.json'
@@ -56,9 +56,14 @@ class RealisticGeometryInternalTests(unittest.TestCase):
             ],cwd=td,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=seconds+18)
             elapsed=time.monotonic()-started
             out=pathlib.Path(td)/'output'/f'final_{name}.json'
-            self.assertEqual(proc.returncode,0,proc.stdout[-3000:])
-            self.assertTrue(out.exists(),proc.stdout[-3000:])
-            return json.loads(out.read_text(encoding='utf-8')),elapsed
+            data=json.loads(out.read_text(encoding='utf-8')) if out.exists() else None
+            return proc,data,elapsed
+
+    def run_sparrow(self, items, seconds=4, gap=3.2, name='realistic-internal'):
+        proc,data,elapsed=self.run_raw(items,seconds,gap,name)
+        self.assertEqual(proc.returncode,0,proc.stdout[-3000:])
+        self.assertIsNotNone(data,proc.stdout[-3000:])
+        return data,elapsed
 
     def item(self,i,shape,angles=None):
         row={'id':i,'demand':1,'shape':shape}
@@ -72,10 +77,10 @@ class RealisticGeometryInternalTests(unittest.TestCase):
             l_shape(78,120,30), c_shape(96,112,24), star(cx=48,cy=48,r1=45,r2=20),
             rect(105,58), simple([(0,15),(42,0),(95,25),(78,82),(22,76)]),
         ]
-        # Dos componentes por figura: 10 figuras completas / 20 cortes.
         items=[]
+        angles=[0,15,30,45,60,75,90,105,120,135,150,165,180,195,210,225,240,255,270,285,300,315,330,345]
         for i,shape in enumerate(shapes+shapes):
-            items.append(self.item(i,shape,[0,15,30,45,60,75,90,105,120,135,150,165,180,195,210,225,240,255,270,285,300,315,330,345]))
+            items.append(self.item(i,shape,angles))
         data,elapsed=self.run_sparrow(items,seconds=5,gap=3.2,name='mixed-realistic')
         sol=data.get('solution') or {}
         placed=((sol.get('layout') or {}).get('placed_items') or [])
@@ -83,26 +88,23 @@ class RealisticGeometryInternalTests(unittest.TestCase):
         self.assertLessEqual(float(sol.get('strip_width') or 1e9),1220.5)
         self.assertLess(elapsed,24.0)
 
-    def test_internal_hole_is_accepted_and_can_reduce_strip_width(self):
-        # Marco grande con hueco útil + pieza pequeña que entra dentro.
+    def test_current_sparrow_explicitly_rejects_internal_hole_representation(self):
+        # Descubrimiento importante: Jagua/Sparrow actual informa
+        # "No support for multipolygons yet". Por eso HOY no podemos considerar
+        # los huecos internos como espacio reutilizable por el solver.
         frame=with_hole(
             [(0,0),(400,0),(400,500),(0,500)],
             [(70,70),(330,70),(330,430),(70,430)],
         )
         small=rect(180,180)
         items=[self.item(0,frame,[0]),self.item(1,small,[0,90,180,270])]
-        data,elapsed=self.run_sparrow(items,seconds=6,gap=3.2,name='hole-usable')
-        sol=data.get('solution') or {}
-        placed=((sol.get('layout') or {}).get('placed_items') or [])
-        self.assertEqual(len(placed),2)
-        # Si el hueco es considerado libre, Sparrow puede mantener un ancho cercano al marco.
-        # Damos margen para la heurística, pero un ancho >560 mm indica que trató el hueco como sólido.
-        self.assertLessEqual(float(sol.get('strip_width') or 1e9),560.0)
-        self.assertLess(elapsed,25.0)
+        proc,data,elapsed=self.run_raw(items,seconds=3,gap=3.2,name='hole-capability')
+        self.assertNotEqual(proc.returncode,0)
+        self.assertIsNone(data)
+        self.assertIn('No support for multipolygons yet',proc.stdout)
+        self.assertLess(elapsed,20.0)
 
     def test_concave_shapes_do_not_get_reduced_to_bounding_boxes(self):
-        # Dos L grandes pueden entrelazarse. Con bounding boxes necesitarían ~440 mm;
-        # usando contorno cóncavo real deberían compactarse claramente mejor.
         items=[
             self.item(0,l_shape(220,220,70),[0,90,180,270]),
             self.item(1,l_shape(220,220,70),[0,90,180,270]),
