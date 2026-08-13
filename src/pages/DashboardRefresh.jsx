@@ -1,48 +1,26 @@
 import React,{useMemo,useState} from 'react'
-import Dashboard from './Dashboard'
-import {Badge} from '../components/UI'
-import {orderPieces,todayArgentinaISO,DAILY_PIECE_LIMIT} from '../lib/production'
-import {stockRows} from '../lib/inventory'
+import {Title,Badge} from '../components/UI'
+import {money} from '../lib/format'
+import {orderPieces,todayArgentinaISO,DAILY_PIECE_LIMIT,sheetsForPieces} from '../lib/production'
+import {stockRows,isOrderCommitted} from '../lib/inventory'
 
 export default function DashboardRefresh({db,go}){
   const [query,setQuery]=useState('')
-  const today=todayArgentinaISO()
-  const orders=db.orders||[]
-  const todayOrders=orders.filter(o=>o.delivery===today&&o.status!=='Cancelado')
-  const todayPieces=todayOrders.reduce((sum,o)=>sum+orderPieces(o),0)
+  const today=todayArgentinaISO(),orders=db.orders||[]
+  const active=orders.filter(o=>isOrderCommitted(o,today)),todayOrders=orders.filter(o=>o.delivery===today&&o.status!=='Cancelado')
+  const todayPieces=todayOrders.reduce((s,o)=>s+orderPieces(o),0),pendingPieces=active.reduce((s,o)=>s+orderPieces(o),0)
   const overdue=orders.filter(o=>o.delivery&&o.delivery<today&&!['Cancelado','Entregado'].includes(o.status))
-  const lowStock=stockRows(db).filter(row=>row.total<=row.min)
-  const results=useMemo(()=>{
-    const q=query.trim().toLocaleLowerCase('es')
-    if(q.length<2)return[]
-    return orders.filter(o=>[
-      o.number,o.client,o.firstName,o.lastName,o.phone,o.dni,o.locality,
-      ...(o.items||[]).map(i=>i.figure)
-    ].filter(Boolean).join(' ').toLocaleLowerCase('es').includes(q)).slice(0,5)
-  },[query,orders])
-  const free=Math.max(0,DAILY_PIECE_LIMIT-todayPieces)
-  return <>
-    <section className="v25-topbar">
-      <div className="v25-search">
-        <span>⌕</span>
-        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar pedido, cliente, teléfono, DNI o figura…"/>
-        {query&&<button onClick={()=>setQuery('')}>×</button>}
-      </div>
-      {results.length>0&&<div className="v25-results">{results.map(o=><button key={o.id} onClick={()=>go('orders')}><div><b>#{o.number} · {o.client||[o.firstName,o.lastName].filter(Boolean).join(' ')||'Sin nombre'}</b><small>{orderPieces(o)} piezas · {o.delivery||'sin fecha de entrega'}</small></div><Badge status={o.status}/></button>)}</div>}
-    </section>
-
-    <section className="v25-focus">
-      <button className="v25-focus-card primary" onClick={()=>go('cut')}><span>✂</span><div><small>PRODUCCIÓN</small><b>Preparar corte</b><em>Ir directo a piezas pendientes</em></div><i>›</i></button>
-      <button className="v25-focus-card" onClick={()=>go('sheetplanner')}><span>⚙</span><div><small>MOTOR</small><b>Generar placas</b><em>Smart-4 listo para trabajar</em></div><i>›</i></button>
-      <button className="v25-focus-card" onClick={()=>go('operations')}><span>📦</span><div><small>HOY</small><b>{todayOrders.length} despachos</b><em>{todayPieces} piezas programadas</em></div><i>›</i></button>
-      <button className="v25-focus-card" onClick={()=>go('stock')}><span>◇</span><div><small>INVENTARIO</small><b>{lowStock.length?`${lowStock.length} alertas`:'Stock en orden'}</b><em>Control de piezas disponibles</em></div><i>›</i></button>
-    </section>
-
-    {(overdue.length>0||todayPieces>=80)&&<section className="v25-alerts">
-      {overdue.length>0&&<button className="danger" onClick={()=>go('orders')}><span>⏰</span><div><b>{overdue.length} pedido{overdue.length===1?'':'s'} con fecha vencida</b><small>Revisar estado o nueva fecha de entrega</small></div><i>›</i></button>}
-      {todayPieces>=80&&<button className="warning" onClick={()=>go('calendar')}><span>⚠</span><div><b>Capacidad de hoy: {todayPieces}/{DAILY_PIECE_LIMIT}</b><small>{todayPieces>DAILY_PIECE_LIMIT?`Exceso de ${todayPieces-DAILY_PIECE_LIMIT} piezas`:`Quedan ${free} lugares disponibles`}</small></div><i>›</i></button>}
-    </section>}
-
-    <Dashboard db={db} go={go}/>
+  const lowStock=stockRows(db).filter(r=>r.total<=r.min)
+  const month=today.slice(0,7),monthOrders=orders.filter(o=>String(o.date||o.createdAt||'').slice(0,7)===month&&o.status!=='Cancelado')
+  const revenue=monthOrders.reduce((s,o)=>s+Number(o.total||0),0),free=Math.max(0,DAILY_PIECE_LIMIT-todayPieces)
+  const next=orders.filter(o=>o.delivery&&o.delivery>=today&&o.status!=='Cancelado').sort((a,b)=>String(a.delivery).localeCompare(String(b.delivery))).slice(0,5)
+  const results=useMemo(()=>{const q=query.trim().toLocaleLowerCase('es');if(q.length<2)return[];return orders.filter(o=>[o.number,o.client,o.firstName,o.lastName,o.phone,o.dni,o.locality,...(o.items||[]).map(i=>i.figure)].filter(Boolean).join(' ').toLocaleLowerCase('es').includes(q)).slice(0,5)},[query,orders])
+  return <><Title title="Hoy en Polifan" sub="Producción, pedidos y alertas importantes en una sola pantalla." actions={<><button className="ghost" onClick={()=>go('operations')}>⚡ Centro operativo</button><button className="primary" onClick={()=>go('new')}>＋ Nuevo pedido</button></>}/>
+    <section className="v25-topbar"><div className="v25-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar pedido, cliente, teléfono, DNI o figura…"/>{query&&<button onClick={()=>setQuery('')}>×</button>}</div>{results.length>0&&<div className="v25-results">{results.map(o=><button key={o.id} onClick={()=>go('orders')}><div><b>#{o.number} · {o.client||[o.firstName,o.lastName].filter(Boolean).join(' ')||'Sin nombre'}</b><small>{orderPieces(o)} piezas · {o.delivery||'sin fecha'}</small></div><Badge status={o.status}/></button>)}</div>}</section>
+    {(overdue.length>0||todayPieces>=80||lowStock.length>0)&&<section className="v25-alerts">{overdue.length>0&&<button className="danger" onClick={()=>go('orders')}><span>⏰</span><div><b>{overdue.length} pedido{overdue.length===1?'':'s'} con fecha vencida</b><small>Revisar estado o fecha de entrega</small></div><i>›</i></button>}{todayPieces>=80&&<button className="warning" onClick={()=>go('calendar')}><span>⚠</span><div><b>Capacidad de hoy: {todayPieces}/{DAILY_PIECE_LIMIT}</b><small>{todayPieces>DAILY_PIECE_LIMIT?`Exceso de ${todayPieces-DAILY_PIECE_LIMIT}`:`Quedan ${free} lugares`}</small></div><i>›</i></button>}{lowStock.length>0&&<button className="info" onClick={()=>go('stock')}><span>◇</span><div><b>{lowStock.length} alertas de inventario</b><small>Hay piezas por debajo del mínimo</small></div><i>›</i></button>}</section>}
+    <section className="v25-hero"><div><small>RESUMEN DE HOY</small><h2>{todayPieces>=DAILY_PIECE_LIMIT?'Producción completa':todayPieces>=70?'Día de alta carga':'Producción bajo control'}</h2><p>{todayPieces} piezas programadas · {todayOrders.length} entregas · {sheetsForPieces(todayPieces)} planchas aprox.</p><div className="v25-progress"><span style={{width:`${Math.min(100,Math.round(todayPieces/DAILY_PIECE_LIMIT*100))}%`}}/></div></div><strong>{todayPieces}<small> / {DAILY_PIECE_LIMIT}</small></strong></section>
+    <section className="v25-focus"><button className="v25-focus-card primary" onClick={()=>go('cut')}><span>✂</span><div><small>PRODUCCIÓN</small><b>Preparar corte</b><em>{pendingPieces} piezas activas</em></div><i>›</i></button><button className="v25-focus-card" onClick={()=>go('sheetplanner')}><span>⚙</span><div><small>MOTOR</small><b>Generar placas</b><em>Smart-4</em></div><i>›</i></button><button className="v25-focus-card" onClick={()=>go('operations')}><span>📦</span><div><small>DESPACHOS</small><b>{todayOrders.length} para hoy</b><em>Preparar salidas</em></div><i>›</i></button><button className="v25-focus-card" onClick={()=>go('stock')}><span>◇</span><div><small>INVENTARIO</small><b>{lowStock.length?`${lowStock.length} alertas`:'Stock en orden'}</b><em>Ver existencias</em></div><i>›</i></button></section>
+    <section className="v25-stats"><button onClick={()=>go('orders')}><small>Pedidos activos</small><b>{active.length}</b><span>{pendingPieces} piezas</span></button><button onClick={()=>go('monthly')}><small>Facturación mes</small><b>{money(revenue)}</b><span>{monthOrders.length} pedidos</span></button><button onClick={()=>go('calendar')}><small>Capacidad libre hoy</small><b>{free}</b><span>de {DAILY_PIECE_LIMIT} lugares</span></button><button onClick={()=>go('stock')}><small>Stock bajo</small><b>{lowStock.length}</b><span>{lowStock.length?'Requiere atención':'Todo en orden'}</span></button></section>
+    <section className="panel v25-next"><div className="panel-heading"><div><small>AGENDA</small><h3>Próximas entregas</h3></div><button className="ghost" onClick={()=>go('orders')}>Ver todos</button></div>{next.map(o=><button key={o.id} onClick={()=>go('orders')}><div className="v25-date"><b>{String(o.delivery).slice(8,10)}</b><small>{new Date(o.delivery+'T12:00:00').toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</small></div><div><b>#{o.number} · {o.client}</b><small>{orderPieces(o)} piezas · {o.deliveryType||o.carrier||'Logística'}</small></div><Badge status={o.status}/></button>)}{!next.length&&<p className="muted">No hay próximas entregas cargadas.</p>}</section>
   </>
 }
