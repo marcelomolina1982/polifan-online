@@ -12,7 +12,7 @@ MIN_PRODUCTION_GAP_MM = 3.0
 # Sparrow trabaja con aproximaciones/serializacion; pedir un poco mas evita que
 # una solucion nominal de 3 mm termine certificando 2.91-2.99 mm al reconstruir.
 SOLVER_GAP_SAFETY_MM = 0.20
-EDGE_MARGIN_MM = 1.0
+EDGE_MARGIN_MM = 3.0
 
 _original_run_sparrow = ns._run_sparrow
 _original_result_payload = ns._result_payload
@@ -47,7 +47,7 @@ def _validate_final_geometry(selected, result):
             return False,{'reason':'placement sin geometría origen'}
         g=_geometry_for(part,placement)
         if not safe_plate.covers(g):
-            return False,{'reason':'pieza fuera del margen interno de 1 mm','bounds':tuple(round(v,4) for v in g.bounds)}
+            return False,{'reason':'pieza fuera del margen interno de 3 mm','bounds':tuple(round(v,4) for v in g.bounds)}
         geoms.append((placement.get('instanceId'),g))
     min_gap=None; min_pair=None
     for i in range(len(geoms)):
