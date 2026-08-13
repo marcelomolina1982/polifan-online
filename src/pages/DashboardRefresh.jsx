@@ -3,6 +3,7 @@ import {Title,Badge} from '../components/UI'
 import {money} from '../lib/format'
 import {orderPieces,todayArgentinaISO,DAILY_PIECE_LIMIT,sheetsForPieces} from '../lib/production'
 import {stockRows,isOrderCommitted} from '../lib/inventory'
+import '../refresh-v25.css'
 
 export default function DashboardRefresh({db,go}){
   const [query,setQuery]=useState('')
