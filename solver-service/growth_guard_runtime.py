@@ -49,6 +49,25 @@ def _validate(selected, result, fallback_gap):
     return True, {'minimumGapMmCertified': fallback_gap}
 
 
+def _has_prepared_geometry(kits):
+    """El reacomodo local necesita las geometrías Shapely ya preparadas.
+
+    Algunos tests unitarios y caminos de compatibilidad usan kits mínimos sin
+    `parts`; en esos casos el crecimiento local debe simplemente omitirse y
+    devolver la base estable, nunca lanzar una excepción.
+    """
+    if not kits:
+        return False
+    for kit in kits:
+        parts = kit.get('parts') if isinstance(kit, dict) else None
+        if not isinstance(parts, list) or not parts:
+            return False
+        for part in parts:
+            if not isinstance(part, dict) or part.get('geom') is None or not part.get('instanceId'):
+                return False
+    return True
+
+
 def nest_with_guarded_growth():
     baseline = _original_nest()
     resp, status, payload = _unwrap(baseline)
@@ -112,7 +131,8 @@ def nest_with_guarded_growth():
             rejected_growth.append({'figure': kit.get('figure'), 'mode': 'fixed', 'certificate': certificate})
 
     # 2) Si no entró sin mover nada, probar reacomodo LOCAL, nunca recalcular toda la placa.
-    if not added:
+    # Sólo se habilita cuando TODOS los kits implicados contienen geometría preparada.
+    if not added and _has_prepared_geometry(selected) and _has_prepared_geometry(kits):
         repaired = try_add_complete_local_repair(
             selected,
             result,
