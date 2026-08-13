@@ -1,15 +1,20 @@
 import json
 import pathlib
+import sys
 import time
 import unittest
 from copy import deepcopy
 
 from shapely.geometry import Polygon
 
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+TESTS=ROOT/'tests'
+if str(TESTS) not in sys.path:
+    sys.path.insert(0,str(TESTS))
+
 from test_pipeline_e2e_real import build_real_pipeline
 from local_repair_growth import try_add_complete_local_repair
 
-ROOT=pathlib.Path(__file__).resolve().parents[1]
 FIXTURE=ROOT/'tests'/'fixtures'/'real_geometry_derived.json'
 
 
@@ -64,7 +69,6 @@ class LocalRepairRealTests(unittest.TestCase):
                                             validator=self.ns._validate_final_geometry,
                                             max_new_candidates=1,max_removed_kits=2)
         elapsed=time.monotonic()-started
-        # La base recibida es inmutable: si 11 no entra, debe quedar byte-a-byte equivalente.
         self.assertEqual(base,original)
         self.assertLess(elapsed,55.0)
         if grown is not None:
@@ -80,8 +84,6 @@ class LocalRepairRealTests(unittest.TestCase):
         },separators=(',',':')))
 
     def test_same_real_heart_geometry_attempts_11_with_small_neighborhood(self):
-        # Caso deliberadamente parecido a los especiales del negocio: muchas piezas del mismo modelo.
-        # Elegimos el corazón real derivado porque su área permite 11 teóricamente en 1220x580.
         kits=self.make_kits(11,2)
         material_pct=100.0*sum(k['area'] for k in kits)/(1220.0*580.0)
         self.assertLess(material_pct,90.0)
