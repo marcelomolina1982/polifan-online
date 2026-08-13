@@ -1,98 +1,67 @@
 from flask import request, jsonify
 import time
+from itertools import combinations
 import nest_sparrow as ns
-import intelligent_selector_runtime as smart
 
 MAX_POOL = 64
-BASE_CANDIDATES = 4
-ELEVEN_CANDIDATES = 3
-BASE_BUDGET = 6.0
-ELEVEN_BUDGET = 3.0
-NOMINAL_LIMIT_SECONDS = 55.0
-SEEDS = (429, 1701, 7919, 31337)
+BASE_CANDIDATES = 7
+ELEVEN_CANDIDATES = 10
+BASE_SEARCH_SECONDS = 55.0
+TOTAL_LIMIT_SECONDS = 90.0
+SEEDS = (429, 41, 1701, 7919, 31337, 7001, 17011)
 
 
-def _priority_date_key(k):
-    return (ns._priority(k), str(k.get('date') or ''))
+def _rank(k):
+    return (float(k.get('priority') or 9), str(k.get('date') or '9999-12-31'))
 
 
 def _compact_score(k):
-    # Reutiliza el criterio probado del selector estable si está disponible.
-    scorer = getattr(smart, '_score', None)
-    if scorer:
-        try:
-            return scorer(k)
-        except Exception:
-            pass
-    env = float(k.get('envelope') or 1)
-    area = max(1.0, float(k.get('area') or 1))
-    sol = max(.01, float(k.get('solidity') or .01))
-    return (ns._priority(k), env / area + (1 - sol) * 1.8, env)
+    env = float(k.get('envelope') or 1e18)
+    area = max(1.0, float(k.get('area') or 1.0))
+    solidity = max(.01, float(k.get('solidity') or .01))
+    return env + 0.35 * (env - area) + 15000.0 * (1.0 - solidity)
 
 
-def _priority_safe_candidates(kits, size, limit):
-    """Construye variantes sin saltar prioridad/fecha.
-
-    Todos los buckets anteriores al bucket de corte son obligatorios. Sólo se
-    varía qué piezas tomar dentro del bucket que completa la cantidad pedida.
-    """
-    if len(kits) < size:
+def _priority_safe_candidates(kits, target, max_candidates):
+    if len(kits) < target:
+        return []
+    ordered = sorted(kits, key=lambda k: (_rank(k), str(k.get('kitId') or '')))
+    boundary = _rank(ordered[target - 1])
+    mandatory = [k for k in ordered if _rank(k) < boundary]
+    frontier = [k for k in ordered if _rank(k) == boundary]
+    slots = target - len(mandatory)
+    if slots < 0 or len(frontier) < slots:
         return []
 
-    buckets = []
-    for k in sorted(kits, key=lambda x: (_priority_date_key(x), _compact_score(x))):
-        key = _priority_date_key(k)
-        if not buckets or buckets[-1][0] != key:
-            buckets.append((key, []))
-        buckets[-1][1].append(k)
-
-    mandatory = []
-    boundary = []
-    need = size
-    for _, bucket in buckets:
-        if len(bucket) < need:
-            mandatory.extend(sorted(bucket, key=_compact_score))
-            need -= len(bucket)
-            continue
-        boundary = sorted(bucket, key=_compact_score)
-        break
-
-    if need <= 0:
-        chosen = mandatory[:size]
-        return [('priority-date-base', chosen)] if len(chosen) == size else []
-    if not boundary or len(boundary) < need:
-        return []
-
-    results = []
+    out = []
     seen = set()
-
-    def add(label, picks):
-        selected = mandatory + picks
-        if len(selected) != size:
+    def add(group, label):
+        if len(group) != target:
             return
-        sig = tuple(sorted(str(x.get('kitId')) for x in selected))
+        sig = tuple(sorted(str(k.get('kitId')) for k in group))
         if sig in seen:
             return
         seen.add(sig)
-        results.append((label, selected))
+        out.append((label, list(group)))
 
-    # Primera variante: las más compactas del bucket de corte.
-    add('priority-date-compact', boundary[:need])
+    add(mandatory + frontier[:slots], f'baseline-{target}')
+    scored = sorted(frontier, key=lambda k: (_compact_score(k), str(k.get('kitId') or '')))
+    add(mandatory + scored[:slots], f'compact-{target}')
 
-    # Variantes deterministas dentro del MISMO bucket de prioridad/fecha.
-    max_offset = min(len(boundary) - need, max(0, limit - 1))
-    for off in range(1, max_offset + 1):
-        add(f'priority-date-shift-{off}', boundary[off:off + need])
+    for off in range(1, min(5, max(1, len(scored) - slots + 1))):
+        add(mandatory + scored[off:off + slots], f'window-{target}-{off}')
+        if len(out) >= max_candidates:
+            return out[:max_candidates]
 
-    # Si todavía faltan variantes, cambia una sola pieza manteniendo el bucket.
-    idx = need
-    while len(results) < limit and idx < len(boundary):
-        picks = list(boundary[:need])
-        picks[-1] = boundary[idx]
-        add(f'priority-date-swap-{idx}', picks)
-        idx += 1
-
-    return results[:limit]
+    vary = min(3, slots)
+    anchors = scored[:max(0, slots - vary)]
+    tail = scored[max(0, slots - vary):min(len(scored), max(0, slots - vary) + 10)]
+    combos = sorted(combinations(tail, vary), key=lambda c: sum(_compact_score(k) for k in c))
+    for idx, combo in enumerate(combos[:max_candidates]):
+        add(mandatory + anchors + list(combo), f'combo-{target}-{idx}')
+        if len(out) >= max_candidates:
+            break
+    return out[:max_candidates]
 
 
 def _certified(selected, result):
@@ -117,14 +86,7 @@ def fast_certified_nest():
     width = max(1.0, ns._n(data.get('widthCm'), 122) * 10)
     height = max(1.0, ns._n(data.get('heightCm'), 58) * 10)
     gap = max(3.0, ns._n(data.get('gapCm'), .3) * 10)
-    raw = sorted(
-        data.get('kits') or [],
-        key=lambda k: (
-            ns._priority(k),
-            str(k.get('date') or ''),
-            str(k.get('figure') or '')
-        )
-    )[:MAX_POOL]
+    raw = sorted(data.get('kits') or [], key=lambda k: (ns._priority(k), str(k.get('date') or ''), str(k.get('figure') or '')))[:MAX_POOL]
 
     kits = []
     rejected = []
@@ -132,108 +94,45 @@ def fast_certified_nest():
         try:
             kits.append(ns._prep_kit(k, width, height))
         except Exception as exc:
-            rejected.append({
-                'figure': str(k.get('figure') or ''),
-                'reason': str(exc)
-            })
-
+            rejected.append({'figure': str(k.get('figure') or ''), 'reason': str(exc)})
     if len(kits) < 10:
         return jsonify(ok=False, error=f'Sólo hay {len(kits)} kits utilizables'), 422
 
     attempts = []
     base = None
-    groups10 = _priority_safe_candidates(kits, 10, BASE_CANDIDATES)
-
-    for idx, (label, selected) in enumerate(groups10):
-        if time.time() - started >= NOMINAL_LIMIT_SECONDS:
+    for idx, (label, selected) in enumerate(_priority_safe_candidates(kits, 10, BASE_CANDIDATES)):
+        remaining = BASE_SEARCH_SECONDS - (time.time() - started)
+        if remaining < 5:
             break
-
-        result = ns._run_sparrow(
-            selected,
-            gap,
-            BASE_BUDGET,
-            SEEDS[idx % len(SEEDS)],
-            continuous=idx > 0
-        )
+        budget = min(7.0, max(2.2, remaining - 1.5))
+        result = ns._run_sparrow(selected, gap, budget, SEEDS[idx % len(SEEDS)], continuous=idx >= 2)
         valid, cert = _certified(selected, result)
-        attempts.append({
-            'phase': 'fast-base-10',
-            'variant': label,
-            'fits': bool(result.get('fits')),
-            'certified': bool(valid),
-            'gapMm': cert.get('minimumGapMmCertified'),
-            'seconds': result.get('elapsedSeconds')
-        })
+        attempts.append({'phase': 'fast-base-10', 'variant': label, 'fits': bool(result.get('fits')), 'certified': bool(valid), 'gapMm': cert.get('minimumGapMmCertified'), 'seconds': result.get('elapsedSeconds')})
         if valid:
             base = (selected, result, cert)
             break
 
     if base is None:
-        return jsonify(
-            ok=False,
-            error='FAST-CERT no encontró 10 certificadas en la búsqueda corta.',
-            engine='FAST-CERT',
-            attempts=attempts,
-            elapsedSeconds=round(time.time() - started, 1),
-            requiredGapMm=3.0
-        ), 422
+        return jsonify(ok=False, error='FAST-CERT no encontró 10 certificadas dentro del límite corto.', engine='FAST-CERT Smart-4 compatible', attempts=attempts, elapsedSeconds=round(time.time() - started, 1), requiredGapMm=3.0, hardBaseLimitSeconds=BASE_SEARCH_SECONDS), 422
 
     best_selected, best_result, best_cert = base
-    groups11 = _priority_safe_candidates(kits, 11, ELEVEN_CANDIDATES)
-
-    for idx, (label, selected) in enumerate(groups11):
-        if time.time() - started >= NOMINAL_LIMIT_SECONDS:
+    for idx, (label, selected) in enumerate(_priority_safe_candidates(kits, 11, ELEVEN_CANDIDATES)):
+        remaining = TOTAL_LIMIT_SECONDS - (time.time() - started)
+        if remaining < 4:
             break
-
-        result = ns._run_sparrow(
-            selected,
-            gap,
-            ELEVEN_BUDGET,
-            429 + idx * 127,
-            continuous=True
-        )
+        budget = min(3.0, max(2.0, remaining - 1.5))
+        result = ns._run_sparrow(selected, gap, budget, 429 + idx * 131, continuous=True)
         valid, cert = _certified(selected, result)
-        attempts.append({
-            'phase': 'fast-growth-11',
-            'variant': label,
-            'fits': bool(result.get('fits')),
-            'certified': bool(valid),
-            'gapMm': cert.get('minimumGapMmCertified'),
-            'seconds': result.get('elapsedSeconds')
-        })
+        attempts.append({'phase': 'fast-growth-11', 'variant': label, 'fits': bool(result.get('fits')), 'certified': bool(valid), 'gapMm': cert.get('minimumGapMmCertified'), 'seconds': result.get('elapsedSeconds')})
         if valid:
-            best_selected = selected
-            best_result = result
-            best_cert = cert
+            best_selected, best_result, best_cert = selected, result, cert
             break
 
-    response = ns._result_payload(
-        best_selected,
-        f'FAST-CERT: {len(best_selected)} completas · prioridad protegida',
-        best_result,
-        kits,
-        rejected,
-        attempts,
-        started,
-        None
-    )
+    response = ns._result_payload(best_selected, f'FAST-CERT: {len(best_selected)} completas · prioridad protegida', best_result, kits, rejected, attempts, started, None)
     payload = response.get_json()
     if not isinstance(payload, dict) or not payload.get('ok'):
         return response
-
-    payload.update({
-        'engine': 'FAST-CERT · 10 segura + intento corto de 11',
-        'selectorVersion': 'fast-cert-1.1-stable-compatible',
-        'completeFigures': len(best_selected),
-        'protectedBase10': True,
-        'improvedAbove10': len(best_selected) > 10,
-        'productionCertificate': best_cert,
-        'minimumGapMm': best_cert.get('minimumGapMmCertified'),
-        'requiredGapMm': 3.0,
-        'fastMode': True,
-        'nominalSearchLimitSeconds': NOMINAL_LIMIT_SECONDS,
-        'elapsedSeconds': round(time.time() - started, 1),
-    })
+    payload.update({'engine': 'FAST-CERT · selector Smart-4 + V1.7', 'selectorVersion': 'fast-cert-1.2-smart4-compatible', 'completeFigures': len(best_selected), 'protectedBase10': True, 'improvedAbove10': len(best_selected) > 10, 'productionCertificate': best_cert, 'minimumGapMm': best_cert.get('minimumGapMmCertified'), 'requiredGapMm': 3.0, 'fastMode': True, 'hardBaseLimitSeconds': BASE_SEARCH_SECONDS, 'hardTotalLimitSeconds': TOTAL_LIMIT_SECONDS, 'elapsedSeconds': round(time.time() - started, 1)})
     return jsonify(payload)
 
 
