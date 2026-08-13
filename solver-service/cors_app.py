@@ -6,7 +6,7 @@ import intelligent_selector_runtime  # BASE 10 ESTABLE: decide QUE 10 probar; Sp
 import hybrid_strategy_runtime  # LAB: si hay 11+ del mismo modelo, prueba 11/12 rápido antes del fallback estable
 import growth_guard_runtime  # LAB: intenta crecimiento protegido desde la mejor base válida
 import practical_occupancy_runtime  # LAB: ocupación útil real, consciente de gap y huecos internos aprovechables
-
+import fast_certified_runtime
 # Estrategia híbrida del laboratorio:
 # - lotes homogéneos: intentar 11/12 con varias semillas cortas y certificación real;
 # - lotes mixtos: conservar la base estable de 10 y usar crecimiento protegido;
