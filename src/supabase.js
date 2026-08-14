@@ -37,7 +37,17 @@ async function persistOrderDelta(nextOrders=[],previousOrders=[]){
     if(!next.has(id)) rows.push({id:rowId(id),data:{deleted:true,orderId:id,deletedAt:now,previousNumber:before?.number||''},updated_at:now})
   }
   if(!rows.length)return {ok:true,changed:0}
-  try{const {error}=await client.from('app_state').upsert(rows,{onConflict:'id'});if(error)throw error;return {ok:true,changed:rows.length}}catch(error){console.error('No se pudo persistir el registro durable de pedidos',error);return {ok:false,error,changed:rows.length}}
+  try{
+    const {error}=await client.from('app_state').upsert(rows,{onConflict:'id'})
+    if(error)throw error
+    const changedIds=rows.map(r=>r.id)
+    const {data:check,error:checkError}=await client.from('app_state').select('id,data').in('id',changedIds)
+    if(checkError)throw checkError
+    const found=new Set((check||[]).map(r=>r.id))
+    const missing=changedIds.filter(id=>!found.has(id))
+    if(missing.length)throw new Error(`No se pudieron confirmar ${missing.length} registro(s) durable(s) de pedidos.`)
+    return {ok:true,changed:rows.length}
+  }catch(error){console.error('No se pudo persistir el registro durable de pedidos',error);return {ok:false,error,changed:rows.length}}
 }
 
 async function readDurableOrders(){
@@ -71,7 +81,6 @@ function wrapReadBuilder(builder,ctx={}){
       if(ctx.table!=='app_state'||ctx.id!=='main'||result?.error||!result?.data?.data)return result
       const durable=await readDurableOrders()
       const merged=durable.ok?mergeDurableOrders(result.data.data,durable.rows):result.data.data
-      if(durable.ok){void persistOrderDelta(merged.orders||[],[])}
       writeJson(APP_CACHE_KEY,merged);writeJson(EMERGENCY_CACHE_KEY,merged)
       return {...result,data:{...result.data,data:merged},__durableOrdersMerged:durable.ok}
     }
@@ -90,8 +99,12 @@ function wrapWriteBuilder(builder,durablePromise,hasOrderChanges){
   if(!builder||typeof builder!=='object')return builder
   return new Proxy(builder,{get(target,prop){
     if(prop==='then')return (resolve,reject)=>Promise.all([Promise.resolve(durablePromise).catch(error=>({ok:false,error})),Promise.resolve(target)]).then(([durable,result])=>{
+      if(hasOrderChanges&&!durable?.ok){
+        const error=durable?.error||new Error('No se pudo confirmar el guardado durable del pedido.')
+        return resolve({...result,error:{message:error.message||String(error)},__durableFailed:true})
+      }
       if(result?.error&&/statement timeout|canceling statement/i.test(result.error.message||'')&&hasOrderChanges&&durable?.ok){
-        console.warn('app_state principal agotó tiempo, pero pedidos quedaron guardados de forma durable')
+        console.warn('app_state principal agotó tiempo, pero pedidos quedaron guardados y verificados de forma durable')
         return resolve({...result,error:null,__durableOnly:true})
       }
       return resolve(result)
@@ -115,10 +128,11 @@ export const supabase=new Proxy(client,{get(target,prop){
           saveLocalBackup(previous,'antes de guardar')
           writeJson(APP_CACHE_KEY,state);writeJson(EMERGENCY_CACHE_KEY,state)
           const prevOrders=Array.isArray(previous?.orders)?previous.orders:[]
+          const changed=JSON.stringify(state.orders)!==JSON.stringify(prevOrders)
           const durablePromise=persistOrderDelta(state.orders,prevOrders)
           void saveCloudBackup(previous,'antes de guardar')
           const result=obj[key](...args)
-          return wrapWriteBuilder(result,durablePromise,JSON.stringify(state.orders)!==JSON.stringify(prevOrders))
+          return wrapWriteBuilder(result,durablePromise,changed)
         }
         return obj[key](...args)
       }
