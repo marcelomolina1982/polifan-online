@@ -1,7 +1,16 @@
-import React,{useMemo,useState} from 'react'
+import React,{useEffect,useMemo,useState} from 'react'
 import CatalogAdminBase from './CatalogAdminBase'
+import {supabase} from '../supabase'
 
 const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
+const publicCatalogPayload=db=>({
+  customerCatalog:db.customerCatalog||[],
+  catalogCollections:db.catalogCollections||[],
+  customerSettings:db.customerSettings||{},
+  customerReviews:db.customerReviews||[],
+  customerPhotos:db.customerPhotos||[],
+  chatbotSettings:db.chatbotSettings||{}
+})
 
 export default function CatalogAdmin({db,onSave}){
   const [name,setName]=useState('')
@@ -11,19 +20,38 @@ export default function CatalogAdmin({db,onSave}){
   const products=db.customerCatalog||[]
   const productIds=useMemo(()=>new Set(products.map(p=>p.id)),[products])
 
+  async function publishPublicCatalog(next){
+    const data=publicCatalogPayload(next)
+    if(!data.customerCatalog.length)return {ok:false,error:new Error('Catálogo vacío')}
+    const {error}=await supabase.from('public_catalog').upsert({id:'main',data,updated_at:new Date().toISOString()},{onConflict:'id'})
+    if(error){console.error('No se pudo publicar el catálogo público',error);return {ok:false,error}}
+    return {ok:true}
+  }
+  async function persist(next){
+    const result=await onSave(next)
+    if(result?.ok===false)return result
+    const published=await publishPublicCatalog(next)
+    if(!published.ok)alert('El cambio se guardó en la app, pero el catálogo público no pudo actualizarse. Revisá la configuración de catálogo público en Supabase.')
+    return result
+  }
+  useEffect(()=>{
+    if(!products.length)return
+    publishPublicCatalog(db)
+  },[])
+
   async function saveWithDates(next){
     const oldIds=new Set((db.customerCatalog||[]).map(p=>p.id))
     const now=new Date().toISOString()
     const catalog=(next.customerCatalog||[]).map(p=>oldIds.has(p.id)?p:{...p,createdAt:p.createdAt||now})
     const cleanedCollections=(next.catalogCollections||collections).map(c=>({...c,productIds:(c.productIds||[]).filter(id=>catalog.some(p=>p.id===id))}))
-    return onSave({...next,customerCatalog:catalog,catalogCollections:cleanedCollections})
+    return persist({...next,customerCatalog:catalog,catalogCollections:cleanedCollections})
   }
   async function addCollection(){
     const clean=name.trim();if(!clean)return
     if(collections.some(c=>c.name.toLocaleLowerCase('es')===clean.toLocaleLowerCase('es')))return alert('Ya existe una categoría con ese nombre.')
-    await onSave({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});setName('')
+    await persist({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});setName('')
   }
-  async function removeCollection(id){if(!confirm('¿Eliminar esta categoría adicional? Las figuras seguirán en el catálogo general.'))return;await onSave({...db,catalogCollections:collections.filter(c=>c.id!==id)})}
+  async function removeCollection(id){if(!confirm('¿Eliminar esta categoría adicional? Las figuras seguirán en el catálogo general.'))return;await persist({...db,catalogCollections:collections.filter(c=>c.id!==id)})}
   function draftIds(c){return draftByCollection[c.id]||c.productIds||[]}
   function toggleDraft(c,productId){
     const ids=new Set(draftIds(c));ids.has(productId)?ids.delete(productId):ids.add(productId)
@@ -36,7 +64,7 @@ export default function CatalogAdmin({db,onSave}){
   async function saveCollection(c){
     const ids=draftIds(c).filter(id=>productIds.has(id))
     const next=collections.map(x=>x.id===c.id?{...x,productIds:ids}:x)
-    await onSave({...db,catalogCollections:next})
+    await persist({...db,catalogCollections:next})
     setDraftByCollection(v=>{const n={...v};delete n[c.id];return n})
     alert(`Categoría “${c.name}” actualizada.`)
   }

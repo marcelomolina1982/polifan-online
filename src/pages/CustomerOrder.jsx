@@ -8,22 +8,25 @@ export default function CustomerOrder(){
   const [special,setSpecial]=useState('')
   useEffect(()=>{
     let mounted=true
+    const applyPublic=(state,updatedAt='')=>{
+      if(!mounted||!state)return
+      const safe={...state,orders:[],productionClosedDates:[]}
+      setCatalogState({...state,__updatedAt:updatedAt||''})
+      try{localStorage.setItem(CACHE_KEY,JSON.stringify({state:safe,updatedAt:updatedAt||'',cachedAt:new Date().toISOString()}))}catch{}
+    }
     const refresh=async()=>{
+      const publicResult=await supabase.from('public_catalog').select('data,updated_at').eq('id','main').maybeSingle()
+      if(!publicResult.error&&publicResult.data?.data){applyPublic(publicResult.data.data,publicResult.data.updated_at||'');return}
       const {data,error}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
       if(error||!data?.data)return
-      if(mounted)setCatalogState({...data.data,__updatedAt:data.updated_at||''})
-      try{
-        const cached=JSON.parse(localStorage.getItem(CACHE_KEY)||'null')
-        const remoteTime=Date.parse(data.updated_at||0)||0,cachedTime=Date.parse(cached?.updatedAt||0)||0
-        if(!cached||remoteTime>=cachedTime)localStorage.setItem(CACHE_KEY,JSON.stringify({state:data.data,updatedAt:data.updated_at||'',cachedAt:new Date().toISOString()}))
-      }catch{}
+      applyPublic(data.data,data.updated_at||'')
     }
     refresh()
     const onVisible=()=>{if(document.visibilityState==='visible')refresh()}
     const onOnline=()=>refresh()
     window.addEventListener('focus',refresh);window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)
     const timer=window.setInterval(refresh,20000)
-    const channel=supabase.channel('catalog-enhanced-sync-v2').on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.main'},refresh).subscribe()
+    const channel=supabase.channel('catalog-public-sync-v1').on('postgres_changes',{event:'*',schema:'public',table:'public_catalog',filter:'id=eq.main'},refresh).subscribe()
     return()=>{mounted=false;window.removeEventListener('focus',refresh);window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer);supabase.removeChannel(channel)}
   },[])
   const products=catalogState.customerCatalog||[]
