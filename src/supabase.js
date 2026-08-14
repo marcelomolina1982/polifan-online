@@ -56,35 +56,47 @@ function mergeRows(base=[],rows=[],name){
   return [...map.values()]
 }
 function backupStates(){const out=[];const cache=readJson(APP_CACHE_KEY),emergency=readJson(EMERGENCY_CACHE_KEY),backs=readJson(AUTO_BACKUPS_KEY);if(cache)out.push(cache);if(emergency)out.push(emergency);if(Array.isArray(backs))backs.forEach(b=>{if(b?.state)out.push(b.state)});return out}
-function recoverMissingBatches(state){
+async function cloudBackupStates(){
+  try{
+    const {data,error}=await client.from('app_state').select('id,data,updated_at').like('id','backup_%').order('updated_at',{ascending:false}).limit(60)
+    if(error)throw error
+    return (data||[]).map(r=>r?.data).filter(Boolean)
+  }catch(error){console.error('No se pudieron leer respaldos cloud para recuperación',error);return []}
+}
+function recoverMissingBatches(state,extraStates=[]){
   const current=Array.isArray(state?.cutBatches)?state.cutBatches:[]
-  const maxCurrent=Math.max(0,...current.map(b=>Number(b?.number)||0))
+  const currentNumbers=new Set(current.map(b=>Number(b?.number)||0).filter(Boolean))
   const byId=new Map(current.map(b=>[String(b.id||''),b]).filter(([id])=>id))
+  const byNumber=new Map(current.map(b=>[Number(b?.number)||0,b]).filter(([n])=>n))
   const recoveredNumbers=new Set()
-  for(const backup of backupStates()) for(const batch of (backup?.cutBatches||[])){
+  const sources=[...backupStates(),...(Array.isArray(extraStates)?extraStates:[])]
+  for(const backup of sources) for(const batch of (backup?.cutBatches||[])){
     const n=Number(batch?.number)||0,id=String(batch?.id||'')
-    if(id&&n>maxCurrent&&!byId.has(id)){byId.set(id,batch);recoveredNumbers.add(n)}
+    if(!n||currentNumbers.has(n)||byNumber.has(n))continue
+    if(id&&!byId.has(id))byId.set(id,batch)
+    else if(!id)byId.set(`recovered-backup-${n}`,{...batch,id:`recovered-backup-${n}`,recovered:true})
+    byNumber.set(n,batch);recoveredNumbers.add(n)
   }
   const motorPlans=readJson(MOTOR_PLANS_KEY)
   if(Array.isArray(motorPlans)) for(const plan of motorPlans){
     const n=Number(plan?.batchNumber)||0
-    if(!plan?.registered||!n||n<=maxCurrent||[...byId.values()].some(b=>Number(b.number)===n))continue
+    if(!plan?.registered||!n||byNumber.has(n))continue
     const multiplier=Math.max(1,Number(plan.multiplier)||1),items=(plan.summary||[]).map(x=>({figure:x.figure,component:'complete',qty:Number(x.qty)||1}))
     if(!items.length)continue
     const id=`recovered-motor-${n}`
-    byId.set(id,{id,number:String(n).padStart(3,'0'),date:plan.date||'',name:`Placa automática Sparrow ${plan.date||''}`.trim(),status:'En corte',notes:`RECUPERADA automáticamente desde Motor Lab · Sparrow + V1.7`,multiplier,items,createdAt:new Date().toISOString(),recovered:true})
-    recoveredNumbers.add(n)
+    const batch={id,number:String(n).padStart(3,'0'),date:plan.date||'',name:`Placa automática Sparrow ${plan.date||''}`.trim(),status:'En corte',notes:`RECUPERADA automáticamente desde Motor Lab · Sparrow + V1.7`,multiplier,items,createdAt:new Date().toISOString(),recovered:true}
+    byId.set(id,batch);byNumber.set(n,batch);recoveredNumbers.add(n)
   }
   if(!recoveredNumbers.size)return state
   const movementMap=new Map((state.movements||[]).map(m=>[String(m.id||''),m]).filter(([id])=>id))
-  for(const backup of backupStates()) for(const mov of (backup?.movements||[])){
+  for(const backup of sources) for(const mov of (backup?.movements||[])){
     const detail=String(mov?.detail||'')
     const matches=[...recoveredNumbers].some(n=>detail.includes(`#${String(n).padStart(3,'0')}`)||detail.includes(`#${n}`))
     const id=String(mov?.id||'')
     if(matches&&id&&!movementMap.has(id))movementMap.set(id,mov)
   }
   const cutBatches=[...byId.values()].sort((a,b)=>(Number(a.number)||0)-(Number(b.number)||0))
-  return {...state,cutBatches,movements:[...movementMap.values()],__recoveredCutBatchNumbers:[...recoveredNumbers].sort((a,b)=>a-b)}
+  return {...state,cutBatches,movements:[...movementMap.values()],__recoveredCutBatchNumbers:[...new Set([...(state.__recoveredCutBatchNumbers||[]),...recoveredNumbers])].sort((a,b)=>a-b)}
 }
 
 async function mergeCriticalState(state){
@@ -93,7 +105,12 @@ async function mergeCriticalState(state){
     const durable=await readDurableCollection(name)
     if(durable.ok)merged={...merged,[name]:mergeRows(merged[name]||[],durable.rows,name)}
   }
-  merged=recoverMissingBatches(merged)
+  const cloudBackups=await cloudBackupStates()
+  merged=recoverMissingBatches(merged,cloudBackups)
+  if(Array.isArray(merged.__recoveredCutBatchNumbers)&&merged.__recoveredCutBatchNumbers.length){
+    void persistCollectionDelta('cutBatches',merged.cutBatches||[],state.cutBatches||[])
+    void persistCollectionDelta('movements',merged.movements||[],state.movements||[])
+  }
   return merged
 }
 
