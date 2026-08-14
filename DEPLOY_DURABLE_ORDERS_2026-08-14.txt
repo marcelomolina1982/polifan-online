@@ -1,0 +1,1 @@
+Persistencia de pedidos separada del app_state principal. Cada pedido queda protegido en una fila durable independiente.
