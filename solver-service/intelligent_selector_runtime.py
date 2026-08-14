@@ -13,7 +13,12 @@ _memory={}
 POSITIVE_NAMES={'gato','gato con luces','auto','chase paw patrol','chopp','abejita','boca','woody toy story'}
 
 def _key(k): return str(k.get('figure') or '').strip().lower()
-def _rank(k): return (float(k.get('priority') or 9), str(k.get('date') or '9999-12-31'))
+# La prioridad productiva real es la FECHA. Dentro de una misma fecha Sparrow
+# debe poder combinar libremente las figuras para encontrar una placa de 10.
+# Antes cada kit recibía un priority único (0,1,2...), por lo que el selector
+# consideraba obligatorios exactamente los primeros 10 y el "rescate" repetía
+# siempre la misma combinación.
+def _rank(k): return (str(k.get('date') or '9999-12-31'),)
 def _difficulty(k):
     env=float(k.get('envelope') or 1); area=max(1.0,float(k.get('area') or 1)); sol=max(.01,float(k.get('solidity') or .01))
     return env/area + (1-sol)*1.8
@@ -77,7 +82,14 @@ def intelligent_nest():
     raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_POOL]
     kits=[];rejected=[]
     for k in raw:
-        try:kits.append(ns._prep_kit(k,width,height))
+        try:
+            prepared=ns._prep_kit(k,width,height)
+            # _prep_kit normaliza geometría pero no conservaba la fecha. Sin ella,
+            # _rank terminaba usando el priority único del frontend y anulaba todas
+            # las combinaciones alternativas. La preservamos explícitamente.
+            prepared['date']=str(k.get('date') or '')
+            prepared['sourcePriority']=k.get('priority')
+            kits.append(prepared)
         except Exception as exc:rejected.append({'figure':str(k.get('figure') or ''),'reason':str(exc)})
     if len(kits)<10:return jsonify(ok=False,error=f'Sólo hay {len(kits)} kits utilizables'),422
     attempts=[];base=None;groups=_priority_safe_candidates(kits,10,BASE_CANDIDATES);seeds=(429,41,1701,7919,31337,7001,17011)
@@ -99,7 +111,7 @@ def intelligent_nest():
             r,valid,cert=_attempt(g,gap,min(8.0,max(2.5,remaining-1.0)),seed,continuous,attempts,'rescate-10-'+label)
             if valid:base=(g,r,cert);break
             _learn_failed(g,r)
-    if base is None:return jsonify(ok=False,error='No se encontró una base de 10 certificada a 3 mm después del rescate protegido.',engine='Smart-4 estable + rescate',selectorVersion='smart-4-rescue-10plus1',attempts=attempts,candidatePool=len(kits),elapsedSeconds=round(time.time()-started,1),rescueAttempted=True),422
+    if base is None:return jsonify(ok=False,error='No se encontró una base de 10 certificada a 3 mm después del rescate protegido.',engine='Smart-4 estable + rescate',selectorVersion='smart-4-rescue-10plus1-datefix',attempts=attempts,candidatePool=len(kits),candidateGroups=len(groups),elapsedSeconds=round(time.time()-started,1),rescueAttempted=True),422
     best_selected,best_result,best_cert=base
     for x in best_selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.25)
     # Sólo después de congelar 10 certificadas se intenta 11.
@@ -117,7 +129,7 @@ def intelligent_nest():
                 r,valid,cert=_attempt(twelve,gap,min(3.0,remaining-1.0),seed,True,attempts,'homogeneous-12')
                 if valid:best_selected,best_result,best_cert=twelve,r,cert;break
     response=ns._result_payload(best_selected,f'Smart-4 estable: {len(best_selected)} completas · base 10 protegida',best_result,kits,rejected,attempts,started,None)
-    payload=response.get_json();payload.update({'engine':'Smart-4 estable · base 10 certificada + rescate + crecimiento 11/12','selectorVersion':'smart-4-rescue-10plus1','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':3.0,'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':75,'hardTotalLimitSeconds':TOTAL_SECONDS})
+    payload=response.get_json();payload.update({'engine':'Smart-4 estable · base 10 certificada + rescate + crecimiento 11/12','selectorVersion':'smart-4-rescue-10plus1-datefix','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'candidateGroups':len(groups),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':3.0,'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':75,'hardTotalLimitSeconds':TOTAL_SECONDS})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
