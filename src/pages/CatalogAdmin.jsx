@@ -5,6 +5,8 @@ const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
 
 export default function CatalogAdmin({db,onSave}){
   const [name,setName]=useState('')
+  const [searchByCollection,setSearchByCollection]=useState({})
+  const [draftByCollection,setDraftByCollection]=useState({})
   const collections=db.catalogCollections||[]
   const products=db.customerCatalog||[]
   const productIds=useMemo(()=>new Set(products.map(p=>p.id)),[products])
@@ -22,15 +24,37 @@ export default function CatalogAdmin({db,onSave}){
     await onSave({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});setName('')
   }
   async function removeCollection(id){if(!confirm('¿Eliminar esta categoría adicional? Las figuras seguirán en el catálogo general.'))return;await onSave({...db,catalogCollections:collections.filter(c=>c.id!==id)})}
-  async function toggleProduct(collectionId,productId){
-    const next=collections.map(c=>{if(c.id!==collectionId)return c;const ids=new Set(c.productIds||[]);ids.has(productId)?ids.delete(productId):ids.add(productId);return {...c,productIds:[...ids]}})
+  function draftIds(c){return draftByCollection[c.id]||c.productIds||[]}
+  function toggleDraft(c,productId){
+    const ids=new Set(draftIds(c));ids.has(productId)?ids.delete(productId):ids.add(productId)
+    setDraftByCollection(v=>({...v,[c.id]:[...ids]}))
+  }
+  function setAllVisible(c,visibleProducts,checked){
+    const ids=new Set(draftIds(c));visibleProducts.forEach(p=>checked?ids.add(p.id):ids.delete(p.id))
+    setDraftByCollection(v=>({...v,[c.id]:[...ids]}))
+  }
+  async function saveCollection(c){
+    const ids=draftIds(c).filter(id=>productIds.has(id))
+    const next=collections.map(x=>x.id===c.id?{...x,productIds:ids}:x)
     await onSave({...db,catalogCollections:next})
+    setDraftByCollection(v=>{const n={...v};delete n[c.id];return n})
+    alert(`Categoría “${c.name}” actualizada.`)
   }
   return <>
     <section className="panel" style={{marginBottom:16}}>
-      <div className="panel-heading"><div><h3>Categorías adicionales del catálogo</h3><small>Una figura puede estar en varias categorías sin salir de su categoría original ni del catálogo general.</small></div></div>
+      <div className="panel-heading"><div><h3>Categorías adicionales del catálogo</h3><small>Creá la categoría, buscá con la lupa y tildá todas las figuras que quieras. Se guarda una sola vez al final.</small></div></div>
       <div className="actions" style={{marginTop:12}}><input value={name} onChange={e=>setName(e.target.value)} placeholder="Ej.: Cumpleaños, Disney, Fútbol..."/><button className="primary" type="button" onClick={addCollection}>Crear categoría</button></div>
-      {collections.map(c=><details key={c.id} style={{marginTop:12}}><summary><b>{c.name}</b> · {(c.productIds||[]).filter(id=>productIds.has(id)).length} figuras</summary><div className="admin-catalog-grid" style={{marginTop:10}}>{products.map(p=><label key={p.id} className="form-check" style={{alignItems:'center'}}><input type="checkbox" checked={(c.productIds||[]).includes(p.id)} onChange={()=>toggleProduct(c.id,p.id)}/><span>{p.name}</span></label>)}</div><button type="button" className="danger smallbtn" onClick={()=>removeCollection(c.id)}>Eliminar categoría</button></details>)}
+      {collections.map(c=>{
+        const term=(searchByCollection[c.id]||'').trim().toLocaleLowerCase('es')
+        const visible=products.filter(p=>!term||`${p.name} ${p.category||''}`.toLocaleLowerCase('es').includes(term))
+        const selected=new Set(draftIds(c))
+        const dirty=Boolean(draftByCollection[c.id])
+        return <details key={c.id} style={{marginTop:12}}><summary><b>{c.name}</b> · {selected.size} figuras{dirty?' · cambios sin guardar':''}</summary>
+          <div className="actions" style={{marginTop:12,alignItems:'center'}}><input type="search" value={searchByCollection[c.id]||''} onChange={e=>setSearchByCollection(v=>({...v,[c.id]:e.target.value}))} placeholder="🔍 Buscar figura para agregar..."/><button type="button" className="ghost smallbtn" onClick={()=>setAllVisible(c,visible,true)}>Tildar visibles</button><button type="button" className="ghost smallbtn" onClick={()=>setAllVisible(c,visible,false)}>Destildar visibles</button></div>
+          <div className="admin-catalog-grid" style={{marginTop:10}}>{visible.map(p=><label key={p.id} className="form-check" style={{alignItems:'center'}}><input type="checkbox" checked={selected.has(p.id)} onChange={()=>toggleDraft(c,p.id)}/><span>{p.name}</span></label>)}</div>
+          <div className="actions" style={{marginTop:12}}><button type="button" className="primary" disabled={!dirty} onClick={()=>saveCollection(c)}>Guardar selección ({selected.size})</button><button type="button" className="danger smallbtn" onClick={()=>removeCollection(c.id)}>Eliminar categoría</button></div>
+        </details>
+      })}
       {!collections.length&&<p className="muted">Todavía no creaste categorías adicionales.</p>}
     </section>
     <CatalogAdminBase db={db} onSave={saveWithDates}/>
