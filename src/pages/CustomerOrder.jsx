@@ -7,8 +7,16 @@ export default function CustomerOrder(){
   const [special,setSpecial]=useState('')
   useEffect(()=>{
     let mounted=true
-    supabase.from('app_state').select('data').eq('id','main').maybeSingle().then(({data})=>{if(mounted&&data?.data)setCatalogState(data.data)})
-    return()=>{mounted=false}
+    const refresh=async()=>{
+      const {data}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
+      if(mounted&&data?.data)setCatalogState({...data.data,__updatedAt:data.updated_at||''})
+    }
+    refresh()
+    const onVisible=()=>{if(document.visibilityState==='visible')refresh()}
+    window.addEventListener('focus',refresh)
+    document.addEventListener('visibilitychange',onVisible)
+    const channel=supabase.channel('catalog-enhanced-sync').on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.main'},refresh).subscribe()
+    return()=>{mounted=false;window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}
   },[])
   const products=catalogState.customerCatalog||[]
   const collections=catalogState.catalogCollections||[]
