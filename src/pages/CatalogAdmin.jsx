@@ -1,178 +1,38 @@
-import React, { useMemo, useState } from 'react'
-import { Title } from '../components/UI'
-import { catalogProducts, catalogCategories, normalizeCatalogProducts } from '../lib/catalog'
-import { money } from '../lib/format'
+import React,{useMemo,useState} from 'react'
+import CatalogAdminBase from './CatalogAdminBase'
 
-const editableCategories = catalogCategories.filter(c => c !== 'Todos')
-const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', priceUnit:'', price6:'', price12:'', price100:'', active:true, productionType:'simple' }
-const slug = text => String(text||'producto').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
-
-function resizeImage(file){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader()
-    reader.onerror=reject
-    reader.onload=()=>{
-      const img=new Image()
-      img.onerror=reject
-      img.onload=()=>{
-        const max=1600
-        const scale=Math.min(1,max/Math.max(img.width,img.height))
-        const canvas=document.createElement('canvas')
-        canvas.width=Math.max(1,Math.round(img.width*scale)); canvas.height=Math.max(1,Math.round(img.height*scale))
-        const ctx=canvas.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0,canvas.width,canvas.height)
-        resolve(canvas.toDataURL('image/jpeg',.92))
-      }
-      img.src=reader.result
-    }
-    reader.readAsDataURL(file)
-  })
-}
+const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
 
 export default function CatalogAdmin({db,onSave}){
-  const products = normalizeCatalogProducts(db.customerCatalog?.length ? db.customerCatalog : catalogProducts)
-  const [form,setForm]=useState(emptyForm)
-  const [search,setSearch]=useState('')
-  const [savingImage,setSavingImage]=useState(false)
-  const [exportingPdf,setExportingPdf]=useState(false)
-  const filtered=useMemo(()=>products.filter(p=>`${p.name} ${p.category} ${p.measure}`.toLowerCase().includes(search.toLowerCase())),[products,search])
-  const update=(field,value)=>setForm(v=>({...v,[field]:value}))
+  const [name,setName]=useState('')
+  const collections=db.catalogCollections||[]
+  const products=db.customerCatalog||[]
+  const productIds=useMemo(()=>new Set(products.map(p=>p.id)),[products])
 
-  async function chooseImage(e){
-    const file=e.target.files?.[0]; if(!file)return
-    if(!file.type.startsWith('image/'))return alert('Elegí una imagen JPG, PNG o WEBP.')
-    setSavingImage(true)
-    try{update('image',await resizeImage(file))}catch{alert('No se pudo procesar la imagen.')}finally{setSavingImage(false)}
+  async function saveWithDates(next){
+    const oldIds=new Set((db.customerCatalog||[]).map(p=>p.id))
+    const now=new Date().toISOString()
+    const catalog=(next.customerCatalog||[]).map(p=>oldIds.has(p.id)?p:{...p,createdAt:p.createdAt||now})
+    const cleanedCollections=(next.catalogCollections||collections).map(c=>({...c,productIds:(c.productIds||[]).filter(id=>catalog.some(p=>p.id===id))}))
+    return onSave({...next,customerCatalog:catalog,catalogCollections:cleanedCollections})
   }
-  function edit(product){setForm({...emptyForm,...product,fixedPrice:product.fixedPrice||'',priceUnit:product.priceUnit||'',price6:product.price6||'',price12:product.price12||'',price100:product.price100||''}); window.scrollTo({top:0,behavior:'smooth'})}
-  function clear(){setForm(emptyForm)}
-  async function save(){
-    if(!form.name.trim())return alert('Ingresá el nombre del producto.')
-    if(!form.category.trim())return alert('Ingresá una categoría.')
-    if(!form.image)return alert('Subí una imagen del producto.')
-    const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
-    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.productionType||'simple'}
-    const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
-    await onSave({...db,customerCatalog:next})
-    clear(); alert(form.id?'Producto actualizado.':'Producto agregado al catálogo.')
+  async function addCollection(){
+    const clean=name.trim();if(!clean)return
+    if(collections.some(c=>c.name.toLocaleLowerCase('es')===clean.toLocaleLowerCase('es')))return alert('Ya existe una categoría con ese nombre.')
+    await onSave({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});setName('')
   }
-  async function toggle(product){await onSave({...db,customerCatalog:products.map(p=>p.id===product.id?{...p,active:p.active===false}:p)})}
-  async function remove(product){if(!confirm(`¿Eliminar “${product.name}” del catálogo de clientes?`))return; await onSave({...db,customerCatalog:products.filter(p=>p.id!==product.id)})}
-  async function restore(){if(!confirm('¿Restaurar el catálogo original? Se eliminarán los productos nuevos y cambios realizados.'))return; await onSave({...db,customerCatalog:catalogProducts}); clear()}
-
-  async function imageToDataUrl(url){
-    if(!url)return null
-    if(String(url).startsWith('data:'))return url
-    const response=await fetch(url)
-    if(!response.ok)throw new Error('No se pudo cargar una imagen')
-    const blob=await response.blob()
-    return await new Promise((resolve,reject)=>{
-      const reader=new FileReader(); reader.onerror=reject; reader.onload=()=>resolve(reader.result); reader.readAsDataURL(blob)
-    })
+  async function removeCollection(id){if(!confirm('¿Eliminar esta categoría adicional? Las figuras seguirán en el catálogo general.'))return;await onSave({...db,catalogCollections:collections.filter(c=>c.id!==id)})}
+  async function toggleProduct(collectionId,productId){
+    const next=collections.map(c=>{if(c.id!==collectionId)return c;const ids=new Set(c.productIds||[]);ids.has(productId)?ids.delete(productId):ids.add(productId);return {...c,productIds:[...ids]}})
+    await onSave({...db,catalogCollections:next})
   }
-
-  function imageFormat(dataUrl){
-    if(String(dataUrl).startsWith('data:image/png'))return 'PNG'
-    if(String(dataUrl).startsWith('data:image/webp'))return 'WEBP'
-    return 'JPEG'
-  }
-
-  function getImageDimensions(dataUrl){
-    return new Promise((resolve,reject)=>{
-      const img=new Image()
-      img.onload=()=>resolve({width:img.naturalWidth||img.width,height:img.naturalHeight||img.height})
-      img.onerror=reject
-      img.src=dataUrl
-    })
-  }
-
-  async function addImageContained(pdf,dataUrl,x,y,boxW,boxH){
-    const {width,height}=await getImageDimensions(dataUrl)
-    const scale=Math.min(boxW/width,boxH/height)
-    const drawW=width*scale
-    const drawH=height*scale
-    const drawX=x+(boxW-drawW)/2
-    const drawY=y+(boxH-drawH)/2
-    pdf.addImage(dataUrl,imageFormat(dataUrl),drawX,drawY,drawW,drawH,undefined,'FAST')
-  }
-
-  async function downloadCatalogPdf(){
-    const visible=products.filter(p=>p.active!==false)
-    if(!visible.length)return alert('No hay productos visibles para exportar.')
-    setExportingPdf(true)
-    try{
-      const { jsPDF }=await import('jspdf')
-      const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true})
-      const pageW=210, pageH=297, margin=12
-      const purple=[83,46,160], navy=[23,49,95], dark=[30,30,38], light=[246,247,252]
-      const addPageNumber=()=>{const pages=pdf.getNumberOfPages();pdf.setPage(pages);pdf.setFontSize(8);pdf.setTextColor(110);pdf.text(`Tu Vida En Tinta · Página ${pages}`,pageW/2,pageH-6,{align:'center'})}
-      const addHeader=(title)=>{pdf.setFillColor(...navy);pdf.rect(0,0,pageW,22,'F');pdf.setFont('helvetica','bold');pdf.setFontSize(18);pdf.setTextColor(255);pdf.text(title,margin,14);pdf.setTextColor(...dark)}
-      pdf.setFillColor(...navy); pdf.rect(0,0,pageW,78,'F');pdf.setFillColor(...purple);pdf.rect(0,78,pageW,7,'F')
-      try{const logo=await imageToDataUrl('/logo-tu-vida-en-tinta.png');await addImageContained(pdf,logo,margin,12,44,44)}catch{}
-      pdf.setTextColor(255);pdf.setFont('helvetica','bold');pdf.setFontSize(26);pdf.text('CATÁLOGO DE POLIFAN',64,30);pdf.setFontSize(18);pdf.text('Tu Vida En Tinta',64,43);pdf.setFont('helvetica','normal');pdf.setFontSize(10);pdf.text('Elegí tus diseños y enviá tu pedido por WhatsApp.',64,53)
-      pdf.setTextColor(...dark);pdf.setFont('helvetica','bold');pdf.setFontSize(16);pdf.text('PRECIOS Y PROMOCIONES',pageW/2,104,{align:'center'})
-      const promos=[['POR UNIDAD','$6.000'],['PROMO POR 6','$25.000'],['PROMO POR 12','$40.000']]
-      promos.forEach((pr,i)=>{const x=margin+i*62;pdf.setFillColor(...(i===1?purple:navy));pdf.roundedRect(x,116,58,32,4,4,'F');pdf.setTextColor(255);pdf.setFontSize(10);pdf.setFont('helvetica','bold');pdf.text(pr[0],x+29,127,{align:'center'});pdf.setFontSize(17);pdf.text(pr[1],x+29,140,{align:'center'})})
-      pdf.setTextColor(...dark);pdf.setFontSize(11);pdf.setFont('helvetica','normal');pdf.text('Los productos con precio especial muestran su valor propio.',pageW/2,164,{align:'center'});pdf.text('Envíos a todo el país · José León Suárez, Buenos Aires',pageW/2,174,{align:'center'});pdf.setFont('helvetica','bold');pdf.text('WhatsApp: 11-5919-2358  ·  @tuvidaentinta',pageW/2,190,{align:'center'});addPageNumber()
-
-      const categories=[...new Set(visible.map(p=>p.category).filter(Boolean))]
-      for(const category of categories){
-        const categoryProducts=visible.filter(p=>p.category===category)
-        if(!categoryProducts.length)continue
-        pdf.addPage(); addHeader(category.toUpperCase());let y=31
-        for(let i=0;i<categoryProducts.length;i+=2){
-          const pair=categoryProducts.slice(i,i+2),cardH=74
-          if(y+cardH>pageH-12){addPageNumber();pdf.addPage();addHeader(category.toUpperCase());y=31}
-          for(let col=0;col<pair.length;col++){
-            const product=pair[col],x=margin+col*94
-            pdf.setFillColor(...light);pdf.setDrawColor(220);pdf.roundedRect(x,y,88,68,3,3,'FD')
-            try{const img=await imageToDataUrl(product.image);pdf.setFillColor(255);pdf.rect(x+4,y+4,80,45,'F');await addImageContained(pdf,img,x+4,y+4,80,45)}catch{pdf.setFillColor(230);pdf.rect(x+4,y+4,80,45,'F');pdf.setTextColor(120);pdf.setFontSize(9);pdf.text('Imagen no disponible',x+44,y+27,{align:'center'})}
-            pdf.setTextColor(...dark);pdf.setFont('helvetica','bold');pdf.setFontSize(11);const nameLines=pdf.splitTextToSize(product.name,78).slice(0,2);pdf.text(nameLines,x+5,y+54);pdf.setFont('helvetica','normal');pdf.setFontSize(9);pdf.setTextColor(85);pdf.text(product.measure||'Consultar medida',x+5,y+64)
-            const special=product.priceUnit||product.fixedPrice
-            if(special){pdf.setFont('helvetica','bold');pdf.setTextColor(...purple);pdf.text(money(special),x+83,y+64,{align:'right'})}
-          }
-          y+=74
-        }
-        addPageNumber()
-      }
-      pdf.save(`catalogo-tu-vida-en-tinta-${new Date().toISOString().slice(0,10)}.pdf`)
-    }catch(error){console.error(error);alert('No se pudo generar el PDF. Probá nuevamente con conexión a internet.')}finally{setExportingPdf(false)}
-  }
-
   return <>
-    <Title title="Administrar catálogo" sub="Agregá diseños, categorías y precios especiales sin modificar GitHub."/>
-    <div className="panel catalog-editor">
-      <h3>{form.id?'Editar producto':'Agregar nuevo producto'}</h3>
-      <div className="catalog-form-grid">
-        <div className="catalog-image-picker">
-          {form.image?<img src={form.image} alt="Vista previa"/>:<div className="catalog-image-placeholder">Sin imagen</div>}
-          <label className="primary filebtn">{savingImage?'Procesando…':'Elegir imagen'}<input type="file" accept="image/*" onChange={chooseImage} disabled={savingImage}/></label>
-          <small>Se conserva mucha más resolución para que la imagen ampliada no se vea borrosa.</small>
-        </div>
-        <div className="customer-grid">
-          <label>Nombre<input value={form.name} onChange={e=>update('name',e.target.value)} placeholder="Ej.: Pikachu"/></label>
-          <label>Medida<input value={form.measure} onChange={e=>update('measure',e.target.value)} placeholder="Ej.: 20 x 16 cm"/></label>
-          <label>Categoría<input list="catalog-categories" value={form.category} onChange={e=>update('category',e.target.value)} placeholder="Ej.: Mini figuras"/><datalist id="catalog-categories">{editableCategories.map(c=><option value={c} key={c}/>)}</datalist></label>
-          <label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>
-          <label>Precio por 1 unidad<input inputMode="numeric" value={form.priceUnit} onChange={e=>update('priceUnit',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 3500"/></label>
-          <label>Precio promo x6<input inputMode="numeric" value={form.price6} onChange={e=>update('price6',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 18000"/></label>
-          <label>Precio promo x12<input inputMode="numeric" value={form.price12} onChange={e=>update('price12',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 30000"/></label>
-          <label>Precio promo x100<input inputMode="numeric" value={form.price100} onChange={e=>update('price100',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 180000"/></label>
-          <label>Precio fijo legado<input inputMode="numeric" value={form.fixedPrice} onChange={e=>update('fixedPrice',e.target.value.replace(/\D/g,''))} placeholder="Opcional; puede quedar vacío"/></label>
-          <label className="form-check"><input className="form-check-input" type="checkbox" checked={form.active!==false} onChange={e=>update('active',e.target.checked)}/><span className="form-check-label">Mostrar en el catálogo de clientes</span></label>
-        </div>
-      </div>
-      <div className="actions"><button className="primary" onClick={save} disabled={savingImage}>{form.id?'Guardar cambios':'Agregar al catálogo'}</button>{form.id&&<button className="ghost" onClick={clear}>Cancelar edición</button>}</div>
-    </div>
-
-    <div className="panel">
-      <div className="customer-section-title"><div><h3>Productos del catálogo ({products.length})</h3><p>Los productos desactivados no aparecen para los clientes.</p></div><div className="actions"><button className="primary" onClick={downloadCatalogPdf} disabled={exportingPdf}>{exportingPdf?'Generando PDF…':'Descargar catálogo en PDF'}</button><button className="ghost" onClick={restore}>Restaurar catálogo original</button></div></div>
-      <input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar producto..."/>
-      <div className="admin-catalog-grid">
-        {filtered.map(p=><article className={`admin-product ${p.active===false?'inactive':''}`} key={p.id}>
-          <img src={p.image} alt={p.name}/><div className="admin-product-body"><b>{p.name}</b><small>{p.category} · {p.measure||'Sin medida'} · {(db.svgLibrary||[]).filter(s=>s.productId===p.id).length} SVG</small><span>{p.active===false?'Oculto':'Visible'}{p.priceUnit?` · 1: ${money(p.priceUnit)}`:''}{p.price6?` · x6: ${money(p.price6)}`:''}{p.price12?` · x12: ${money(p.price12)}`:''}{p.price100?` · x100: ${money(p.price100)}`:''}</span></div>
-          <div className="row-actions"><button className="ghost smallbtn" onClick={()=>edit(p)}>Editar</button><button className="ghost smallbtn" onClick={()=>toggle(p)}>{p.active===false?'Activar':'Ocultar'}</button><button className="danger smallbtn" onClick={()=>remove(p)}>Eliminar</button></div>
-        </article>)}
-      </div>
-    </div>
+    <section className="panel" style={{marginBottom:16}}>
+      <div className="panel-heading"><div><h3>Categorías adicionales del catálogo</h3><small>Una figura puede estar en varias categorías sin salir de su categoría original ni del catálogo general.</small></div></div>
+      <div className="actions" style={{marginTop:12}}><input value={name} onChange={e=>setName(e.target.value)} placeholder="Ej.: Cumpleaños, Disney, Fútbol..."/><button className="primary" type="button" onClick={addCollection}>Crear categoría</button></div>
+      {collections.map(c=><details key={c.id} style={{marginTop:12}}><summary><b>{c.name}</b> · {(c.productIds||[]).filter(id=>productIds.has(id)).length} figuras</summary><div className="admin-catalog-grid" style={{marginTop:10}}>{products.map(p=><label key={p.id} className="form-check" style={{alignItems:'center'}}><input type="checkbox" checked={(c.productIds||[]).includes(p.id)} onChange={()=>toggleProduct(c.id,p.id)}/><span>{p.name}</span></label>)}</div><button type="button" className="danger smallbtn" onClick={()=>removeCollection(c.id)}>Eliminar categoría</button></details>)}
+      {!collections.length&&<p className="muted">Todavía no creaste categorías adicionales.</p>}
+    </section>
+    <CatalogAdminBase db={db} onSave={saveWithDates}/>
   </>
 }
