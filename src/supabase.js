@@ -15,9 +15,13 @@ const isPublicCatalog=()=>{try{const q=new URLSearchParams(window.location.searc
 
 function readJson(key){try{return JSON.parse(window.localStorage.getItem(key)||'null')}catch{return null}}
 function orderCount(state){return Array.isArray(state?.orders)?state.orders.length:0}
+function quoteCount(state){return Array.isArray(state?.quotes)?state.quotes.length:0}
 function bestInternalCache(){
   const candidates=[readJson(APP_CACHE_KEY),readJson(EMERGENCY_CACHE_KEY),readJson(PUBLIC_CACHE_KEY)?.state].filter(Boolean)
-  return candidates.sort((a,b)=>orderCount(b)-orderCount(a))[0]||null
+  return candidates.sort((a,b)=>{
+    const score=s=>orderCount(s)*100000+quoteCount(s)*1000+(Array.isArray(s?.clients)?s.clients.length:0)
+    return score(b)-score(a)
+  })[0]||null
 }
 function cachedAppStateResult(){
   const publicMode=isPublicCatalog()
@@ -96,6 +100,26 @@ export async function restoreCloudBackup(id){
   }catch(error){return {ok:false,error}}
 }
 
+function protectInternalState(result){
+  if(isPublicCatalog()||!result?.data?.data)return result
+  const remote=result.data.data
+  const local=bestInternalCache()
+  if(!local)return result
+
+  const remoteOrders=orderCount(remote),localOrders=orderCount(local)
+  const remoteQuotes=quoteCount(remote),localQuotes=quoteCount(local)
+  if(remoteOrders>=localOrders&&remoteQuotes>=localQuotes)return result
+
+  const protectedState={...remote}
+  const protectedFields=[]
+  if(localOrders>remoteOrders){protectedState.orders=local.orders;protectedFields.push('orders')}
+  if(localQuotes>remoteQuotes){protectedState.quotes=local.quotes;protectedFields.push('quotes')}
+
+  // Una lectura vieja nunca debe hacer retroceder pedidos/presupuestos recién guardados.
+  // El estado remoto sigue aportando el resto de los campos.
+  return {...result,data:{...result.data,data:protectedState},__protectedFromOlderRemote:true,__protectedFields:protectedFields}
+}
+
 function wrapBuilder(builder,table){
   if(!builder||typeof builder!=='object')return builder
   return new Proxy(builder,{
@@ -111,12 +135,7 @@ function wrapBuilder(builder,table){
             const result=await Promise.race([original(...args),timeout])
             window.clearTimeout(timer)
             if(result?.error&&/statement timeout|canceling statement/i.test(result.error.message||''))return fallback
-            const remote=result?.data?.data
-            if(!isPublicCatalog()&&remote&&orderCount(remote)===0){
-              const local=bestInternalCache()
-              if(orderCount(local)>0)return {data:{data:local,updated_at:result?.data?.updated_at||''},error:null,status:200,statusText:'OK',count:null,__protectedFromEmptyRemote:true}
-            }
-            return result
+            return protectInternalState(result)
           }catch(error){
             window.clearTimeout(timer)
             return fallback||Promise.reject(error)
