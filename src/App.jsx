@@ -19,7 +19,7 @@ const CatalogAdmin=lazy(()=>import('./pages/CatalogAdmin'))
 const CustomerOrder=lazy(()=>import('./pages/CustomerOrder'))
 const OrderControl=lazy(()=>import('./pages/OrderControl'))
 const Analytics=lazy(()=>import('./pages/Analytics'))
-const WebRequests=lazy(()=>import('./pages/WebRequests'))
+const WebRequests=lazy(()=>import('./pages/WebRequestsGrouped'))
 const CatalogAssistant=lazy(()=>import('./pages/CatalogAssistant'))
 const CustomerTrust=lazy(()=>import('./pages/CustomerTrust'))
 const ProductionCalendar=lazy(()=>import('./pages/ProductionCalendar'))
@@ -63,13 +63,17 @@ export default function App(){
     loadSequenceRef.current+=1
     savingRef.current=true
     setSaving(true)
-    const previous=db,updatedAt=new Date().toISOString()
-    const {data:saved,error}=await supabase.from('app_state').upsert({id:'main',data:next,updated_at:updatedAt,updated_by:session.user.id},{onConflict:'id'}).select('data,updated_at').single()
+    const previous=db,updatedAt=new Date().toISOString(),payload={data:next,updated_at:updatedAt,updated_by:session.user.id}
+    let {error}=await supabase.from('app_state').update(payload).eq('id','main')
+    if(error&&/statement timeout/i.test(error.message||'')){
+      await new Promise(resolve=>setTimeout(resolve,350))
+      ;({error}=await supabase.from('app_state').update(payload).eq('id','main'))
+    }
     if(error){savingRef.current=false;setSaving(false);setDb(previous);alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+error.message);return{ok:false,error}}
-    const confirmed=saved?.data?{...emptyState(),...saved.data}:next
+    const confirmed={...emptyState(),...next}
     setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
     savingRef.current=false;setSaving(false)
-    return{ok:true,updatedAt:saved?.updated_at||updatedAt}
+    return{ok:true,updatedAt}
   }
   async function saveOrderData(next){
     const previousIds=new Set((db.orders||[]).map(o=>o.id))
