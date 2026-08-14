@@ -28,7 +28,7 @@ const SvgLibrary=lazy(()=>import('./pages/SvgLibrary'))
 const OperationsHub=lazy(()=>import('./pages/OperationsHub'))
 const CostSettings=lazy(()=>import('./pages/CostSettings'))
 const Quotes=lazy(()=>import('./pages/Quotes'))
-const Loading=()=> <div className="center-screen">Cargando módulo…</div>
+const Loading=()=> <div className="center-screen">Sincronizando datos seguros…</div>
 
 function CatalogAccess(){
   const base=`${window.location.origin}/?pedido=1`
@@ -43,19 +43,40 @@ export default function App(){
   if(customerMode)return <Suspense fallback={<Loading/>}><CustomerOrder/></Suspense>
   const [session,setSession]=useState(null)
   const cachedState=(()=>{try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null}})()
-  const [db,setDb]=useState(cachedState?{...emptyState(),...cachedState}:emptyState()),[loading,setLoading]=useState(!cachedState),[saving,setSaving]=useState(false)
-  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0)
+  const [db,setDb]=useState(cachedState?{...emptyState(),...cachedState}:emptyState()),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
+  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0),authBootRef=useRef(false)
   const [page,setPage]=useState(()=>sessionStorage.getItem('polifan-current-page')||'dashboard'),[mobileOpen,setMobileOpen]=useState(false),[editingOrder,setEditingOrder]=useState(null)
-  useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);if(data.session)loadData(!cachedState);else setLoading(false)});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,s)=>{setSession(s);if(s&&!savingRef.current)loadData(false)});const refresh=()=>{if(document.visibilityState==='visible'&&!savingRef.current)loadData(false,true)},timer=window.setInterval(()=>{if(document.visibilityState==='visible'&&!savingRef.current)loadData(false,true)},25000);document.addEventListener('visibilitychange',refresh);return()=>{subscription.unsubscribe();window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh)}},[])
+  useEffect(()=>{
+    let active=true
+    supabase.auth.getSession().then(({data})=>{
+      if(!active)return
+      const s=data.session
+      setSession(s)
+      if(s&&!authBootRef.current){authBootRef.current=true;loadData(true)}
+      else if(!s)setLoading(false)
+    })
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,s)=>{
+      if(!active)return
+      setSession(s)
+      if(!s){authBootRef.current=false;setLoading(false);return}
+      if(!authBootRef.current){authBootRef.current=true;loadData(true)}
+    })
+    return()=>{active=false;subscription.unsubscribe()}
+  },[])
   useEffect(()=>{sessionStorage.setItem('polifan-current-page',page)},[page])
   async function loadData(initial=false,silent=false){
     if(savingRef.current){if(initial)setLoading(false);return}
     const startedEpoch=mutationEpochRef.current,sequence=++loadSequenceRef.current
     if(initial)setLoading(true)
     const {data,error}=await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
-    if(error){if(!silent)alert('No se pudo conectar con Supabase: '+error.message);if(sequence===loadSequenceRef.current)setLoading(false);return}
+    if(error){
+      if(cachedState){const fallback={...emptyState(),...cachedState};setDb(fallback)}
+      if(!silent)alert('No se pudo conectar con Supabase: '+error.message+'\nSe mantiene la última copia disponible en esta computadora.')
+      if(sequence===loadSequenceRef.current)setLoading(false)
+      return
+    }
     if(savingRef.current||startedEpoch!==mutationEpochRef.current||sequence!==loadSequenceRef.current)return
-    const next=data?.data?{...emptyState(),...data.data}:emptyState()
+    const next=data?.data?{...emptyState(),...data.data}:(cachedState?{...emptyState(),...cachedState}:emptyState())
     setDb(next);try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}setLoading(false)
   }
   async function saveData(next){
@@ -64,16 +85,22 @@ export default function App(){
     savingRef.current=true
     setSaving(true)
     const previous=db,updatedAt=new Date().toISOString(),payload={data:next,updated_at:updatedAt,updated_by:session.user.id}
-    let {error}=await supabase.from('app_state').update(payload).eq('id','main')
-    if(error&&/statement timeout/i.test(error.message||'')){
+    let result=await supabase.from('app_state').update(payload).eq('id','main')
+    if(result.error&&/statement timeout/i.test(result.error.message||'')){
       await new Promise(resolve=>setTimeout(resolve,350))
-      ;({error}=await supabase.from('app_state').update(payload).eq('id','main'))
+      result=await supabase.from('app_state').update(payload).eq('id','main')
     }
-    if(error){savingRef.current=false;setSaving(false);setDb(previous);alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+error.message);return{ok:false,error}}
+    if(result.error){
+      savingRef.current=false;setSaving(false);setDb(previous)
+      try{localStorage.setItem('polifan-app-cache',JSON.stringify(previous))}catch{}
+      alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+result.error.message)
+      return{ok:false,error:result.error}
+    }
     const confirmed={...emptyState(),...next}
     setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
     savingRef.current=false;setSaving(false)
-    return{ok:true,updatedAt}
+    if(result.__durableWarning)alert('El cambio quedó guardado, pero la copia de seguridad por registro no pudo verificarse. No cierres la app hasta revisar la conexión.')
+    return{ok:true,updatedAt,durableOnly:Boolean(result.__durableOnly)}
   }
   async function saveOrderData(next){
     const previousIds=new Set((db.orders||[]).map(o=>o.id))
