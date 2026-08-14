@@ -1,4 +1,4 @@
-const SW_VERSION='15.1'
+const SW_VERSION='15.2'
 self.addEventListener('install',event=>{self.skipWaiting()})
 self.addEventListener('activate',event=>{
   event.waitUntil((async()=>{
