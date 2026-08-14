@@ -69,7 +69,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     if(!form.phone?.trim())return alert('Ingresá el teléfono del cliente.')
     if(!regularItems.length&&!validManualItems.length)return alert('Agregá al menos una figura o un producto manual.')
     const fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim(),code=nextQuoteCode()
-    const quote={...form,id:crypto.randomUUID(),code,source:'Manual',status:'Pendiente',client:fullName,total,items:combinedItems(),date:today(),shippingCost:0,shippingPaid:'No corresponde',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
+    const quotedShipping=deliveryType==='Retiro en el local'?0:Math.max(0,Number(form.shippingCost||0)||0)
+    const quote={...form,id:crypto.randomUUID(),code,source:'Manual',status:'Pendiente',client:fullName,total,items:combinedItems(),date:today(),deliveryType,carrier:deliveryType,shippingCost:quotedShipping,shippingPaid:deliveryType==='Retiro en el local'?'No corresponde':(form.shippingPaid||'Pendiente de pago'),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
     const saved=await onSave({...db,quotes:[...(db.quotes||[]),quote]});if(saved?.ok===false)return
     try{await downloadQuoteJpg(quote)}catch(err){console.error(err)}
     localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit();alert(`${code} guardado. Podés aprobarlo desde VENTAS → Presupuestos.`)

@@ -12,15 +12,20 @@ const isPublicCatalog=()=>{try{const q=new URLSearchParams(window.location.searc
 
 function readJson(key){try{return JSON.parse(window.localStorage.getItem(key)||'null')}catch{return null}}
 function cachedAppStateResult(){
-  const publicCache=readJson(PUBLIC_CACHE_KEY)
-  if(publicCache?.state){
-    return {data:{data:publicCache.state,updated_at:publicCache.updatedAt||publicCache.cachedAt||''},error:null,status:200,statusText:'OK',count:null,__fromCache:true}
+  const publicMode=isPublicCatalog()
+  if(publicMode){
+    const publicCache=readJson(PUBLIC_CACHE_KEY)
+    if(publicCache?.state){
+      return {data:{data:publicCache.state,updated_at:publicCache.updatedAt||publicCache.cachedAt||''},error:null,status:200,statusText:'OK',count:null,__fromCache:true}
+    }
   }
-  const appCache=readJson(APP_CACHE_KEY)
-  if(appCache){
-    return {data:{data:appCache,updated_at:appCache.updatedAt||''},error:null,status:200,statusText:'OK',count:null,__fromCache:true}
+  if(!publicMode){
+    const appCache=readJson(APP_CACHE_KEY)
+    if(appCache){
+      return {data:{data:appCache,updated_at:appCache.updatedAt||''},error:null,status:200,statusText:'OK',count:null,__fromCache:true}
+    }
   }
-  if(isPublicCatalog()){
+  if(publicMode){
     const safePublicState={customerCatalog:catalogProducts,orders:[],productionClosedDates:[],customerReviews:[],customerPhotos:[],catalogCollections:[]}
     return {data:{data:safePublicState,updated_at:''},error:null,status:200,statusText:'OK',count:null,__staticFallback:true}
   }
