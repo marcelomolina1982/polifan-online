@@ -4,6 +4,8 @@ import {automaticOrderOutflow,looseComponentBalance,manualBalance,normalizeFigur
 import {today} from '../lib/format'
 
 const RECOUNT_ID='inventario-fisico-2026-08-14-v1'
+const RECOUNT_CUTOFF='2026-08-14'
+const CLOSEOUT_ID='inventario-fisico-2026-08-14-cierre-v1'
 const PHYSICAL_RECOUNT=[
   ['COPA DEL MUNDO',8,1,0],['CARAMELO',13,0,0],['OSO',1,0,0],['JESSIE',1,0,0],['TE AMO',1,0,0],['AUTO',2,0,0],['MINIONS',1,0,0],['SPIDERMAN',2,0,0],['SONIC',4,0,0],['CHANCHO',5,0,0],['DINO',10,0,0],['DINO CORAZON',2,0,0],['BOTIN',4,0,0],['ESCUDO RACING',2,0,0],['RUMMI',2,2,0],['UNICORNIO',1,0,2],
   ['PATO',0,0,1],['BABY SHARK',0,0,1],['ESCUDO RIVER',1,0,0],['MICKEY',1,0,0],['MINNIE',3,0,0],['CORAZON',1,0,0],['CAMISETA',1,0,0],['FELIZ DIA CORAZON',1,0,0],['CHOPP',4,0,0],['CARA DE PAPA',2,0,0],['STITCH COMPLETO',3,0,0],['MARCIANO',1,0,0],['GRACIAS',1,0,0],['OVEJA',1,0,0],['LETRA J',1,0,0],['FLOR DE CEREZO',1,0,0],['SEÑO CORAZON',2,0,0],['MANOS MICKEY',1,0,0],['WODY',3,0,0],['ARCO IRIS',5,0,0],['ESCUDO BOCA',6,0,0],['BESO',8,0,0],['INFINITO MAMA',3,0,0],['PICADA',5,0,0],['GATO',2,0,0],['TORTUGA NINJA',1,0,0],['ROMPE CABEZA CPRAZON',2,0,1],['MATE',2,0,0],['PALABRA MAMA IMPRENTA',5,0,0],['PERRO SALCHICHA',1,0,0],['MARIPOSA DIVISION',5,0,0],['CORAZON DIVISION',13,0,0],['FLOR SIMPLE',5,0,0],['FLOR CON TALLO',2,0,0],['PELOTA',4,0,0],['ABEJITA',2,0,0],['SKYE',1,0,0],['PLIM PLIM',2,0,0],['GOKU',1,0,0],['CORAZON MAMA',1,0,0],['CORAZON SEÑO',1,0,0],['KITTY',2,0,0],['CAMARA DE FOTO',1,0,0],['TAZA DE TE SEÑO',1,0,0],['LAPIZ',1,0,0],['MARGARITA',1,0,0]
@@ -76,10 +78,41 @@ function buildRecountState(db){
   return {...db,figures,movements,inventoryRecount:{id:RECOUNT_ID,appliedAt:now,completeTotal:170,looseBases:4,looseTops:3,source:'INVENTARIO PIEZAS 14-08.txt'}}
 }
 
+function buildRecountCloseoutState(db){
+  const before=automaticOrderOutflow(db)
+  const now=new Date().toISOString()
+  let closedOrders=0
+  const orders=(db.orders||[]).map(order=>{
+    const delivery=String(order?.delivery||'').slice(0,10)
+    if(!delivery||delivery>RECOUNT_CUTOFF||order.status==='Cancelado'||order.status==='Entregado')return order
+    closedOrders+=1
+    return {...order,status:'Entregado',inventoryClosedAt:now,inventoryClosedReason:'Recuento físico 14/08'}
+  })
+  const intermediate={...db,orders}
+  const after=automaticOrderOutflow(intermediate)
+  const movements=[...(db.movements||[])]
+  const names=new Set([...Object.keys(before),...Object.keys(after)])
+  let compensatedPieces=0
+  names.forEach(figure=>{
+    const delta=Number(after[figure]||0)-Number(before[figure]||0)
+    if(delta<=0)return
+    compensatedPieces+=delta
+    movements.push({
+      id:crypto.randomUUID(),date:RECOUNT_CUTOFF,figure,
+      type:'Ajuste positivo',qty:delta,
+      detail:`CIERRE RECUENTO 14/08 · compensar ${delta} pieza${delta===1?'':'s'} ya incluida${delta===1?'':'s'} en el conteo físico`,
+      createdAt:now
+    })
+  })
+  return {...intermediate,movements,inventoryRecountCloseout:{id:CLOSEOUT_ID,cutoffDate:RECOUNT_CUTOFF,appliedAt:now,closedOrders,compensatedPieces,source:'Recuento físico 14/08: pedidos entregados ya incluidos en el stock real'}}
+}
+
 export default function Stock(props){
   const {db,onSave}=props
   const applyingRef=useRef(false)
+  const closeoutRef=useRef(false)
   const [recountStatus,setRecountStatus]=useState(db.inventoryRecount?.id===RECOUNT_ID?'applied':'pending')
+  const closeoutApplied=db.inventoryRecountCloseout?.id===CLOSEOUT_ID
 
   useEffect(()=>{
     const clean=()=>document.querySelectorAll('.stock-no-projection .inventory-explanation').forEach(el=>{if(el.textContent?.toLocaleLowerCase('es').includes('proyección'))el.style.display='none'})
@@ -94,7 +127,19 @@ export default function Stock(props){
       const result=await onSave(next)
       if(result?.ok===false){applyingRef.current=false;setRecountStatus('error');alert('No se pudo aplicar el recuento físico. No se modificó el inventario. Revisá la conexión y volvé a entrar a Inventario.');return}
       setRecountStatus('applied')
-      alert('✅ Recuento físico 14/08 aplicado. Inventario ajustado a 170 figuras completas + 4 bases + 3 tapas. “Para cortar” ya se recalcula con este stock real y los pedidos vigentes.')
+      alert('✅ Recuento físico 14/08 aplicado. Inventario ajustado a 170 figuras completas + 4 bases + 3 tapas.')
+    })()
+  },[db,onSave])
+
+  useEffect(()=>{
+    if(!db||!onSave||db.inventoryRecount?.id!==RECOUNT_ID||db.inventoryRecountCloseout?.id===CLOSEOUT_ID||closeoutRef.current)return
+    closeoutRef.current=true
+    ;(async()=>{
+      const next=buildRecountCloseoutState(db)
+      const result=await onSave(next)
+      if(result?.ok===false){closeoutRef.current=false;alert('No se pudo cerrar el recuento del 14/08. El inventario no se cambió. Volvé a entrar a Inventario para reintentar.');return}
+      const info=next.inventoryRecountCloseout
+      alert(`✅ Cierre 14/08 aplicado. ${info.closedOrders} pedido${info.closedOrders===1?'':'s'} entregado${info.closedOrders===1?'':'s'} hasta hoy dejaron de figurar en “Para cortar”. El stock físico de 170 se conserva sin doble descuento.`)
     })()
   },[db,onSave])
 
@@ -104,7 +149,7 @@ export default function Stock(props){
     .stock-no-projection .inventory-table td:nth-child(8){display:none!important}
   `}</style>
     {recountStatus!=='applied'&&<div className="notice"><b>{recountStatus==='applying'?'Aplicando recuento físico 14/08…':'Recuento físico 14/08 pendiente'}</b><span>{recountStatus==='error'?'Falló el guardado. Salí y volvé a entrar a Inventario para reintentar.':'No cierres esta pantalla hasta que aparezca la confirmación.'}</span></div>}
-    {recountStatus==='applied'&&<div className="notice"><b>✅ Inventario físico 14/08 aplicado</b><span>Base real: 170 completas · 4 bases sueltas · 3 tapas sueltas. Los faltantes de “Para cortar” se calculan desde este recuento.</span></div>}
+    {recountStatus==='applied'&&<div className="notice"><b>✅ Inventario físico 14/08 aplicado</b><span>Base real: 170 completas · 4 bases sueltas · 3 tapas sueltas. {closeoutApplied?'Pedidos entregados hasta el recuento ya cerrados; no volverán a descontarse.':'Cerrando pedidos ya entregados para evitar doble descuento…'}</span></div>}
     <StockBase {...props}/>
   </div>
 }
