@@ -10,13 +10,26 @@ const PUBLIC_CACHE_KEY='tvet_catalog_planning_cache_v1'
 const APP_CACHE_KEY='polifan-app-cache'
 const EMERGENCY_CACHE_KEY='polifan-emergency-backup-v1'
 const AUTO_BACKUPS_KEY='polifan-auto-backups-v1'
+const PENDING_WRITE_KEY='polifan-pending-write-v1'
 const MAX_LOCAL_BACKUPS=30
 const isPublicCatalog=()=>{try{const q=new URLSearchParams(window.location.search);return window.location.hash==='#pedido'||q.get('pedido')==='1'}catch{return false}}
 
 function readJson(key){try{return JSON.parse(window.localStorage.getItem(key)||'null')}catch{return null}}
+function writeJson(key,value){try{window.localStorage.setItem(key,JSON.stringify(value));return true}catch{return false}}
 function orderCount(state){return Array.isArray(state?.orders)?state.orders.length:0}
 function quoteCount(state){return Array.isArray(state?.quotes)?state.quotes.length:0}
+function idsOf(list){return new Set((Array.isArray(list)?list:[]).map(x=>String(x?.id||x?.number||x?.code||'')).filter(Boolean))}
+function containsAll(remoteList,localList){const remote=idsOf(remoteList);return (Array.isArray(localList)?localList:[]).every(x=>remote.has(String(x?.id||x?.number||x?.code||'')))}
+function pendingWrite(){
+  const value=readJson(PENDING_WRITE_KEY)
+  if(!value?.state||!value?.createdAt)return null
+  const age=Date.now()-Date.parse(value.createdAt)
+  if(!Number.isFinite(age)||age>24*60*60*1000){try{window.localStorage.removeItem(PENDING_WRITE_KEY)}catch{};return null}
+  return value
+}
 function bestInternalCache(){
+  const pending=pendingWrite()?.state
+  if(pending)return pending
   const candidates=[readJson(APP_CACHE_KEY),readJson(EMERGENCY_CACHE_KEY),readJson(PUBLIC_CACHE_KEY)?.state].filter(Boolean)
   return candidates.sort((a,b)=>{
     const score=s=>orderCount(s)*100000+quoteCount(s)*1000+(Array.isArray(s?.clients)?s.clients.length:0)
@@ -103,9 +116,24 @@ export async function restoreCloudBackup(id){
 function protectInternalState(result){
   if(isPublicCatalog()||!result?.data?.data)return result
   const remote=result.data.data
+  const pending=pendingWrite()
+  if(pending?.state){
+    const wanted=pending.state
+    const ordersConfirmed=containsAll(remote.orders,wanted.orders)
+    const quotesConfirmed=containsAll(remote.quotes,wanted.quotes)
+    if(ordersConfirmed&&quotesConfirmed){
+      try{window.localStorage.removeItem(PENDING_WRITE_KEY)}catch{}
+      writeJson(APP_CACHE_KEY,remote)
+      writeJson(EMERGENCY_CACHE_KEY,remote)
+      return result
+    }
+    // Mientras Supabase todavía no devuelva lo que acabamos de guardar,
+    // la interfaz mantiene exactamente el último estado confirmado por el usuario.
+    return {...result,data:{...result.data,data:wanted},__protectedPendingWrite:true}
+  }
+
   const local=bestInternalCache()
   if(!local)return result
-
   const remoteOrders=orderCount(remote),localOrders=orderCount(local)
   const remoteQuotes=quoteCount(remote),localQuotes=quoteCount(local)
   if(remoteOrders>=localOrders&&remoteQuotes>=localQuotes)return result
@@ -114,9 +142,6 @@ function protectInternalState(result){
   const protectedFields=[]
   if(localOrders>remoteOrders){protectedState.orders=local.orders;protectedFields.push('orders')}
   if(localQuotes>remoteQuotes){protectedState.quotes=local.quotes;protectedFields.push('quotes')}
-
-  // Una lectura vieja nunca debe hacer retroceder pedidos/presupuestos recién guardados.
-  // El estado remoto sigue aportando el resto de los campos.
   return {...result,data:{...result.data,data:protectedState},__protectedFromOlderRemote:true,__protectedFields:protectedFields}
 }
 
@@ -163,6 +188,12 @@ export const supabase=new Proxy(client,{
             if(key==='update')return payload=>{
               const previous=bestInternalCache()
               if(previous){saveLocalBackup(previous,'antes de guardar');saveCloudBackup(previous,'antes de guardar')}
+              if(payload?.data&&!isPublicCatalog()){
+                const createdAt=new Date().toISOString()
+                writeJson(PENDING_WRITE_KEY,{createdAt,state:payload.data,summary:snapshotSummary(payload.data)})
+                writeJson(APP_CACHE_KEY,payload.data)
+                writeJson(EMERGENCY_CACHE_KEY,payload.data)
+              }
               return wrapBuilder(obj.update(payload),table)
             }
             const value=obj[key]
