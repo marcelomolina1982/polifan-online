@@ -12,6 +12,7 @@ const EMERGENCY_CACHE_KEY='polifan-emergency-backup-v1'
 const AUTO_BACKUPS_KEY='polifan-auto-backups-v1'
 const PENDING_WRITE_KEY='polifan-pending-write-v1'
 const MAX_LOCAL_BACKUPS=30
+let ADMIN_REMOTE_READ_DONE=false
 const isPublicCatalog=()=>{try{const q=new URLSearchParams(window.location.search);return window.location.hash==='#pedido'||q.get('pedido')==='1'}catch{return false}}
 
 function readJson(key){try{return JSON.parse(window.localStorage.getItem(key)||'null')}catch{return null}}
@@ -127,17 +128,13 @@ function protectInternalState(result){
       writeJson(EMERGENCY_CACHE_KEY,remote)
       return result
     }
-    // Mientras Supabase todavía no devuelva lo que acabamos de guardar,
-    // la interfaz mantiene exactamente el último estado confirmado por el usuario.
     return {...result,data:{...result.data,data:wanted},__protectedPendingWrite:true}
   }
-
   const local=bestInternalCache()
   if(!local)return result
   const remoteOrders=orderCount(remote),localOrders=orderCount(local)
   const remoteQuotes=quoteCount(remote),localQuotes=quoteCount(local)
   if(remoteOrders>=localOrders&&remoteQuotes>=localQuotes)return result
-
   const protectedState={...remote}
   const protectedFields=[]
   if(localOrders>remoteOrders){protectedState.orders=local.orders;protectedFields.push('orders')}
@@ -152,17 +149,26 @@ function wrapBuilder(builder,table){
       if(prop==='maybeSingle'&&table==='app_state'){
         return async(...args)=>{
           const fallback=cachedAppStateResult()
+          // EMERGENCIA: la app administrativa solo hace una lectura remota al abrirse.
+          // Los refrescos automáticos posteriores usan el estado local confirmado y no pueden borrar pedidos recién guardados.
+          if(!isPublicCatalog()&&ADMIN_REMOTE_READ_DONE&&fallback)return {...fallback,__adminAutoRefreshFrozen:true}
           const original=target.maybeSingle.bind(target)
-          if(!fallback)return original(...args)
+          if(!fallback){
+            const result=await original(...args)
+            if(!isPublicCatalog())ADMIN_REMOTE_READ_DONE=true
+            return result
+          }
           let timer
           try{
             const timeout=new Promise(resolve=>{timer=window.setTimeout(()=>resolve(fallback),2200)})
             const result=await Promise.race([original(...args),timeout])
             window.clearTimeout(timer)
+            if(!isPublicCatalog())ADMIN_REMOTE_READ_DONE=true
             if(result?.error&&/statement timeout|canceling statement/i.test(result.error.message||''))return fallback
             return protectInternalState(result)
           }catch(error){
             window.clearTimeout(timer)
+            if(!isPublicCatalog())ADMIN_REMOTE_READ_DONE=true
             return fallback||Promise.reject(error)
           }
         }
@@ -193,6 +199,7 @@ export const supabase=new Proxy(client,{
                 writeJson(PENDING_WRITE_KEY,{createdAt,state:payload.data,summary:snapshotSummary(payload.data)})
                 writeJson(APP_CACHE_KEY,payload.data)
                 writeJson(EMERGENCY_CACHE_KEY,payload.data)
+                ADMIN_REMOTE_READ_DONE=true
               }
               return wrapBuilder(obj.update(payload),table)
             }
