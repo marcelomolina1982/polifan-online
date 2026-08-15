@@ -121,6 +121,25 @@ function canonicalAliasMap(db){
   const aliases=new Map()
   duplicateFigureGroups(db).forEach(g=>g.names.forEach(name=>aliases.set(normalizeFigureKey(name),g.canonical)))
   ;(db.customerCatalog||[]).forEach(p=>{const key=normalizeFigureKey(p?.name);if(key)aliases.set(key,p.name)})
+
+  // Alias históricos del inventario/recuentos. Son el mismo diseño con nombres
+  // que se usaron antes de normalizar el catálogo. Esto evita que una pieza física
+  // quede invisible cuando un pedido nuevo usa el nombre actual del catálogo.
+  const knownAliases=[
+    ['Oso','Osito'],
+    ['Jessie','Jessie Toy Story'],
+    ['Micky','Mickey Mouse'],
+    ['Stitch','Stitch Entero']
+  ]
+  const names=allFigureNames(db)
+  knownAliases.forEach(([oldName,newName])=>{
+    const targetKey=normalizeFigureKey(newName)
+    const target=(db.customerCatalog||[]).find(p=>normalizeFigureKey(p?.name)===targetKey)?.name
+      || names.find(name=>normalizeFigureKey(name)===targetKey)
+      || newName
+    aliases.set(normalizeFigureKey(oldName),target)
+    aliases.set(targetKey,target)
+  })
   return aliases
 }
 
