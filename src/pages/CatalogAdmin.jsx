@@ -36,8 +36,15 @@ export default function CatalogAdmin({db,onSave}){
     return result||{ok:true,data:confirmed}
   }
   useEffect(()=>{
-    if(!products.length)return
-    publishPublicCatalog(db)
+    let active=true
+    ;(async()=>{
+      try{
+        const {data,error}=await supabase.from('app_state').select('customerCatalog:data->customerCatalog,catalogCollections:data->catalogCollections,customerSettings:data->customerSettings,customerReviews:data->customerReviews,customerPhotos:data->customerPhotos,chatbotSettings:data->chatbotSettings').eq('id','main').maybeSingle()
+        if(!active||error||!Array.isArray(data?.customerCatalog)||!data.customerCatalog.length)return
+        await publishPublicCatalog(data)
+      }catch(error){console.warn('No se pudo recuperar el catálogo público desde el servidor',error)}
+    })()
+    return()=>{active=false}
   },[])
 
   async function saveWithDates(next){
