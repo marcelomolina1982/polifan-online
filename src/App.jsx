@@ -29,6 +29,11 @@ const OperationsHub=lazy(()=>import('./pages/OperationsHub'))
 const CostSettings=lazy(()=>import('./pages/CostSettings'))
 const Quotes=lazy(()=>import('./pages/Quotes'))
 const Loading=()=> <div className="center-screen">Sincronizando datos seguros…</div>
+const stableJson=value=>{try{return JSON.stringify(value)}catch{return String(value)}}
+const changedTopLevelKeys=(before,after)=>{
+  const keys=new Set([...Object.keys(before||{}),...Object.keys(after||{})])
+  return [...keys].filter(key=>stableJson(before?.[key])!==stableJson(after?.[key]))
+}
 
 function CatalogAccess(){
   const base=`${window.location.origin}/?pedido=1`
@@ -44,7 +49,7 @@ export default function App(){
   const [session,setSession]=useState(null)
   const cachedState=(()=>{try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null}})()
   const [db,setDb]=useState(cachedState?{...emptyState(),...cachedState}:emptyState()),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
-  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0),authBootRef=useRef(false)
+  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0),authBootRef=useRef(false),serverRevisionRef=useRef('')
   const [page,setPage]=useState(()=>sessionStorage.getItem('polifan-current-page')||'dashboard'),[mobileOpen,setMobileOpen]=useState(false),[editingOrder,setEditingOrder]=useState(null)
   useEffect(()=>{
     let active=true
@@ -68,7 +73,7 @@ export default function App(){
     if(savingRef.current){if(initial)setLoading(false);return}
     const startedEpoch=mutationEpochRef.current,sequence=++loadSequenceRef.current
     if(initial)setLoading(true)
-    const {data,error}=await supabase.from('app_state').select('data').eq('id','main').maybeSingle()
+    const {data,error}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
     if(error){
       if(cachedState){const fallback={...emptyState(),...cachedState};setDb(fallback)}
       if(!silent)alert('No se pudo conectar con Supabase: '+error.message+'\nSe mantiene la última copia disponible en esta computadora.')
@@ -77,6 +82,7 @@ export default function App(){
     }
     if(savingRef.current||startedEpoch!==mutationEpochRef.current||sequence!==loadSequenceRef.current)return
     const next=data?.data?{...emptyState(),...data.data}:(cachedState?{...emptyState(),...cachedState}:emptyState())
+    serverRevisionRef.current=data?.updated_at||''
     setDb(next);try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}setLoading(false)
   }
   async function saveData(next){
@@ -84,23 +90,57 @@ export default function App(){
     loadSequenceRef.current+=1
     savingRef.current=true
     setSaving(true)
-    const previous=db,updatedAt=new Date().toISOString(),payload={data:next,updated_at:updatedAt,updated_by:session.user.id}
-    let result=await supabase.from('app_state').update(payload).eq('id','main')
-    if(result.error&&/statement timeout/i.test(result.error.message||'')){
-      await new Promise(resolve=>setTimeout(resolve,350))
-      result=await supabase.from('app_state').update(payload).eq('id','main')
+    const previous=db
+    const changedKeys=changedTopLevelKeys(previous,next)
+    if(!changedKeys.length){savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:previous}}
+    try{localStorage.setItem('polifan-app-backup-last',JSON.stringify({savedAt:new Date().toISOString(),data:previous}))}catch{}
+    let lastError=null
+    for(let attempt=1;attempt<=3;attempt++){
+      const {data:latestRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
+      if(readError){lastError=readError;break}
+      const latest={...emptyState(),...(latestRow?.data||{})}
+      const conflicts=changedKeys.filter(key=>stableJson(latest[key])!==stableJson(previous[key]))
+      if(conflicts.length){
+        savingRef.current=false;setSaving(false)
+        alert('No se guardó este cambio porque otra computadora modificó al mismo tiempo: '+conflicts.join(', ')+'.\n\nSe evitó sobrescribir información más nueva. Recargá la app y repetí solamente este cambio.')
+        return{ok:false,conflict:true,keys:conflicts}
+      }
+      const merged={...latest}
+      changedKeys.forEach(key=>{merged[key]=next[key]})
+      const updatedAt=new Date().toISOString(),payload={data:merged,updated_at:updatedAt,updated_by:session.user.id}
+      let query=supabase.from('app_state').update(payload).eq('id','main')
+      if(latestRow?.updated_at)query=query.eq('updated_at',latestRow.updated_at)
+      const result=await query.select('updated_at')
+      if(result.error){
+        lastError=result.error
+        if(/statement timeout/i.test(result.error.message||'')){
+          const {data:verify}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
+          const verified=verify?.data&&changedKeys.every(key=>stableJson(verify.data[key])===stableJson(merged[key]))
+          if(verified){
+            const confirmed={...emptyState(),...verify.data}
+            serverRevisionRef.current=verify.updated_at||updatedAt
+            setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
+            savingRef.current=false;setSaving(false)
+            return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed,verifiedAfterTimeout:true}
+          }
+        }
+        if(attempt<3){await new Promise(resolve=>setTimeout(resolve,250*attempt));continue}
+        break
+      }
+      if(!result.data?.length){
+        lastError=new Error('El estado cambió mientras se estaba guardando.')
+        if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}
+        break
+      }
+      const confirmed={...emptyState(),...merged}
+      serverRevisionRef.current=result.data[0]?.updated_at||updatedAt
+      setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
+      savingRef.current=false;setSaving(false)
+      return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
     }
-    if(result.error){
-      savingRef.current=false;setSaving(false);setDb(previous)
-      try{localStorage.setItem('polifan-app-cache',JSON.stringify(previous))}catch{}
-      alert('No se pudo guardar en Supabase. El cambio no fue aplicado: '+result.error.message)
-      return{ok:false,error:result.error}
-    }
-    const confirmed={...emptyState(),...next}
-    setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
     savingRef.current=false;setSaving(false)
-    if(result.__durableWarning)alert('El cambio quedó guardado, pero la copia de seguridad por registro no pudo verificarse. No cierres la app hasta revisar la conexión.')
-    return{ok:true,updatedAt,durableOnly:Boolean(result.__durableOnly)}
+    alert('No se pudo guardar en Supabase. Ningún dato más nuevo fue sobrescrito: '+(lastError?.message||'error de sincronización'))
+    return{ok:false,error:lastError||new Error('Error de sincronización')}
   }
   async function saveOrderData(next){
     const previousIds=new Set((db.orders||[]).map(o=>o.id))

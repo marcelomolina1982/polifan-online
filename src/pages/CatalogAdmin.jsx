@@ -30,7 +30,8 @@ export default function CatalogAdmin({db,onSave}){
   async function persist(next){
     const result=await onSave(next)
     if(result?.ok===false)return result
-    const published=await publishPublicCatalog(next)
+    const confirmed=result?.data||next
+    const published=await publishPublicCatalog(confirmed)
     if(!published.ok)alert('El cambio se guardó en la app, pero el catálogo público no pudo actualizarse. Revisá la configuración de catálogo público en Supabase.')
     return result
   }
