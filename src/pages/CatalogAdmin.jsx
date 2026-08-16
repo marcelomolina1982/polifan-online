@@ -33,7 +33,7 @@ export default function CatalogAdmin({db,onSave}){
     const confirmed=result?.data||next
     const published=await publishPublicCatalog(confirmed)
     if(!published.ok)alert('El cambio se guardó en la app, pero el catálogo público no pudo actualizarse. Revisá la configuración de catálogo público en Supabase.')
-    return result
+    return result||{ok:true,data:confirmed}
   }
   useEffect(()=>{
     if(!products.length)return
@@ -45,12 +45,20 @@ export default function CatalogAdmin({db,onSave}){
     const now=new Date().toISOString()
     const catalog=(next.customerCatalog||[]).map(p=>oldIds.has(p.id)?p:{...p,createdAt:p.createdAt||now})
     const cleanedCollections=(next.catalogCollections||collections).map(c=>({...c,productIds:(c.productIds||[]).filter(id=>catalog.some(p=>p.id===id))}))
-    return persist({...next,customerCatalog:catalog,catalogCollections:cleanedCollections})
+    const result=await persist({...next,customerCatalog:catalog,catalogCollections:cleanedCollections})
+    // CatalogAdminBase historically showed a success alert even when onSave returned a conflict.
+    // Throwing here stops that false success path while App already showed the protected conflict message.
+    if(result?.ok===false){
+      const error=new Error(result.conflict?'CATALOG_SAVE_CONFLICT':'CATALOG_SAVE_FAILED')
+      error.catalogSaveHandled=true
+      throw error
+    }
+    return result
   }
   async function addCollection(){
     const clean=name.trim();if(!clean)return
     if(collections.some(c=>c.name.toLocaleLowerCase('es')===clean.toLocaleLowerCase('es')))return alert('Ya existe una categoría con ese nombre.')
-    await persist({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});setName('')
+    const result=await persist({...db,catalogCollections:[...collections,{id:uid(),name:clean,productIds:[]}]});if(result?.ok===false)return;setName('')
   }
   async function removeCollection(id){if(!confirm('¿Eliminar esta categoría adicional? Las figuras seguirán en el catálogo general.'))return;await persist({...db,catalogCollections:collections.filter(c=>c.id!==id)})}
   function draftIds(c){return draftByCollection[c.id]||c.productIds||[]}
@@ -65,7 +73,8 @@ export default function CatalogAdmin({db,onSave}){
   async function saveCollection(c){
     const ids=draftIds(c).filter(id=>productIds.has(id))
     const next=collections.map(x=>x.id===c.id?{...x,productIds:ids}:x)
-    await persist({...db,catalogCollections:next})
+    const result=await persist({...db,catalogCollections:next})
+    if(result?.ok===false)return
     setDraftByCollection(v=>{const n={...v};delete n[c.id];return n})
     alert(`Categoría “${c.name}” actualizada.`)
   }
