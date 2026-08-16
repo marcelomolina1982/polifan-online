@@ -34,6 +34,22 @@ const changedTopLevelKeys=(before,after)=>{
   const keys=new Set([...Object.keys(before||{}),...Object.keys(after||{})])
   return [...keys].filter(key=>stableJson(before?.[key])!==stableJson(after?.[key]))
 }
+const mergeArrayById=(baseline,latest,next)=>{
+  const baseMap=new Map((baseline||[]).map(item=>[String(item?.id),item]))
+  const latestMap=new Map((latest||[]).map(item=>[String(item?.id),item]))
+  const nextMap=new Map((next||[]).map(item=>[String(item?.id),item]))
+  const ids=new Set([...baseMap.keys(),...nextMap.keys()])
+  const touched=[...ids].filter(id=>stableJson(baseMap.get(id))!==stableJson(nextMap.get(id)))
+  const conflicts=touched.filter(id=>{
+    const base=baseMap.get(id),remote=latestMap.get(id),wanted=nextMap.get(id)
+    return stableJson(remote)!==stableJson(base)&&stableJson(remote)!==stableJson(wanted)
+  })
+  if(conflicts.length)return{ok:false,conflicts}
+  const merged=new Map(latestMap)
+  touched.forEach(id=>{const wanted=nextMap.get(id);wanted===undefined?merged.delete(id):merged.set(id,wanted)})
+  const order=[...(latest||[]).map(x=>String(x?.id)),...(next||[]).map(x=>String(x?.id))]
+  return{ok:true,value:[...new Set(order)].map(id=>merged.get(id)).filter(Boolean)}
+}
 
 function CatalogAccess(){
   const base=`${window.location.origin}/?pedido=1`
@@ -102,14 +118,22 @@ export default function App(){
       const {data:latestRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
       if(readError){lastError=readError;break}
       const latest={...emptyState(),...(latestRow?.data||{})}
-      const conflicts=changedKeys.filter(key=>stableJson(latest[key])!==stableJson(baseline[key]))
+      const merged={...latest}
+      const conflicts=[]
+      for(const key of changedKeys){
+        if(key==='customerCatalog'||key==='catalogCollections'){
+          const section=mergeArrayById(baseline[key],latest[key],next[key])
+          if(!section.ok)conflicts.push(`${key} (${section.conflicts.length} elemento${section.conflicts.length===1?'':'s'})`)
+          else merged[key]=section.value
+        }else if(stableJson(latest[key])!==stableJson(baseline[key])){
+          conflicts.push(key)
+        }else merged[key]=next[key]
+      }
       if(conflicts.length){
         savingRef.current=false;setSaving(false)
-        alert('No se guardó este cambio porque otra computadora modificó al mismo tiempo: '+conflicts.join(', ')+'.\n\nSe evitó sobrescribir información más nueva. Recargá la app y repetí solamente este cambio.')
+        alert('No se guardó este cambio porque otra sesión modificó exactamente el mismo dato al mismo tiempo: '+conflicts.join(', ')+'.\n\nLos cambios distintos se combinan automáticamente. Recargá y repetí solamente este cambio.')
         return{ok:false,conflict:true,keys:conflicts}
       }
-      const merged={...latest}
-      changedKeys.forEach(key=>{merged[key]=next[key]})
       const updatedAt=new Date().toISOString(),payload={data:merged,updated_at:updatedAt,updated_by:session.user.id}
       let query=supabase.from('app_state').update(payload).eq('id','main')
       if(latestRow?.updated_at)query=query.eq('updated_at',latestRow.updated_at)
