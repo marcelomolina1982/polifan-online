@@ -15,6 +15,21 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-  <script>if("serviceWorker" in navigator){window.addEventListener("load",async()=>{const r=await navigator.serviceWorker.register("/sw.js?v=15.6",{updateViaCache:"none"});r.update();navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!sessionStorage.getItem("sw-reloaded-15.6")){sessionStorage.setItem("sw-reloaded-15.6","1");location.reload()}})})}</script>
+    <script>
+      if('serviceWorker' in navigator){
+        window.addEventListener('load',async()=>{
+          try{
+            const r=await navigator.serviceWorker.register('/sw.js?v=25.0.10',{updateViaCache:'none'});
+            await r.update();
+            navigator.serviceWorker.addEventListener('controllerchange',()=>{
+              if(!sessionStorage.getItem('sw-reloaded-25.0.10')){
+                sessionStorage.setItem('sw-reloaded-25.0.10','1');
+                location.reload();
+              }
+            });
+          }catch(e){console.warn('SW update',e)}
+        })
+      }
+    </script>
   </body>
 </html>
