@@ -34,7 +34,15 @@ const changedTopLevelKeys=(before,after)=>{
   const keys=new Set([...Object.keys(before||{}),...Object.keys(after||{})])
   return [...keys].filter(key=>stableJson(before?.[key])!==stableJson(after?.[key]))
 }
-const mergeArrayById=(baseline,latest,next)=>{
+const comparableRecord=(item,key)=>{
+  if(!item||typeof item!=='object')return item
+  if(key!=='clients')return item
+  const copy={...item}
+  delete copy.updatedAt
+  delete copy.lastOrderAt
+  return copy
+}
+const mergeArrayById=(baseline,latest,next,key='')=>{
   const baseMap=new Map((baseline||[]).map(item=>[String(item?.id),item]))
   const latestMap=new Map((latest||[]).map(item=>[String(item?.id),item]))
   const nextMap=new Map((next||[]).map(item=>[String(item?.id),item]))
@@ -42,7 +50,9 @@ const mergeArrayById=(baseline,latest,next)=>{
   const touched=[...ids].filter(id=>stableJson(baseMap.get(id))!==stableJson(nextMap.get(id)))
   const conflicts=touched.filter(id=>{
     const base=baseMap.get(id),remote=latestMap.get(id),wanted=nextMap.get(id)
-    return stableJson(remote)!==stableJson(base)&&stableJson(remote)!==stableJson(wanted)
+    if(base===undefined&&remote!==undefined&&(key==='orders'||key==='clients'))return false
+    const normalizedBase=comparableRecord(base,key),normalizedRemote=comparableRecord(remote,key),normalizedWanted=comparableRecord(wanted,key)
+    return stableJson(normalizedRemote)!==stableJson(normalizedBase)&&stableJson(normalizedRemote)!==stableJson(normalizedWanted)
   })
   if(conflicts.length)return{ok:false,conflicts}
   const merged=new Map(latestMap)
@@ -98,7 +108,7 @@ export default function App(){
       const latest={...emptyState(),...(latestRow?.data||{})},merged={...latest},conflicts=[]
       for(const key of changedKeys){
         if(MERGE_BY_RECORD.has(key)){
-          const section=mergeArrayById(baseline[key],latest[key],next[key])
+          const section=mergeArrayById(baseline[key],latest[key],next[key],key)
           if(!section.ok)conflicts.push(`${key} (${section.conflicts.length} elemento${section.conflicts.length===1?'':'s'})`)
           else merged[key]=section.value
         }else if(stableJson(latest[key])!==stableJson(baseline[key]))conflicts.push(key)
