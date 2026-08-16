@@ -31,16 +31,17 @@ function customProductPrice(product,qty){
   return q*Number(product.fixedPrice||0)
 }
 
-export default function CustomerOrder() {
+export default function CustomerOrder({publicCatalogState=null}) {
   const params = new URLSearchParams(window.location.search)
   const urlPhone = cleanPhone(params.get('w'))
+  const publicProductsInitial=publicCatalogState?.customerCatalog?.length?publicCatalogState.customerCatalog:catalogProducts
   const [config, setConfig] = useState({ whatsapp: urlPhone, businessName: 'Tu Vida En Tinta' })
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!publicCatalogState?.customerCatalog?.length)
   const [orders, setOrders] = useState([])
   const [closedProductionDates, setClosedProductionDates] = useState([])
   const [planningSync, setPlanningSync] = useState({ status: 'loading', error: '', updatedAt: '', fetchedAt: '' })
   const [sending, setSending] = useState(false)
-  const [products, setProducts] = useState(normalizeCatalogProducts(catalogProducts))
+  const [products, setProducts] = useState(normalizeCatalogProducts(publicProductsInitial).filter(product=>product.active!==false))
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Carameleras')
   const [cart, setCart] = useState({})
@@ -57,8 +58,20 @@ export default function CustomerOrder() {
 
   useEffect(()=>{setChatMessages(current=>current.length<=1?[{from:'bot',text:chatbotSettings.welcome||`¡Hola! Soy ${chatbotSettings.assistantName||'tu asistente'}. Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.`}]:current)},[chatbotSettings.welcome,chatbotSettings.assistantName])
 
+  useEffect(()=>{
+    if(!publicCatalogState?.customerCatalog?.length)return
+    const publicProducts=normalizeCatalogProducts(publicCatalogState.customerCatalog).filter(product=>product.active!==false)
+    setProducts(publicProducts)
+    setPublicReviews((publicCatalogState.customerReviews||[]).filter(x=>x.active!==false))
+    setPublicPhotos((publicCatalogState.customerPhotos||[]).filter(x=>x.active!==false))
+    setConfig({whatsapp:urlPhone||cleanPhone(publicCatalogState.customerSettings?.whatsapp),businessName:publicCatalogState.customerSettings?.businessName||'Tu Vida En Tinta'})
+    setChatbotSettings((()=>{const saved=publicCatalogState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+    setLoading(false)
+    if(category!=='Todos'&&!publicProducts.some(p=>p.category===category))setCategory('Todos')
+  },[publicCatalogState?.__updatedAt,urlPhone])
+
   async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
-    if(showLoading) setLoading(true)
+    if(showLoading&&!publicCatalogState?.customerCatalog?.length) setLoading(true)
     setPlanningSync(previous=>({...previous,status:'loading',error:''}))
     let lastError=null
     try {
@@ -70,14 +83,16 @@ export default function CustomerOrder() {
           const state = row.data
           if(!Array.isArray(state.productionClosedDates)) throw new Error('La planificación no contiene la lista de días cerrados.')
           if(!Array.isArray(state.orders)) throw new Error('La planificación no contiene la lista de pedidos.')
-          setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+          if(!publicCatalogState?.customerCatalog?.length){
+            setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
+            setPublicReviews((state.customerReviews||[]).filter(x=>x.active!==false))
+            setPublicPhotos((state.customerPhotos||[]).filter(x=>x.active!==false))
+            setConfig({whatsapp:urlPhone||cleanPhone(state.customerSettings?.whatsapp),businessName:state.customerSettings?.businessName||'Tu Vida En Tinta'})
+            setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+          }
           setOrders(state.orders)
-          setPublicReviews((state.customerReviews||[]).filter(x=>x.active!==false))
-          setPublicPhotos((state.customerPhotos||[]).filter(x=>x.active!==false))
           setClosedProductionDates(state.productionClosedDates)
-          setConfig({whatsapp:urlPhone||cleanPhone(state.customerSettings?.whatsapp),businessName:state.customerSettings?.businessName||'Tu Vida En Tinta'})
-          setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
-          const cachedPlanning={state,updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
+          const cachedPlanning={state:{orders:state.orders,productionClosedDates:state.productionClosedDates},updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
           return {...state,__updatedAt:row.updated_at||''}
@@ -89,25 +104,28 @@ export default function CustomerOrder() {
       try{cached=JSON.parse(window.localStorage.getItem(PLANNING_CACHE_KEY)||'null')}catch{}
       const cachedState=cached?.state
       if(Array.isArray(cachedState?.productionClosedDates)&&Array.isArray(cachedState?.orders)){
-        setProducts(normalizeCatalogProducts(cachedState.customerCatalog?.length ? cachedState.customerCatalog : catalogProducts).filter(product => product.active !== false))
-        setOrders(cachedState.orders);setPublicReviews((cachedState.customerReviews||[]).filter(x=>x.active!==false));setPublicPhotos((cachedState.customerPhotos||[]).filter(x=>x.active!==false));setClosedProductionDates(cachedState.productionClosedDates)
-        setConfig({whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'})
-        setChatbotSettings((()=>{const saved=cachedState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+        if(!publicCatalogState?.customerCatalog?.length){
+          setProducts(normalizeCatalogProducts(cachedState.customerCatalog?.length ? cachedState.customerCatalog : catalogProducts).filter(product => product.active !== false))
+          setPublicReviews((cachedState.customerReviews||[]).filter(x=>x.active!==false));setPublicPhotos((cachedState.customerPhotos||[]).filter(x=>x.active!==false))
+          setConfig({whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'})
+          setChatbotSettings((()=>{const saved=cachedState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+        }
+        setOrders(cachedState.orders);setClosedProductionDates(cachedState.productionClosedDates)
         setPlanningSync({status:'stale',error:error?.message||'No se pudo actualizar la planificación.',updatedAt:cached.updatedAt||'',fetchedAt:cached.cachedAt||''})
         return {...cachedState,__updatedAt:cached.updatedAt||'',__cached:true}
       }
       setPlanningSync(previous=>({...previous,status:'error',error:error?.message||'No se pudo actualizar la planificación.'}))
       if(strict) throw error
       return null
-    } finally {if(showLoading) setLoading(false)}
+    } finally {if(showLoading&&!publicCatalogState?.customerCatalog?.length) setLoading(false)}
   }
 
   useEffect(() => {
-    refreshPlanning(true,{retries:3})
-    const onVisible=()=>{ if(document.visibilityState==='visible') refreshPlanning(false,{retries:2}) }
+    refreshPlanning(true,{retries:1})
+    const onVisible=()=>{ if(document.visibilityState==='visible') refreshPlanning(false,{retries:1}) }
     document.addEventListener('visibilitychange',onVisible)
-    const timer=window.setInterval(()=>refreshPlanning(false,{retries:2}),30000)
-    const channel=supabase.channel('catalog-planning-sync').on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.main'},()=>refreshPlanning(false,{retries:3})).subscribe()
+    const timer=window.setInterval(()=>refreshPlanning(false,{retries:1}),60000)
+    const channel=supabase.channel('catalog-planning-sync').on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.main'},()=>refreshPlanning(false,{retries:1})).subscribe()
     return ()=>{document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer);supabase.removeChannel(channel)}
   }, [urlPhone])
 
@@ -153,7 +171,7 @@ export default function CustomerOrder() {
     if(data.method==='Logística GBA/CABA' && (!data.address.trim()||!data.betweenStreets.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá domicilio, entre calles, localidad, partido, provincia, código postal y correo electrónico.')
     if(data.method==='Vía Cargo' && (!data.dni.trim()||!data.address.trim()||!data.locality.trim()||!data.district.trim()||!data.province.trim()||!data.postalCode.trim()||!data.email.trim())) return alert('Completá DNI, domicilio, localidad, partido, provincia, código postal y correo electrónico.')
     setSending(true)
-    const latestState=await refreshPlanning(false,{retries:2})
+    const latestState=await refreshPlanning(false,{retries:1})
     const latestOrders=Array.isArray(latestState?.orders)?latestState.orders:orders
     const latestClosedDates=Array.isArray(latestState?.productionClosedDates)?latestState.productionClosedDates:closedProductionDates
     const canEstimate=Array.isArray(latestOrders)&&Array.isArray(latestClosedDates)&&(planningSync.status!=='error'||latestState)
@@ -203,7 +221,7 @@ export default function CustomerOrder() {
         <label>{data.method==='Vía Cargo'?'DNI *':'DNI (opcional)'}<input inputMode="numeric" value={data.dni} onChange={event=>update('dni',event.target.value.replace(/\D/g,''))} placeholder="DNI" /></label>
         <label>Tipo de entrega<select value={data.method} onChange={event=>update('method',event.target.value)}><option>Logística GBA/CABA</option><option>Retiro en el local</option><option>Vía Cargo</option><option>Otro expreso</option></select></label>
         <label>Correo electrónico<input type="email" value={data.email} onChange={event=>update('email',event.target.value)} placeholder="tu@email.com" /></label>
-        <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='stale'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante (estimado)</b><span>No pudimos actualizar ahora; usamos la última planificación guardada. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Actualizar</button></span></>:planningSync.status==='error'?<><b>Fecha de producción a confirmar</b><span>No pudimos consultar el calendario. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:3})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Podés continuar completando el pedido.</span></>}</div>
+        <div className={`delivery-estimate-box planning-${planningSync.status}`}><small>🛠️ PRODUCCIÓN DISPONIBLE</small>{planningSync.status==='ready'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante</b><span>Calculado con el calendario actualizado y los días cerrados registrados en la app.</span></>:planningSync.status==='stale'&&deliveryEstimate?<><b>Desde {fmtProductionDate(deliveryEstimate.productionDate).toLowerCase()} en adelante (estimado)</b><span>No pudimos actualizar ahora; usamos la última planificación guardada. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:1})}>Actualizar</button></span></>:planningSync.status==='error'?<><b>Fecha de producción a confirmar</b><span>No pudimos consultar el calendario. <button type="button" className="planning-retry" onClick={()=>refreshPlanning(false,{retries:1})}>Reintentar</button></span></>:<><b>Actualizando calendario…</b><span>Podés continuar completando el pedido.</span></>}</div>
         {data.method!=='Retiro en el local'&&<><label>Domicilio<input value={data.address} onChange={event=>update('address',event.target.value)} placeholder="Calle y número" /></label>{data.method==='Logística GBA/CABA'&&<label>Entre calles<input value={data.betweenStreets} onChange={event=>update('betweenStreets',event.target.value)} /></label>}<label>Localidad<input value={data.locality} onChange={event=>update('locality',event.target.value)} /></label><label>Partido / Departamento<input value={data.district} onChange={event=>update('district',event.target.value)} /></label><label>Provincia<input value={data.province} onChange={event=>update('province',event.target.value)} /></label><label>Código postal<input value={data.postalCode} onChange={event=>update('postalCode',event.target.value.replace(/[^0-9A-Za-z-]/g,''))} /></label></>}
         {data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?<select value={data.agencyDelivery} onChange={event=>update('agencyDelivery',event.target.value)}><option>Envío a domicilio</option><option>Retiro en agencia</option></select></label>}
       </div><label>Observaciones<textarea value={data.notes} onChange={event=>update('notes',event.target.value)} /></label><div className="customer-notice">La solicitud quedará pendiente de pago. El pedido todavía no queda confirmado.</div><button type="button" className="whatsapp-button" onClick={send} disabled={sending}><span>{sending?'Guardando y enviando…':'Enviar solicitud por WhatsApp'}</span></button></section>
