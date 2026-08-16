@@ -48,8 +48,9 @@ export default function App(){
   if(customerMode)return <Suspense fallback={<Loading/>}><CustomerOrder/></Suspense>
   const [session,setSession]=useState(null)
   const cachedState=(()=>{try{return JSON.parse(localStorage.getItem('polifan-app-cache')||'null')}catch{return null}})()
-  const [db,setDb]=useState(cachedState?{...emptyState(),...cachedState}:emptyState()),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
-  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0),authBootRef=useRef(false),serverRevisionRef=useRef('')
+  const initialState=cachedState?{...emptyState(),...cachedState}:emptyState()
+  const [db,setDb]=useState(initialState),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
+  const savingRef=useRef(false),mutationEpochRef=useRef(0),loadSequenceRef=useRef(0),authBootRef=useRef(false),serverRevisionRef=useRef(''),serverDataRef=useRef(initialState)
   const [page,setPage]=useState(()=>sessionStorage.getItem('polifan-current-page')||'dashboard'),[mobileOpen,setMobileOpen]=useState(false),[editingOrder,setEditingOrder]=useState(null)
   useEffect(()=>{
     let active=true
@@ -75,7 +76,7 @@ export default function App(){
     if(initial)setLoading(true)
     const {data,error}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
     if(error){
-      if(cachedState){const fallback={...emptyState(),...cachedState};setDb(fallback)}
+      if(cachedState){const fallback={...emptyState(),...cachedState};setDb(fallback);serverDataRef.current=fallback}
       if(!silent)alert('No se pudo conectar con Supabase: '+error.message+'\nSe mantiene la última copia disponible en esta computadora.')
       if(sequence===loadSequenceRef.current)setLoading(false)
       return
@@ -83,6 +84,7 @@ export default function App(){
     if(savingRef.current||startedEpoch!==mutationEpochRef.current||sequence!==loadSequenceRef.current)return
     const next=data?.data?{...emptyState(),...data.data}:(cachedState?{...emptyState(),...cachedState}:emptyState())
     serverRevisionRef.current=data?.updated_at||''
+    serverDataRef.current=next
     setDb(next);try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}setLoading(false)
   }
   async function saveData(next){
@@ -91,15 +93,16 @@ export default function App(){
     savingRef.current=true
     setSaving(true)
     const previous=db
+    const baseline=serverDataRef.current||previous
     const changedKeys=changedTopLevelKeys(previous,next)
-    if(!changedKeys.length){savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:previous}}
-    try{localStorage.setItem('polifan-app-backup-last',JSON.stringify({savedAt:new Date().toISOString(),data:previous}))}catch{}
+    if(!changedKeys.length){savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:baseline}}
+    try{localStorage.setItem('polifan-app-backup-last',JSON.stringify({savedAt:new Date().toISOString(),data:baseline}))}catch{}
     let lastError=null
     for(let attempt=1;attempt<=3;attempt++){
       const {data:latestRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
       if(readError){lastError=readError;break}
       const latest={...emptyState(),...(latestRow?.data||{})}
-      const conflicts=changedKeys.filter(key=>stableJson(latest[key])!==stableJson(previous[key]))
+      const conflicts=changedKeys.filter(key=>stableJson(latest[key])!==stableJson(baseline[key]))
       if(conflicts.length){
         savingRef.current=false;setSaving(false)
         alert('No se guardó este cambio porque otra computadora modificó al mismo tiempo: '+conflicts.join(', ')+'.\n\nSe evitó sobrescribir información más nueva. Recargá la app y repetí solamente este cambio.')
@@ -119,6 +122,7 @@ export default function App(){
           if(verified){
             const confirmed={...emptyState(),...verify.data}
             serverRevisionRef.current=verify.updated_at||updatedAt
+            serverDataRef.current=confirmed
             setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
             savingRef.current=false;setSaving(false)
             return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed,verifiedAfterTimeout:true}
@@ -134,6 +138,7 @@ export default function App(){
       }
       const confirmed={...emptyState(),...merged}
       serverRevisionRef.current=result.data[0]?.updated_at||updatedAt
+      serverDataRef.current=confirmed
       setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
       savingRef.current=false;setSaving(false)
       return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
