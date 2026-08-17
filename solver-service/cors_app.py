@@ -1,4 +1,5 @@
 from nest_sparrow import app
+import sparrow_v18_runtime  # V1.8: margen real de 3 mm contra los cuatro bordes de placa
 import production_safety_runtime
 import base_only_runtime
 import adaptive_base_runtime
