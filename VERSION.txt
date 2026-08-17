@@ -1,2 +1,2 @@
 v25.0.23
-# deploy
+# V1.11 ready for lab
