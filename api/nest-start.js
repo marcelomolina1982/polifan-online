@@ -7,10 +7,11 @@ export default async function handler(req,res){
   const base=envBase||productionBase
   try{
     const incoming=req.body||{}
-    // Sparrow V1.8 productivo: la API es la fuente de verdad aunque una UI vieja
-    // conserve valores anteriores en caché o hardcodeados.
-    const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:121.4,heightCm:57.4,
-      clientEngineVersion:'Sparrow V1.8',requiredGapMm:2.5,edgeMarginMm:3}
+    // Fuente de verdad de v25.0.19: enviamos la placa física completa.
+    // Sparrow V1.8 reserva internamente 3 mm en cada borde (1214 x 574 útiles).
+    const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:122,heightCm:58,
+      clientEngineVersion:'Sparrow V1.8 Growth Fix',clientBuild:'v25.0.19-diagnostic',
+      requiredGapMm:2.5,edgeMarginMm:3}
     const r=await fetch(base+'/nest-jobs',{
       method:'POST',
       headers:{'content-type':'application/json'},
@@ -19,6 +20,7 @@ export default async function handler(req,res){
     const text=await r.text()
     res.status(r.status)
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
+    res.setHeader('cache-control','no-store')
     return res.send(text)
   }catch(e){
     return res.status(502).json({ok:false,error:'No se pudo iniciar Sparrow estable en Render: '+(e?.message||String(e))})
