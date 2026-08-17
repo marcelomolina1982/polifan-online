@@ -1,0 +1,3 @@
+Backup marker before forcing all Motor Lab API routes to https://polifan-cnc-solver-lab.onrender.com
+Date: 2026-08-17
+Stable rollback branches already exist; this marker identifies the routing correction point.
