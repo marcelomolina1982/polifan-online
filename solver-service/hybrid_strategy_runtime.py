@@ -1,7 +1,7 @@
 """Estrategia híbrida experimental SOLO para Motor Lab interno.
 
 - Si hay al menos 11 kits del mismo modelo, intenta 11 directamente con Sparrow.
-- Si el caso no es homogéneo o no mejora, delega intacto al selector Smart V1.8.
+- Si el caso no es homogéneo o no mejora, delega al selector Balanced Growth V1.9.
 - Nunca acepta un crecimiento sin el certificador geométrico de producción.
 """
 from collections import defaultdict
@@ -22,7 +22,7 @@ def _name(k): return ' '.join(str(k.get('figure') or '').strip().lower().split()
 def _certified(selected, result):
     if not (result and result.get('ok') and result.get('fits')): return False, {}
     validator = getattr(ns, '_validate_final_geometry', None)
-    if validator is None: return False, {'reason':'certificador V1.8 no disponible'}
+    if validator is None: return False, {'reason':'certificador V1.9 no disponible'}
     try: return validator(selected, result)
     except Exception: return False, {}
 
@@ -59,8 +59,8 @@ def hybrid_nest():
     started=time.monotonic();boosted=try_homogeneous_boost(prepared,gap,started=started)
     if boosted is None:return _original_nest()
     selected,result,certificate,meta=boosted;attempts=list(meta.get('homogeneousAttempts') or [])
-    response=ns._result_payload(selected,f"Motor Lab híbrido: {len(selected)} homogéneas certificadas",result,prepared,rejected,attempts,time.time()-float(meta.get('homogeneousElapsedSeconds') or 0),None)
-    payload=response.get_json();payload.update(meta);payload.update({'engine':'Motor Lab híbrido V1.8 · homogéneo 11/12 + fallback Smart 70%','selectorVersion':'hybrid-homo-v18','completeFigures':len(selected),'protectedBase10':True,'improvedAbove10':len(selected)>10,'productionCertificate':certificate,'minimumGapMm':certificate.get('minimumGapMmCertified',gap),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'labGapMm':LAB_GAP_MM,'hardHomogeneousLimitSeconds':HOMO_TOTAL_SECONDS})
+    response=ns._result_payload(selected,f"Motor Lab híbrido V1.9: {len(selected)} homogéneas certificadas",result,prepared,rejected,attempts,time.time()-float(meta.get('homogeneousElapsedSeconds') or 0),None)
+    payload=response.get_json();payload.update(meta);payload.update({'engine':'Sparrow V1.9 Balanced Growth · híbrido homogéneo 11/12 + fallback balanceado','selectorVersion':'sparrow-v1.9-balanced-growth','completeFigures':len(selected),'protectedBase10':True,'improvedAbove10':len(selected)>10,'productionCertificate':certificate,'minimumGapMm':certificate.get('minimumGapMmCertified',gap),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'labGapMm':LAB_GAP_MM,'hardHomogeneousLimitSeconds':HOMO_TOTAL_SECONDS})
     return jsonify(payload)
 
 ns.nest_sparrow=hybrid_nest
