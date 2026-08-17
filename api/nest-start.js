@@ -7,11 +7,11 @@ export default async function handler(req,res){
   const base=envBase||productionBase
   try{
     const incoming=req.body||{}
-    // Fuente de verdad de v25.0.19: enviamos la placa física completa.
-    // Sparrow V1.8 reserva internamente 3 mm en cada borde (1214 x 574 útiles).
+    // Fuente de verdad de v25.0.20: placa física completa + parámetros productivos.
+    // Sparrow reserva internamente 3 mm por borde y explora crecimiento 11..16.
     const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:122,heightCm:58,
-      clientEngineVersion:'Sparrow V1.8 Growth Fix',clientBuild:'v25.0.19-diagnostic',
-      requiredGapMm:2.5,edgeMarginMm:3}
+      clientEngineVersion:'Sparrow V1.8 Final Growth',clientBuild:'v25.0.20-final-growth',
+      requiredGapMm:2.5,edgeMarginMm:3,maxGrowthTarget:16}
     const r=await fetch(base+'/nest-jobs',{
       method:'POST',
       headers:{'content-type':'application/json'},
