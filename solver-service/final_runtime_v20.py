@@ -1,29 +1,29 @@
-"""Sparrow V1.8 v25.0.20 final runtime selector.
+"""Sparrow v25.0.21 Balanced Growth runtime.
 
-Objetivos:
-- conservar la base certificada de 10 como fallback;
-- garantizar que /nest-sparrow termine apuntando al runtime Growth Fix, no a smart-1;
-- explorar 11..16 aunque ya se alcance 70%, para aprovechar mejor el ancho completo;
-- mantener 2.5 mm entre piezas y 3 mm de borde mediante los runtimes existentes.
+Conserva la placa certificada de 10 como fallback y activa el selector balanceado:
+- 2.5 mm entre piezas;
+- 3 mm de borde;
+- crecimiento real 11..16;
+- presupuesto reservado por nivel para evitar que 11 consuma todo el tiempo;
+- objetivo productivo 70% con certificación geométrica obligatoria.
 """
 import nest_sparrow as ns
 import intelligent_selector_runtime as growth
 import hybrid_strategy_runtime as hybrid
 
-# Más profundidad sin sacrificar la salida segura de 10.
 growth.MAX_GROWTH_TARGET = 16
-growth.GROWTH_CANDIDATES = 24
-growth.TOTAL_SECONDS = 220
+growth.GROWTH_CANDIDATES = 6
+growth.TOTAL_SECONDS = 180
+growth.PER_LEVEL_SECONDS = 22.0
 growth.PRODUCTIVE_TARGET_PERCENT = 70.0
 
-# El híbrido conserva su boost homogéneo; si no aplica, su _original_nest apunta
-# al intelligent_nest cargado antes de este módulo y usa las constantes mutadas.
+# El híbrido prueba primero el caso homogéneo. Si no aplica, su _original_nest
+# es el intelligent_nest cargado antes y ahora ejecuta Balanced Growth V1.9.
 FINAL_SOLVER = hybrid.hybrid_nest
 ns.nest_sparrow = FINAL_SOLVER
 if 'nest_sparrow' in ns.app.view_functions:
     ns.app.view_functions['nest_sparrow'] = FINAL_SOLVER
 
-# Identidad explícita para diagnóstico en /engine-info y jobs asíncronos.
-FINAL_SOLVER.polifan_runtime_version = 'v25.0.20-final-growth'
-FINAL_SOLVER.polifan_growth_targets = '11-16'
+FINAL_SOLVER.polifan_runtime_version = 'v25.0.21-balanced-growth'
+FINAL_SOLVER.polifan_growth_targets = '11-16-balanced'
 FINAL_SOLVER.polifan_productive_target = 70.0
