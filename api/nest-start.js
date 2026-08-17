@@ -6,10 +6,15 @@ export default async function handler(req,res){
   const envBase=String(process.env.MOTOR_DEFINITIVO_API_URL||'').replace(/\/$/,'')
   const base=envBase||productionBase
   try{
+    const incoming=req.body||{}
+    // Sparrow V1.8 productivo: la API es la fuente de verdad aunque una UI vieja
+    // conserve valores anteriores en caché o hardcodeados.
+    const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:121.4,heightCm:57.4,
+      clientEngineVersion:'Sparrow V1.8',requiredGapMm:2.5,edgeMarginMm:3}
     const r=await fetch(base+'/nest-jobs',{
       method:'POST',
       headers:{'content-type':'application/json'},
-      body:JSON.stringify(req.body||{})
+      body:JSON.stringify(payload)
     })
     const text=await r.text()
     res.status(r.status)
