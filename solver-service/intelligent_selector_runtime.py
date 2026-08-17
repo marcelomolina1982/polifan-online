@@ -3,13 +3,13 @@ import time
 from itertools import combinations
 import nest_sparrow as ns
 
-# Smart-4 estable con rescate: primero asegura 10 certificadas; luego crece
+# Sparrow Smart V1.8: primero asegura 10 certificadas; luego explora
 # 11/12/13/14 sin perder como fallback la mejor placa válida encontrada.
 MAX_POOL=64
 FAST_BASE_SECONDS=55
-TOTAL_SECONDS=105
+TOTAL_SECONDS=180
 BASE_CANDIDATES=7
-GROWTH_CANDIDATES=10
+GROWTH_CANDIDATES=18
 PRODUCTIVE_TARGET_PERCENT=70.0
 MAX_GROWTH_TARGET=14
 LAB_GAP_MM=2.5
@@ -40,10 +40,10 @@ def _priority_safe_candidates(kits,target,max_candidates):
         seen.add(sig);out.append((label,list(group)))
     add(mandatory+frontier[:slots],f'baseline-{target}')
     scored=sorted(frontier,key=lambda k:(_compact_score(k),str(k.get('kitId') or '')));add(mandatory+scored[:slots],f'compact-{target}')
-    for off in range(1,min(5,max(1,len(scored)-slots+1))):
+    for off in range(1,min(9,max(1,len(scored)-slots+1))):
         add(mandatory+scored[off:off+slots],f'window-{target}-{off}')
         if len(out)>=max_candidates:return out[:max_candidates]
-    vary=min(3,slots);anchors=scored[:max(0,slots-vary)];tail=scored[max(0,slots-vary):min(len(scored),max(0,slots-vary)+10)]
+    vary=min(4,slots);anchors=scored[:max(0,slots-vary)];tail=scored[max(0,slots-vary):min(len(scored),max(0,slots-vary)+14)]
     for idx,combo in enumerate(sorted(combinations(tail,vary),key=lambda c:sum(_compact_score(k) for k in c))[:max_candidates]):
         add(mandatory+anchors+list(combo),f'combo-{target}-{idx}')
         if len(out)>=max_candidates:break
@@ -99,11 +99,14 @@ def intelligent_nest():
             if valid:base=(g,r,cert);break
             _learn_failed(g,r)
     if base is None:
-        return jsonify(ok=False,error='No se encontró una base de 10 certificada al mínimo productivo después del rescate protegido.',engine='Smart-4 V1.8 + rescate',selectorVersion='smart-v18-70pct',attempts=attempts,candidatePool=len(kits),candidateGroups=len(groups),elapsedSeconds=round(time.time()-started,1),rescueAttempted=True),422
+        return jsonify(ok=False,error='No se encontró una base de 10 certificada al mínimo productivo después del rescate protegido.',engine='Smart-4 V1.8 + rescate',selectorVersion='smart-v18-growthfix',attempts=attempts,candidatePool=len(kits),candidateGroups=len(groups),elapsedSeconds=round(time.time()-started,1),rescueAttempted=True),422
 
     best_selected,best_result,best_cert=base
     for x in best_selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.25)
 
+    # Growth Fix: un fracaso en 11 NO significa que 12/13/14 deban descartarse.
+    # Cada tamaño usa subconjuntos distintos; por eso se exploran todos hasta 14
+    # o hasta alcanzar el 70%. La base 10 siempre queda disponible como fallback.
     for target in range(11,min(MAX_GROWTH_TARGET,len(kits))+1):
         if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
         remaining=TOTAL_SECONDS-(time.time()-started)
@@ -112,7 +115,7 @@ def intelligent_nest():
         for idx,(label,candidate) in enumerate(_priority_safe_candidates(kits,target,GROWTH_CANDIDATES)):
             remaining=TOTAL_SECONDS-(time.time()-started)
             if remaining<3.5:break
-            budget=min(4.0 if target<=12 else 3.2,max(2.0,remaining-1.0))
+            budget=min(4.8 if target<=12 else 4.0,max(2.0,remaining-1.0))
             seed=429+target*977+idx*131
             r,valid,cert=_attempt(candidate,gap,budget,seed,True,attempts,f'grow-{target}-{label}')
             if valid:
@@ -120,11 +123,17 @@ def intelligent_nest():
                 if level_best is None or score>level_best[0]:level_best=(score,candidate,r,cert)
                 if float(r.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
             else:_learn_failed(candidate,r)
-        if level_best is None:break
-        _,best_selected,best_result,best_cert=level_best
+        if level_best is None:
+            # Antes había un break aquí: si 11 fallaba, nunca se probaban 12/13/14.
+            continue
+        _,candidate_selected,candidate_result,candidate_cert=level_best
+        candidate_density=float(candidate_result.get('density') or 0)
+        current_density=float(best_result.get('density') or 0)
+        if len(candidate_selected)>len(best_selected) or candidate_density>current_density:
+            best_selected,best_result,best_cert=candidate_selected,candidate_result,candidate_cert
 
-    response=ns._result_payload(best_selected,f'Smart V1.8: {len(best_selected)} completas · objetivo 70%',best_result,kits,rejected,attempts,started,None)
-    payload=response.get_json();payload.update({'engine':'Sparrow Smart V1.8 · base 10 + crecimiento mixto hacia 70%','selectorVersion':'smart-v18-70pct','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'candidateGroups':len(groups),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'hardTotalLimitSeconds':TOTAL_SECONDS,'labGapMm':LAB_GAP_MM})
+    response=ns._result_payload(best_selected,f'Smart V1.8 Growth Fix: {len(best_selected)} completas · objetivo 70%',best_result,kits,rejected,attempts,started,None)
+    payload=response.get_json();payload.update({'engine':'Sparrow Smart V1.8 Growth Fix · base 10 + exploración 11/12/13/14','selectorVersion':'smart-v18-growthfix','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'candidateGroups':len(groups),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'hardTotalLimitSeconds':TOTAL_SECONDS,'labGapMm':LAB_GAP_MM,'growthContinuesAfterMiss':True})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
