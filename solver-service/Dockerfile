@@ -12,6 +12,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SPARROW_BIN=/usr/local/bin/sparrow
+ENV MOTOR_RUNTIME_BUILD=v25.0.20-final-growth
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
