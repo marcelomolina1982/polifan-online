@@ -16,13 +16,15 @@ export default function CutBatches({db,onSave}){
     e.preventDefault()
     const items=form.items.filter(i=>i.figure&&Number(i.qty)>0).map(i=>({...i,component:i.component||'complete',qty:Number(i.qty)}))
     if(!items.length)return alert('Agregá al menos una figura.')
+    let saved
     if(editing){
       const cutBatches=(db.cutBatches||[]).map(b=>b.id===editing.id?{...b,...form,items,updatedAt:new Date().toISOString()}:b)
-      await onSave({...db,cutBatches})
+      saved=await onSave({...db,cutBatches})
     }else{
       const batch={...form,items,id:crypto.randomUUID(),number:String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),status:'En corte',createdAt:new Date().toISOString()}
-      await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
+      saved=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
     }
+    if(saved?.ok===false)return
     setEditing(null);setForm(blank())
   }
 
@@ -87,4 +89,3 @@ export default function CutBatches({db,onSave}){
     </tbody></table></div>
   </>
 }
-
