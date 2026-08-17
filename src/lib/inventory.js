@@ -122,9 +122,6 @@ function canonicalAliasMap(db){
   duplicateFigureGroups(db).forEach(g=>g.names.forEach(name=>aliases.set(normalizeFigureKey(name),g.canonical)))
   ;(db.customerCatalog||[]).forEach(p=>{const key=normalizeFigureKey(p?.name);if(key)aliases.set(key,p.name)})
 
-  // Alias históricos del inventario/recuentos. Son el mismo diseño con nombres
-  // que se usaron antes de normalizar el catálogo. Esto evita que una pieza física
-  // quede invisible cuando un pedido nuevo usa el nombre actual del catálogo.
   const knownAliases=[
     ['Oso','Osito'],
     ['Jessie','Jessie Toy Story'],
@@ -201,7 +198,6 @@ export function mergeDuplicateFigures(db){
   return {db:next,groups,changes:groups.reduce((n,g)=>n+g.names.length-1,0)}
 }
 
-
 function orderDate(order){
   return String(order?.delivery||'').slice(0,10)
 }
@@ -252,12 +248,6 @@ export function manualBalance(db){
   })
   return balance
 }
-
-/**
- * Stock físico actual.
- * Las piezas de pedidos cuya fecha de salida ya pasó se descuentan
- * automáticamente. No hace falta marcar el pedido como "Entregado".
- */
 
 export function looseComponentBalance(db){
   const balance={}
@@ -335,9 +325,11 @@ export function stockRows(db){
     const looseBase=Math.max(0,rawLooseBase-pairedNow)
     const inCutTapa=Number(inCutComponents[f]?.tapa||0)
     const inCutBase=Number(inCutComponents[f]?.base||0)
-    const futurePairs=Math.min(looseTapa+inCutTapa,looseBase+inCutBase)
+    const futureTapa=looseTapa+inCutTapa
+    const futureBase=looseBase+inCutBase
+    const futurePairs=Math.min(futureTapa,futureBase)
     const projectedWithParts=cut+cutting+futurePairs-ordered
-    const missingPart=looseTapa>looseBase?{type:'base',qty:looseTapa-looseBase}:looseBase>looseTapa?{type:'tapa',qty:looseBase-looseTapa}:null
+    const missingPart=futureTapa>futureBase?{type:'base',qty:futureTapa-futureBase}:futureBase>futureTapa?{type:'tapa',qty:futureBase-futureTapa}:null
     return {
       figure:f,
       cut,
@@ -354,6 +346,8 @@ export function stockRows(db){
       futurePairs,
       inCutTapa,
       inCutBase,
+      futureTapa,
+      futureBase,
       missingPart,
       autoOut:Number(autoOut[f]||0),
       min:Number(db.stockMin?.[f]||0)
@@ -361,11 +355,6 @@ export function stockRows(db){
   })
 }
 
-/**
- * Asigna el stock físico y las piezas que ya están en corte a los pedidos
- * por fecha de salida, siempre desde la entrega más próxima hacia las siguientes.
- * El stock nunca se reserva primero para un pedido futuro si existe uno anterior.
- */
 export function pendingCutByDelivery(db){
   const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
