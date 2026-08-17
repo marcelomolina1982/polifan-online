@@ -129,7 +129,8 @@ function canonicalAliasMap(db){
     ['Oso','Osito'],
     ['Jessie','Jessie Toy Story'],
     ['Micky','Mickey Mouse'],
-    ['Stitch','Stitch Entero']
+    ['Stitch','Stitch Entero'],
+    ['Feliz Día Corazón','Feliz Día']
   ]
   const names=allFigureNames(db)
   knownAliases.forEach(([oldName,newName])=>{
