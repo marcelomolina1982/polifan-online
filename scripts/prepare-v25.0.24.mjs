@@ -18,7 +18,6 @@ rep('V1.11 certificando…','V1.12 certificando…','certificación')
 rep("clientBuild:'v25.0.23-geometry-fit-12focus',clientEngineVersion:'Sparrow V1.11 Geometry Fit'","clientBuild:'v25.0.24-area-first-partial-fill',clientEngineVersion:'Sparrow V1.12 Area First + Partial Fill'",'payload')
 rep('Sparrow V1.11 · ${plan.units.length} diseños','Sparrow V1.12 · ${plan.units.length} diseños','nota')
 
-// Inventario: traer balance de tapas/bases para que la placa siguiente corte sólo la contraparte faltante.
 rep("import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'","import {pendingCutByDelivery,normalizeFigureKey,stockRows} from '../lib/inventory'",'import stockRows')
 
 const pendingOld=`function pendingUnits(db,index){
@@ -60,23 +59,16 @@ const pendingNew=`function pendingUnits(db,index){
 if(text.includes(pendingOld)) text=text.replace(pendingOld,pendingNew)
 else if(!text.includes('futurePairsLeft=new Map')) throw new Error('v25.0.24 patch: no se encontró pendingUnits')
 
-// Conservar la marca repairComponent al mapear kit -> unidad.
-rep("unitMap.set(kitId,unit)","unitMap.set(kitId,unit)",'unit map marker')
+const oldMotor='Motor: {plan.selectorVersion||\'-\'} · completas: {plan.completeFigures||plan.units.length}'
+const newMotor='Motor: {plan.selectorVersion||\'-\'} · completas: {plan.completeFigures||plan.units.length} · prioridad: {plan.optimizationPriority===\'plate-area-first\'?\'ocupación de placa\':\'geométrica\'}'
+if(text.includes(oldMotor)) text=text.replace(oldMotor,newMotor)
 
-// Telemetría Area First + ancho residual.
-const old='Motor: {plan.selectorVersion||\'-\'} · completas: {plan.completeFigures||plan.units.length}'
-const neu='Motor: {plan.selectorVersion||\'-\'} · completas: {plan.completeFigures||plan.units.length} · prioridad: {plan.optimizationPriority===\'plate-area-first\'?\'ocupación de placa\':\'geométrica\'}'
-if(text.includes(old)) text=text.replace(old,neu)
 rep('target12Focused:Boolean(data.target12Focused),runtimeSolver:data.runtimeSolver||null','target12Focused:Boolean(data.target12Focused),optimizationPriority:data.optimizationPriority||\'-\',countIsSecondary:Boolean(data.countIsSecondary),loosePartFill:Boolean(data.loosePartFill),runtimeSolver:data.runtimeSolver||null','telemetría area-first')
 
-const needle='<small className="block">Niveles: {Array.isArray(plan.attempts)?[...new Set(plan.attempts.map(a=>a.completeFigures).filter(Boolean))].join(\' → \'):\'-\'}</small>'
-const addition=needle+'<small className="block">Ancho libre derecho: {Number.isFinite(Number(plan.unusedRightMm))?Number(plan.unusedRightMm).toFixed(0):Math.max(0,1220-Number(plan.stripWidthMm||1220)).toFixed(0)} mm · strip-packing compacto</small>{plan.partialExtra&&<small className="block green-text">Extra aprovechado: {plan.partialExtra.figure} · {plan.partialExtra.component} · próxima falta: {plan.partialExtra.missingCounterpart}</small>}'
-if(text.includes(needle)&&!text.includes('Extra aprovechado:')) text=text.replace(needle,addition)
+const rightLine='<small className="block">Ancho libre derecho: {Number.isFinite(Number(plan.unusedRightMm))?Number(plan.unusedRightMm).toFixed(0):Math.max(0,1220-Number(plan.stripWidthMm||plan.usedWidthMm||1220)).toFixed(0)} mm · strip-packing compacto</small>'
+const rightPlus=rightLine+'{plan.partialExtra&&<small className="block green-text">Extra aprovechado: {plan.partialExtra.figure} · {plan.partialExtra.component} · próxima falta: {plan.partialExtra.missingCounterpart}</small>}'
+if(text.includes(rightLine)&&!text.includes('Extra aprovechado:')) text=text.replace(rightLine,rightPlus)
 
-// Guardar telemetría y la pieza suelta en el plan.
-rep('recompactLevelsTried:Array.isArray(data.recompactLevelsTried)?data.recompactLevelsTried:[],runtimeSolver:data.runtimeSolver||null','recompactLevelsTried:Array.isArray(data.recompactLevelsTried)?data.recompactLevelsTried:[],unusedRightMm:Number(data.unusedRightMm),stripWidthMm:Number(data.stripWidthMm),target12Focused:Boolean(data.target12Focused),optimizationPriority:data.optimizationPriority||\'-\',countIsSecondary:Boolean(data.countIsSecondary),loosePartFill:Boolean(data.loosePartFill),runtimeSolver:data.runtimeSolver||null','telemetría completa')
-
-// Registrar correctamente qué se corta: completas, reparaciones de una sola pieza y extra residual.
 const registerOld="const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]"
 const registerNew=`const itemMap=new Map()
     ;(plan.units||[]).forEach(unit=>{
@@ -95,7 +87,7 @@ const registerNew=`const itemMap=new Map()
 if(text.includes(registerOld)) text=text.replace(registerOld,registerNew)
 else if(!text.includes('const itemMap=new Map()')) throw new Error('v25.0.24 patch: no se encontró items register')
 
-const notesOld="notes:`Sparrow V1.10 · ${plan.units.length} diseños · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`"
+const notesOld="notes:`Sparrow V1.12 · ${plan.units.length} diseños · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`"
 const notesNew="notes:`Sparrow V1.12 Area First · ${plan.units.length} unidades atendidas · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm${plan.partialExtra?` · extra ${plan.partialExtra.figure} ${plan.partialExtra.component}; próxima falta ${plan.partialExtra.missingCounterpart}`:''}`"
 if(text.includes(notesOld)) text=text.replace(notesOld,notesNew)
 
