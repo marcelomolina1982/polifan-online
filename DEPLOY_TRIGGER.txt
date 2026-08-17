@@ -1,3 +1,3 @@
-v25.0.20 runtime probe trigger
+v25.0.21 Sparrow V1.9 Balanced Growth deploy trigger
 2026-08-17
-No motor logic change. Publishes /api/solver-runtime so Render can be verified through Vercel.
+Publishes synchronized UI, version metadata and runtime labels after Balanced Growth changes.
