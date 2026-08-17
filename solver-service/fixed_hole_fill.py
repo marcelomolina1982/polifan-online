@@ -26,14 +26,13 @@ def _try_place_part(part, occupied, gap_mm, step=10.0):
     forbidden=occupied.buffer(max(0.0,gap_mm/2.0),join_style=2) if not occupied.is_empty else occupied
     prepared=prep(forbidden) if not forbidden.is_empty else None
     free=plate.difference(forbidden)
-    regions=sorted(_all_polygons(free),key=lambda p:p.area,reverse=True)[:12]
+    regions=sorted(_all_polygons(free),key=lambda p:p.area,reverse=True)[:16]
     if not regions:return None
 
     for angle in ANGLES:
         rg=rotate(part['geom'],angle,origin=(0,0),use_radians=False)
         minx,miny,maxx,maxy=rg.bounds; w=maxx-minx; h=maxy-miny
         if w>PLATE_W or h>PLATE_H:continue
-        # Probar primero esquinas/límites de cada región libre; después una grilla gruesa sólo dentro de su bbox.
         for region in regions:
             rx0,ry0,rx1,ry1=region.bounds
             if rx1-rx0+1e-6<w or ry1-ry0+1e-6<h:continue
@@ -51,11 +50,9 @@ def _try_place_part(part, occupied, gap_mm, step=10.0):
                 seen.add(key)
                 tx=gx-minx; ty=gy-miny
                 placed=translate(rg,xoff=tx,yoff=ty)
-                # margen geométrico: la pieza original debe quedar dentro de placa y separada del ocupado.
                 if not plate.covers(placed):continue
                 test=placed.buffer(max(0.0,gap_mm/2.0),join_style=2)
                 if prepared is not None and prepared.intersects(test):continue
-                # refinamiento local de 2 mm alrededor del primer punto válido para empujarla hacia arriba/izquierda.
                 best=(placed,tx,ty)
                 for dx in (-8,-6,-4,-2,0,2,4,6,8):
                     for dy in (-8,-6,-4,-2,0,2,4,6,8):
@@ -69,29 +66,69 @@ def _try_place_part(part, occupied, gap_mm, step=10.0):
     return None
 
 
-def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_candidates=10):
-    """Agrega una figura completa SIN mover ninguna pieza de la placa base.
-    Devuelve None si ningún kit cabe. Las posiciones existentes se copian exactamente.
-    """
+def _occupied_from_result(base_selected, base_result):
     part_by_instance={}
     for k in base_selected:
         for p in k['parts']:part_by_instance[p['instanceId']]=p
     occupied_geoms=[]
     for pl in base_result.get('placements') or []:
         p=part_by_instance.get(pl.get('instanceId'))
-        if p is None:return None
+        if p is None:continue
         occupied_geoms.append(_placed_geometry(p,pl))
-    occupied=unary_union(occupied_geoms) if occupied_geoms else MultiPolygon([])
+    return unary_union(occupied_geoms) if occupied_geoms else MultiPolygon([])
 
+
+def try_add_partial_fixed(base_selected, base_result, all_kits, gap_mm, max_candidates=24):
+    """Intenta agregar UNA sola tapa/base en el espacio residual sin mover la placa base.
+    La pieza queda marcada partialExtra=True y no aumenta completeFigures. Se prioriza
+    el mayor área real que quepa, porque el objetivo es aprovechar material sobrante.
+    """
+    if len(base_selected)<10:return None
+    occupied=_occupied_from_result(base_selected,base_result)
+    used={k['kitId'] for k in base_selected}
+    candidates=[]
+    for kit in all_kits:
+        if kit['kitId'] in used:continue
+        for part in kit.get('parts') or []:
+            role=str(part.get('role') or '').lower()
+            if role not in ('base','tapa'):continue
+            candidates.append((kit,part))
+    candidates=sorted(candidates,key=lambda kp:(-float(kp[1].get('area') or 0),float(kp[1].get('envelope') or 1e18),kp[0].get('priority',999999)))[:max_candidates]
+    best=None
+    for kit,part in candidates:
+        found=_try_place_part(part,occupied,gap_mm,step=6.0)
+        if not found:continue
+        score=(float(part.get('area') or 0),-float(found['xMm']),-float(found['yMm']))
+        if best is None or score>best[0]:best=(score,kit,part,found)
+    if best is None:return None
+    _,kit,part,found=best
+    placement={
+        'instanceId':part['instanceId'],'kitId':part['kitId'],'figure':part['figure'],'name':part['name'],'role':part['role'],
+        'xCm':found['xMm']/10.0,'yCm':found['yMm']/10.0,'angle':found['angle'],
+        'trimXCm':part['trimXmm']/10.0,'trimYCm':part['trimYmm']/10.0,'partialExtra':True
+    }
+    result=dict(base_result)
+    placements=list(base_result.get('placements') or [])+[placement]
+    density=float(base_result.get('density') or 0)+100.0*float(part.get('area') or 0)/PLATE_AREA
+    maxx=max(float(base_result.get('stripWidthMm') or 0),float(found['geom'].bounds[2]))
+    result.update({'fits':True,'density':density,'stripWidthMm':maxx,'placements':placements,'placedParts':len(placements),'expectedParts':len(placements),'partialExtra':True,'partialExtraPart':part,'partialExtraKit':kit,'fixedHoleFill':True})
+    counterpart='base' if str(part.get('role')).lower()=='tapa' else 'tapa'
+    meta={'kitId':kit['kitId'],'figure':kit['figure'],'component':part['role'],'missingCounterpart':counterpart,'instanceId':part['instanceId'],'name':part['name'],'areaMm2':float(part.get('area') or 0)}
+    return result,meta
+
+
+def try_add_complete_fixed(base_selected, base_result, all_kits, gap_mm, max_candidates=10):
+    """Agrega una figura completa SIN mover ninguna pieza de la placa base.
+    Devuelve None si ningún kit cabe. Las posiciones existentes se copian exactamente.
+    """
+    occupied=_occupied_from_result(base_selected,base_result)
     used={k['kitId'] for k in base_selected}
     remaining=[k for k in all_kits if k['kitId'] not in used]
-    # Para rellenar huecos conviene primero kit de envolvente pequeña y buena solidez, sin ignorar prioridad.
     remaining=sorted(remaining,key=lambda k:(k['envelope'],-k['solidity'],k['priority']))[:max_candidates]
 
     for kit in remaining:
         current=occupied
         new_placements=[]
-        # Colocar primero el componente más difícil/grande; después el segundo en el hueco restante.
         parts=sorted(kit['parts'],key=lambda p:(-p['envelope'],-p['area']))
         ok=True
         for part in parts:
