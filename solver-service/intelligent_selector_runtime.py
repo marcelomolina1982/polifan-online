@@ -12,12 +12,11 @@ BASE_CANDIDATES=7
 GROWTH_CANDIDATES=10
 PRODUCTIVE_TARGET_PERCENT=70.0
 MAX_GROWTH_TARGET=14
+LAB_GAP_MM=2.5
 _memory={}
 POSITIVE_NAMES={'gato','gato con luces','auto','chase paw patrol','chopp','abejita','boca','woody toy story'}
 
 def _key(k): return str(k.get('figure') or '').strip().lower()
-# La prioridad productiva real es la FECHA. Dentro de una misma fecha Sparrow
-# debe poder combinar libremente las figuras para encontrar una placa mejor.
 def _rank(k): return (str(k.get('date') or '9999-12-31'),)
 def _difficulty(k):
     env=float(k.get('envelope') or 1); area=max(1.0,float(k.get('area') or 1)); sol=max(.01,float(k.get('solidity') or .01))
@@ -57,7 +56,7 @@ def _certified(selected,result):
     try:valid,cert=validator(selected,result)
     except Exception as exc:return False,{'reason':str(exc)}
     gap=cert.get('minimumGapMmCertified')
-    required=float(getattr(ns,'MIN_PRODUCTION_GAP_MM',2.5))
+    required=float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM))
     return bool(valid and gap is not None and float(gap)>=required),cert
 
 def _attempt(selected,gap,budget,seed,continuous,attempts,label):
@@ -71,7 +70,7 @@ def _learn_failed(group,result):
 
 def intelligent_nest():
     started=time.time();data=request.get_json(silent=True) or {}
-    width=max(1.0,ns._n(data.get('widthCm'),122)*10);height=max(1.0,ns._n(data.get('heightCm'),58)*10);gap=max(2.5,ns._n(data.get('gapCm'),.25)*10)
+    width=max(1.0,ns._n(data.get('widthCm'),122)*10);height=max(1.0,ns._n(data.get('heightCm'),58)*10);gap=LAB_GAP_MM
     raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:MAX_POOL]
     kits=[];rejected=[]
     for k in raw:
@@ -105,8 +104,6 @@ def intelligent_nest():
     best_selected,best_result,best_cert=base
     for x in best_selected:_memory[_key(x)]=max(-1.5,_memory.get(_key(x),0.0)-.25)
 
-    # V1.8: crecimiento mixto real. No se detiene en 11 ni exige homogeneidad.
-    # Cada nivel conserva como fallback la mejor solución certificada anterior.
     for target in range(11,min(MAX_GROWTH_TARGET,len(kits))+1):
         if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
         remaining=TOTAL_SECONDS-(time.time()-started)
@@ -127,7 +124,7 @@ def intelligent_nest():
         _,best_selected,best_result,best_cert=level_best
 
     response=ns._result_payload(best_selected,f'Smart V1.8: {len(best_selected)} completas · objetivo 70%',best_result,kits,rejected,attempts,started,None)
-    payload=response.get_json();payload.update({'engine':'Sparrow Smart V1.8 · base 10 + crecimiento mixto hacia 70%','selectorVersion':'smart-v18-70pct','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'candidateGroups':len(groups),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',2.5)),'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'hardTotalLimitSeconds':TOTAL_SECONDS})
+    payload=response.get_json();payload.update({'engine':'Sparrow Smart V1.8 · base 10 + crecimiento mixto hacia 70%','selectorVersion':'smart-v18-70pct','smartSelection':True,'priorityAndDateProtected':True,'candidatePool':len(kits),'candidateGroups':len(groups),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'rescueEnabled':True,'improvedAbove10':len(best_selected)>10,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'hardTotalLimitSeconds':TOTAL_SECONDS,'labGapMm':LAB_GAP_MM})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
