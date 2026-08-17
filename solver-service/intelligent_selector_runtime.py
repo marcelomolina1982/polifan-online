@@ -3,19 +3,23 @@ import time
 from itertools import combinations
 import nest_sparrow as ns
 
-# Sparrow Smart V1.11: conserva V1.10 como piso y agrega búsqueda geométrica
-# por huecos/contornos mediante más candidatos, rotaciones continuas y múltiples semillas.
+# Sparrow Smart V1.11: V1.10 queda como piso seguro. La búsqueda nueva prioriza
+# romper el techo de 11 completas: más subconjuntos de 12, swaps 1x2 y 2x3,
+# rotación continua y varias semillas. Sparrow minimiza strip-width; el espacio
+# visual a la derecha es consecuencia de esa compactación, no un borde prohibido.
 MAX_POOL=72
-FAST_BASE_SECONDS=50
+FAST_BASE_SECONDS=48
 TOTAL_SECONDS=245
 BASE_CANDIDATES=7
-GROWTH_CANDIDATES=9
+GROWTH_CANDIDATES=10
+TARGET12_CANDIDATES=22
 PRODUCTIVE_TARGET_PERCENT=70.0
 MAX_GROWTH_TARGET=16
 LAB_GAP_MM=2.5
-PER_LEVEL_SECONDS=25.0
-RECOMPACT_SECONDS=58.0
-V111_SEEDS=(429,1701,7919,31337,7001,17011,27183)
+PER_LEVEL_SECONDS=18.0
+TARGET12_SECONDS=62.0
+RECOMPACT_SECONDS=72.0
+V111_SEEDS=(429,1701,7919,31337,7001,17011,27183,48017,65537)
 _memory={}
 POSITIVE_NAMES={'gato','gato con luces','auto','chase paw patrol','chopp','abejita','boca','woody toy story'}
 
@@ -40,16 +44,19 @@ def _priority_safe_candidates(kits,target,max_candidates):
     add(mandatory+frontier[:slots],f'baseline-{target}')
     scored=sorted(frontier,key=lambda k:(_compact_score(k),str(k.get('kitId') or '')))
     add(mandatory+scored[:slots],f'compact-{target}')
-    for off in range(1,min(10,max(1,len(scored)-slots+1))):
+    # Ventanas más amplias: para 12 queremos probar combinaciones que antes nunca llegaban al solver.
+    window_limit=18 if target==12 else 10
+    for off in range(1,min(window_limit,max(1,len(scored)-slots+1))):
         add(mandatory+scored[off:off+slots],f'window-{target}-{off}')
         if len(out)>=max_candidates:return out[:max_candidates]
-    vary=min(4,slots);anchors=scored[:max(0,slots-vary)];tail=scored[max(0,slots-vary):min(len(scored),max(0,slots-vary)+14)]
-    for idx,combo in enumerate(sorted(combinations(tail,vary),key=lambda c:sum(_compact_score(k) for k in c))[:max_candidates]):
+    vary=min(5 if target==12 else 4,slots);anchors=scored[:max(0,slots-vary)];tail=scored[max(0,slots-vary):min(len(scored),max(0,slots-vary)+(18 if target==12 else 14))]
+    combos=sorted(combinations(tail,vary),key=lambda c:sum(_compact_score(k) for k in c))
+    for idx,combo in enumerate(combos[:max_candidates*2]):
         add(mandatory+anchors+list(combo),f'combo-{target}-{idx}')
         if len(out)>=max_candidates:break
     return out[:max_candidates]
 
-def _recompact_candidates(kits,best_selected,target,max_candidates=8):
+def _recompact_candidates(kits,best_selected,target,max_candidates=14):
     if len(best_selected)>=target:return [('recompact-current',best_selected[:target])]
     chosen={str(k.get('kitId')) for k in best_selected}
     extras=[k for k in kits if str(k.get('kitId')) not in chosen]
@@ -63,12 +70,24 @@ def _recompact_candidates(kits,best_selected,target,max_candidates=8):
         if sig in seen:return
         seen.add(sig);out.append((label,list(group)))
     add(list(best_selected)+extras[:need],f'core-plus-compact-{target}')
-    for off in range(1,min(7,max(1,len(extras)-need+1))):add(list(best_selected)+extras[off:off+need],f'core-window-{target}-{off}')
+    for off in range(1,min(10,max(1,len(extras)-need+1))):add(list(best_selected)+extras[off:off+need],f'core-window-{target}-{off}')
+    # Para 12 desde una base 11: reemplazar una figura difícil por dos alternativas.
     if need==1 and len(best_selected)>=11 and len(extras)>=2:
         hard=sorted(best_selected,key=_compact_score,reverse=True)
-        for ridx in range(min(4,len(hard))):
+        for ridx in range(min(6,len(hard))):
             core=[k for k in best_selected if str(k.get('kitId'))!=str(hard[ridx].get('kitId'))]
-            add(core+extras[:2],f'replace-hard-{target}-{ridx}')
+            for eoff in range(min(5,len(extras)-1)):
+                add(core+extras[eoff:eoff+2],f'replace-1x2-{target}-{ridx}-{eoff}')
+                if len(out)>=max_candidates:return out[:max_candidates]
+        # Y reemplazar dos envolventes grandes por tres compactas. Esto cambia de verdad
+        # la geometría global de la placa en vez de intentar meter la 12 en el hueco sobrante.
+        if len(extras)>=3:
+            for pair in combinations(hard[:6],2):
+                removed={str(pair[0].get('kitId')),str(pair[1].get('kitId'))}
+                core=[k for k in best_selected if str(k.get('kitId')) not in removed]
+                for eoff in range(min(5,len(extras)-2)):
+                    add(core+extras[eoff:eoff+3],f'replace-2x3-{target}-{eoff}')
+                    if len(out)>=max_candidates:return out[:max_candidates]
     return out[:max_candidates]
 
 def _certified(selected,result):
@@ -81,10 +100,8 @@ def _certified(selected,result):
     return bool(valid and gap is not None and float(gap)>=required),cert
 
 def _attempt(selected,gap,budget,seed,attempts,label):
-    # continuous=True habilita las rotaciones finas del solver; distintas semillas
-    # exploran encastres diferentes en huecos internos y entre contornos.
     r=ns._run_sparrow(selected,gap,budget,seed,continuous=True);valid,cert=_certified(selected,r)
-    attempts.append({'phase':label,'completeFigures':len(selected),'fits':bool(r and r.get('fits')),'certified':valid,'gapMm':cert.get('minimumGapMmCertified'),'placedParts':r.get('placedParts') if r else 0,'expectedParts':r.get('expectedParts') if r else len(selected)*2,'density':round(float((r or {}).get('density') or 0),1),'seconds':budget,'continuous':True,'seed':seed})
+    attempts.append({'phase':label,'completeFigures':len(selected),'fits':bool(r and r.get('fits')),'certified':valid,'gapMm':cert.get('minimumGapMmCertified'),'placedParts':r.get('placedParts') if r else 0,'expectedParts':r.get('expectedParts') if r else len(selected)*2,'density':round(float((r or {}).get('density') or 0),1),'stripWidthMm':round(float((r or {}).get('stripWidthMm') or 0),1),'seconds':budget,'continuous':True,'seed':seed})
     return r,valid,cert
 
 def _learn_failed(group,result):
@@ -109,13 +126,18 @@ def intelligent_nest():
         _learn_failed(g,r)
     if base is None:return jsonify(ok=False,error='V1.11 no encontró base 10; conservar V1.10.',engine='Smart V1.11 Geometry Fit',selectorVersion='smart-v111-geometry-fit',attempts=attempts),422
     best_selected,best_result,best_cert=base
+
+    # Crecimiento. El nivel 12 recibe la mayor parte del presupuesto porque es el cuello de botella real.
     for target in range(11,min(MAX_GROWTH_TARGET,len(kits))+1):
         if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
         if TOTAL_SECONDS-(time.time()-started)<4:break
         level_started=time.time();level_best=None
-        for idx,(label,candidate) in enumerate(_priority_safe_candidates(kits,target,GROWTH_CANDIDATES)):
-            if PER_LEVEL_SECONDS-(time.time()-level_started)<3:break
-            budget=min(4.0,max(2.2,PER_LEVEL_SECONDS-(time.time()-level_started)-.5))
+        level_seconds=TARGET12_SECONDS if target==12 else PER_LEVEL_SECONDS
+        max_candidates=TARGET12_CANDIDATES if target==12 else GROWTH_CANDIDATES
+        for idx,(label,candidate) in enumerate(_priority_safe_candidates(kits,target,max_candidates)):
+            remaining_level=level_seconds-(time.time()-level_started)
+            if remaining_level<3:break
+            budget=min(6.0 if target==12 else 4.0,max(2.4,remaining_level-.5))
             seed=V111_SEEDS[(idx+target)%len(V111_SEEDS)]+target*977
             r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'geometry-grow-{target}-{label}')
             if valid:
@@ -125,18 +147,24 @@ def intelligent_nest():
         if level_best:
             _,cand,r,cert=level_best
             if len(cand)>len(best_selected) or float(r.get('density') or 0)>float(best_result.get('density') or 0):best_selected,best_result,best_cert=cand,r,cert
+
+    # Recompactación global, comenzando siempre por 12. Si no entra, devuelve intacta la mejor 11 certificada.
     recompact=[]
     if len(best_selected)>=11 and float(best_result.get('density') or 0)<PRODUCTIVE_TARGET_PERCENT:
         rc_started=time.time()
-        for target in range(min(len(best_selected)+1,MAX_GROWTH_TARGET),min(MAX_GROWTH_TARGET,len(kits))+1):
-            if time.time()-rc_started>=RECOMPACT_SECONDS:break
+        start_target=12 if len(best_selected)<=11 else min(len(best_selected)+1,MAX_GROWTH_TARGET)
+        for target in range(start_target,min(MAX_GROWTH_TARGET,len(kits))+1):
+            if time.time()-rc_started>=RECOMPACT_SECONDS or TOTAL_SECONDS-(time.time()-started)<4:break
             recompact.append(target);level_best=None
-            for idx,(label,candidate) in enumerate(_recompact_candidates(kits,best_selected,target,8)):
-                remaining=RECOMPACT_SECONDS-(time.time()-rc_started)
+            candidate_limit=18 if target==12 else 10
+            for idx,(label,candidate) in enumerate(_recompact_candidates(kits,best_selected,target,candidate_limit)):
+                remaining=min(RECOMPACT_SECONDS-(time.time()-rc_started),TOTAL_SECONDS-(time.time()-started))
                 if remaining<3:break
-                budget=min(5.0,max(2.5,remaining-.5))
-                for sidx in range(2):
-                    seed=V111_SEEDS[(idx+sidx+target)%len(V111_SEEDS)]+target*1931
+                budget=min(6.5 if target==12 else 5.0,max(2.5,remaining-.5))
+                seed_count=3 if target==12 else 2
+                for sidx in range(seed_count):
+                    if TOTAL_SECONDS-(time.time()-started)<3:break
+                    seed=V111_SEEDS[(idx+sidx+target)%len(V111_SEEDS)]+target*1931+sidx*811
                     r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'geometry-recompact-{target}-{label}')
                     if valid:
                         score=(len(candidate),float(r.get('density') or 0),-float(r.get('stripWidthMm') or 1e18))
@@ -145,8 +173,9 @@ def intelligent_nest():
                 _,cand,r,cert=level_best
                 if len(cand)>len(best_selected) or float(r.get('density') or 0)>float(best_result.get('density') or 0):best_selected,best_result,best_cert=cand,r,cert
                 if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
+
     response=ns._result_payload(best_selected,f'Smart V1.11 Geometry Fit: {len(best_selected)} completas · objetivo 70%',best_result,kits,rejected,attempts,started,None)
-    payload=response.get_json();payload.update({'engine':'Sparrow Smart V1.11 Geometry Fit · rotación fina + búsqueda de huecos + fallback V1.10','selectorVersion':'smart-v111-geometry-fit','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'geometryFit':True,'continuousRotation':True,'recompactLevelsTried':recompact,'labGapMm':LAB_GAP_MM})
+    payload=response.get_json();payload.update({'engine':'Sparrow V1.11 Geometry Fit · búsqueda intensiva 12 + swaps globales + fallback V1.10','selectorVersion':'smart-v111-geometry-fit-12focus','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'geometryFit':True,'continuousRotation':True,'target12Focused':True,'recompactLevelsTried':recompact,'labGapMm':LAB_GAP_MM,'unusedRightMm':max(0.0,1220.0-float(best_result.get('stripWidthMm') or 1220.0))})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
