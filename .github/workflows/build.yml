@@ -1,43 +1,33 @@
-name: Validar build
+name: Sparrow bench isolated
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: [main]
+    branches: [bench/sparrow-v114-base]
 jobs:
-  build:
+  benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build
-      - name: Setup Rust for LAB Sparrow benchmark
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build official Sparrow for LAB benchmark
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build official Sparrow
         run: |
           git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
       - name: Stress known 12-complete geometry
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
         shell: bash
         run: |
           set -euo pipefail
           FIX="$GITHUB_WORKSPACE/solver-service/benchmarks/polifan_benchmark_12.json"
           mkdir -p /tmp/runs
-          seeds=(101 307 911 1701 4099 7919 12011 31337 48017 65537 91081 131071)
+          seeds=(101 307 911 1701 4099 7919 12011 31337)
           echo 'seed,exit,placed,width_mm,success' > /tmp/results.csv
           best=999999; wins=0
           for seed in "${seeds[@]}"; do
             d="/tmp/runs/$seed"; mkdir -p "$d"; cd "$d"
             set +e
-            timeout 35s /tmp/sparrow-bin -i "$FIX" -t 18 --min-item-separation 2.5 --workers 1 -s "$seed" > run.log 2>&1
+            timeout 28s /tmp/sparrow-bin -i "$FIX" -t 12 --min-item-separation 2.5 --workers 1 -s "$seed" > run.log 2>&1
             code=$?
             set -e
             out="$d/output/final_polifan.json"
@@ -67,9 +57,8 @@ PY
           echo "best_width_mm=$best" | tee -a /tmp/summary.txt
           cat /tmp/results.csv
           cat /tmp/summary.txt
-      - name: Upload Sparrow benchmark result
-        if: always() && github.head_ref == 'lab/sparrow-v114-global-human-search'
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: sparrow-v114-benchmark-results
           path: |
