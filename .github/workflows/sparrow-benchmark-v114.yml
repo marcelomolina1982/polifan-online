@@ -24,38 +24,38 @@ jobs:
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
 
-      - name: Stress known 12-complete geometry 20 seeds
+      - name: Stress time budgets 2 4 6 8 seconds
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/runs
           FIX="$GITHUB_WORKSPACE/solver-service/benchmarks/polifan_benchmark_12.json"
-          seeds=(53 101 173 307 509 911 1297 1701 2609 4099 5501 7919 10007 12011 16001 22003 31337 42043 55001 65537)
-          echo 'seed,exit,width_mm,density_pct,success' > /tmp/results.csv
-          best=999999
-          wins=0
+          seeds=(53 101 173 307 509 911 1297 1701 2609 4099 5501 7919 10007 12011)
+          budgets=(2 4 6 8)
+          echo 'budget_s,seed,exit,width_mm,density_pct,success' > /tmp/results.csv
 
-          for seed in "${seeds[@]}"; do
-            d="/tmp/runs/$seed"
-            mkdir -p "$d"
-            cd "$d"
-            set +e
-            timeout 25s /tmp/sparrow-bin -i "$FIX" -t 8 --min-item-separation 2.5 --workers 1 -s "$seed" > run.log 2>&1
-            code=$?
-            set -e
-
-            read width density < <(python3 -c "import re,sys; t=open(sys.argv[1],errors='ignore').read(); m=re.findall(r'best feasible solution: width: ([0-9.]+) \\(([0-9.]+)%\\)',t); print(*(m[-1] if m else ('999999','0')))" run.log)
-            success=0
-            if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 1214.0 else 1)" "$width"; then
-              success=1
-              wins=$((wins+1))
-            fi
-            best=$(python3 -c "import sys; print(min(float(sys.argv[1]),float(sys.argv[2])))" "$best" "$width")
-            echo "$seed,$code,$width,$density,$success" | tee -a /tmp/results.csv
+          for budget in "${budgets[@]}"; do
+            wins=0
+            best=999999
+            for seed in "${seeds[@]}"; do
+              d="/tmp/runs/${budget}s/$seed"
+              mkdir -p "$d"
+              cd "$d"
+              set +e
+              timeout 18s /tmp/sparrow-bin -i "$FIX" -t "$budget" --min-item-separation 2.5 --workers 1 -s "$seed" > run.log 2>&1
+              code=$?
+              set -e
+              read width density < <(python3 -c "import re,sys; t=open(sys.argv[1],errors='ignore').read(); m=re.findall(r'best feasible solution: width: ([0-9.]+) \\(([0-9.]+)%\\)',t); print(*(m[-1] if m else ('999999','0')))" run.log)
+              success=0
+              if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 1214.0 else 1)" "$width"; then
+                success=1
+                wins=$((wins+1))
+              fi
+              best=$(python3 -c "import sys; print(min(float(sys.argv[1]),float(sys.argv[2])))" "$best" "$width")
+              echo "$budget,$seed,$code,$width,$density,$success" | tee -a /tmp/results.csv
+            done
+            echo "budget=${budget}s wins=$wins/${#seeds[@]} best_width=$best" | tee -a /tmp/summary.txt
           done
 
-          echo "wins=$wins/${#seeds[@]}" | tee /tmp/summary.txt
-          echo "best_width_mm=$best" | tee -a /tmp/summary.txt
           echo '--- RESULTS ---'
           cat /tmp/results.csv
           echo '--- SUMMARY ---'
@@ -65,11 +65,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sparrow-v114-benchmark-results-20seeds
+          name: sparrow-v114-time-budget-results
           path: |
             /tmp/results.csv
             /tmp/summary.txt
-            /tmp/runs/*/run.log
-            /tmp/runs/*/output/*.json
-            /tmp/runs/*/output/*.svg
+            /tmp/runs/*/*/run.log
           if-no-files-found: warn
