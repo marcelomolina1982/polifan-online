@@ -14,3 +14,67 @@ jobs:
           node-version: 20
       - run: npm install
       - run: npm run build
+      - name: Setup Rust for LAB Sparrow benchmark
+        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build official Sparrow for LAB benchmark
+        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
+        run: |
+          git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
+          cd /tmp/sparrow
+          cargo build --release --features only_final_svg --bin sparrow
+          cp target/release/sparrow /tmp/sparrow-bin
+      - name: Stress known 12-complete geometry
+        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIX="$GITHUB_WORKSPACE/solver-service/benchmarks/polifan_benchmark_12.json"
+          mkdir -p /tmp/runs
+          seeds=(101 307 911 1701 4099 7919 12011 31337 48017 65537 91081 131071)
+          echo 'seed,exit,placed,width_mm,success' > /tmp/results.csv
+          best=999999; wins=0
+          for seed in "${seeds[@]}"; do
+            d="/tmp/runs/$seed"; mkdir -p "$d"; cd "$d"
+            set +e
+            timeout 35s /tmp/sparrow-bin -i "$FIX" -t 18 --min-item-separation 2.5 --workers 1 -s "$seed" > run.log 2>&1
+            code=$?
+            set -e
+            out="$d/output/final_polifan.json"
+            if [ -f "$out" ]; then
+              read placed width < <(python3 - "$out" <<'PY'
+import json,sys
+p=json.load(open(sys.argv[1])); s=p.get('solution') or {}
+print(len(((s.get('layout') or {}).get('placed_items') or [])), float(s.get('strip_width') or 999999))
+PY
+)
+            else
+              placed=0; width=999999
+            fi
+            success=0
+            if [ "$placed" -eq 24 ] && python3 - <<PY
+import sys
+sys.exit(0 if float('$width') <= 1214.0 else 1)
+PY
+            then success=1; wins=$((wins+1)); fi
+            best=$(python3 - <<PY
+print(min(float('$best'),float('$width')))
+PY
+)
+            echo "$seed,$code,$placed,$width,$success" | tee -a /tmp/results.csv
+          done
+          echo "wins=$wins" | tee /tmp/summary.txt
+          echo "best_width_mm=$best" | tee -a /tmp/summary.txt
+          cat /tmp/results.csv
+          cat /tmp/summary.txt
+      - name: Upload Sparrow benchmark result
+        if: always() && github.head_ref == 'lab/sparrow-v114-global-human-search'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparrow-v114-benchmark-results
+          path: |
+            /tmp/results.csv
+            /tmp/summary.txt
+            /tmp/runs/*/output/final_polifan.json
+            /tmp/runs/*/output/final_polifan.svg
+          if-no-files-found: warn
