@@ -1,15 +1,16 @@
-"""Post-procesador de aprovechamiento residual.
+"""Post-procesador residual Sparrow V1.13.
 
-Después de que Sparrow obtiene la mejor placa con >=10 completas, intenta agregar UNA
-base o tapa de otro kit en el espacio sobrante, sin mover las piezas certificadas.
-La pieza extra NO suma completeFigures y queda marcada para que el frontend registre
-la contraparte faltante para el próximo corte.
+Después de obtener la mejor placa certificada con >=10 completas, agrega hasta 3
+bases/tapas sueltas sin mover ninguna pieza existente. Las extras no suman figuras
+completas y cada una informa la contraparte faltante para el próximo corte.
 """
 from flask import request, jsonify
 import nest_sparrow as ns
-from fixed_hole_fill import try_add_partial_fixed
+from residual_fill_v13 import try_iterative_residual_fill
 
 LAB_GAP_MM=2.5
+TARGET_DENSITY=70.0
+
 
 def _prepare_current_request():
     data=request.get_json(silent=True) or {}
@@ -26,6 +27,7 @@ def _prepare_current_request():
             pass
     return prepared
 
+
 def with_partial_fill(base_solver):
     def solver():
         response=base_solver()
@@ -41,27 +43,24 @@ def with_partial_fill(base_solver):
             selected_ids={str(p.get('kitId') or '') for p in (payload.get('placements') or []) if p.get('kitId') and not p.get('partialExtra')}
             selected=[k for k in prepared if str(k.get('kitId') or '') in selected_ids]
             if len(selected)<10:return response
-            base_result={
-                'placements':list(payload.get('placements') or []),
-                'density':float(payload.get('density') or 0),
-                'stripWidthMm':float(payload.get('stripWidthMm') or 0),
-                'fits':True,
-            }
-            extra=try_add_partial_fixed(selected,base_result,prepared,LAB_GAP_MM,max_candidates=30)
+            base_result={'placements':list(payload.get('placements') or []),'density':float(payload.get('density') or 0),'stripWidthMm':float(payload.get('stripWidthMm') or 0),'fits':True}
+            extra=try_iterative_residual_fill(selected,base_result,prepared,LAB_GAP_MM,max_extras=3,target_density=TARGET_DENSITY,max_candidates=48)
             if not extra:return response
-            result,meta=extra
+            result,metas=extra
             payload['placements']=result.get('placements') or payload.get('placements') or []
             payload['density']=float(result.get('density') or payload.get('density') or 0)
             payload['stripWidthMm']=float(result.get('stripWidthMm') or payload.get('stripWidthMm') or 0)
             payload['partialExtraAllowed']=True
-            payload['partialExtra']=meta
+            payload['partialExtras']=metas
+            payload['partialExtra']=metas[0] if metas else None
+            payload['partialExtraCount']=len(metas)
             payload['loosePartFill']=True
             payload['fixedHoleFill']=True
+            payload['residualFillV13']=True
             payload['unusedRightMm']=max(0.0,1220.0-float(payload.get('stripWidthMm') or 1220.0))
-            payload['engine']=str(payload.get('engine') or 'Sparrow')+' + relleno base/tapa residual'
+            payload['engine']=str(payload.get('engine') or 'Sparrow')+f' + Residual Fill V1.13 ({len(metas)} extras)'
             return jsonify(payload)
         except Exception as exc:
-            # El relleno parcial jamás puede romper una placa completa válida.
             try:
                 payload['partialFillSkipped']=str(exc)
                 return jsonify(payload)
@@ -69,4 +68,5 @@ def with_partial_fill(base_solver):
                 return response
     solver.__name__=getattr(base_solver,'__name__','solver')+'_partial_fill'
     solver.polifan_partial_fill=True
+    solver.polifan_residual_fill='v1.13'
     return solver
