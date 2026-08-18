@@ -16,7 +16,6 @@ rep('mínimo 10 completas · objetivo ≥70% de placa · gap 2,5 mm · ocupació
 rep('Sparrow V1.12 · Area First · mínimo 10 · relleno base/tapa · borde 3 mm','Sparrow V1.13 · Area First + Residual Fill · hasta 3 extras · borde 3 mm','arquitectura')
 rep('V1.12 certificando…','V1.13 certificando…','certificación')
 rep("clientBuild:'v25.0.24-area-first-partial-fill',clientEngineVersion:'Sparrow V1.12 Area First + Partial Fill'","clientBuild:'v25.0.25-residual-fill-v13',clientEngineVersion:'Sparrow V1.13 Area First + Residual Fill'",'payload')
-rep('Sparrow V1.12 · ${plan.units.length} diseños','Sparrow V1.13 · ${plan.units.length} diseños','nota')
 
 rep("partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached)","partialExtra:data.partialExtraAllowed?data.partialExtra:null,partialExtras:Array.isArray(data.partialExtras)?data.partialExtras:(data.partialExtraAllowed&&data.partialExtra?[data.partialExtra]:[]),partialExtraCount:Number(data.partialExtraCount||0),residualFillV13:Boolean(data.residualFillV13),targetDensityReached:Boolean(data.targetDensityReached)",'guardar extras')
 
