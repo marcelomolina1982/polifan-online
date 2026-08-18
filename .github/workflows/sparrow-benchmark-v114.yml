@@ -7,6 +7,12 @@ on:
     paths:
       - 'solver-service/benchmarks/**'
       - '.github/workflows/sparrow-benchmark-v114.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'solver-service/benchmarks/**'
+      - '.github/workflows/sparrow-benchmark-v114.yml'
   workflow_dispatch:
 
 jobs:
@@ -58,10 +64,6 @@ import sys
 sys.exit(0 if float('$width') <= 1214.0 else 1)
 PY
             then success=1; wins=$((wins+1)); fi
-            python3 - <<PY
-b=float('$best'); w=float('$width')
-print(min(b,w))
-PY
             best=$(python3 - <<PY
 print(min(float('$best'),float('$width')))
 PY
