@@ -1,4 +1,4 @@
-name: Sparrow V1.14 benchmark 12
+name: Sparrow multi-model benchmark
 
 on:
   push:
@@ -24,16 +24,17 @@ jobs:
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
 
-      - name: Stress overloaded selection 13 and 14 candidate figures
+      - name: Stress 16 varied real-order cases
         run: |
-          python3 solver-service/benchmarks/selection_stress.py | tee /tmp/selection.log
+          python3 solver-service/benchmarks/multimodel_stress.py | tee /tmp/multimodel.log
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sparrow-v115-selection-stress
+          name: sparrow-v115-multimodel-stress
           path: |
-            /tmp/selection.log
-            /tmp/selection_summary.json
+            /tmp/multimodel.log
+            /tmp/multimodel_rows.json
+            /tmp/multimodel_summary.json
           if-no-files-found: warn
