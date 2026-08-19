@@ -1,4 +1,5 @@
 import json, math, re, shutil, subprocess, tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -8,7 +9,7 @@ PLATE_W = 1220.0
 PLATE_H = 580.0
 SEP = 3.0
 EXPECTED_ITEMS = 24
-PREVIOUS_BEST = 1248.347
+PREVIOUS_BEST = 1238.606
 
 
 def widths(text):
@@ -24,8 +25,8 @@ def widths(text):
 
 def final_files(work):
     out=work/'output'
-    js=list(out.glob('final_*.json')) if out.exists() else []
-    sv=list(out.glob('final_*.svg')) if out.exists() else []
+    js=sorted(out.glob('final_*.json')) if out.exists() else []
+    sv=sorted(out.glob('final_*.svg')) if out.exists() else []
     return (js[0] if js else None),(sv[0] if sv else None)
 
 
@@ -39,103 +40,113 @@ def transformed_bbox(obj):
         tx,ty=pl['transformation']['translation']
         for x,y in pts:
             xs.append(x*c-y*s+tx); ys.append(x*s+y*c+ty)
-    if not xs: return None
-    return (min(xs),min(ys),max(xs),max(ys))
+    return (min(xs),min(ys),max(xs),max(ys)) if xs else None
 
 
 def validate(path):
     if path is None or not path.exists():
-        return {'valid':False,'reason':'no-final-json','placed':0,'bbox':None}
+        return {'candidate':False,'solved':False,'reason':'no-final-json','placed':0,'bbox':None,'strip_width':None}
     obj=json.loads(path.read_text(encoding='utf-8'))
     placed=obj.get('solution',{}).get('layout',{}).get('placed_items',[])
     ids=[p.get('item_id') for p in placed]
     bbox=transformed_bbox(obj)
+    strip=obj.get('solution',{}).get('strip_width')
     count_ok=len(placed)==EXPECTED_ITEMS and len(set(ids))==EXPECTED_ITEMS
-    # Sparrow's --min-item-separation=3 applies the 3 mm border margin to the physical container.
-    border_ok=False
+    y_ok=False; left_ok=False; right_ok=False
     if bbox:
         minx,miny,maxx,maxy=bbox
-        border_ok=(minx>=SEP-0.15 and miny>=SEP-0.15 and maxx<=PLATE_W-SEP+0.15 and maxy<=PLATE_H-SEP+0.15)
-    return {'valid':bool(count_ok and border_ok),'reason':'ok' if count_ok and border_ok else ('piece-count' if not count_ok else 'border'),'placed':len(placed),'bbox':bbox}
+        y_ok=miny>=SEP-0.15 and maxy<=PLATE_H-SEP+0.15
+        left_ok=minx>=SEP-0.15
+        right_ok=maxx<=PLATE_W-SEP+0.15
+    # Candidate may still exceed the right edge: keep it so near-winners are not lost.
+    candidate=bool(count_ok and y_ok and left_ok and strip is not None)
+    solved=bool(candidate and right_ok and strip<=PLATE_W+0.01)
+    reason='ok' if solved else ('piece-count' if not count_ok else ('vertical-border' if not y_ok else ('left-border' if not left_ok else 'too-wide')))
+    return {'candidate':candidate,'solved':solved,'reason':reason,'placed':len(placed),'bbox':bbox,'strip_width':strip}
 
 
-def run(args,work,log,timeout):
+def run_one(source, root, label, explore, compress, seed, timeout):
+    work=root/label; work.mkdir()
+    src=work/'warm.json'; shutil.copy2(source,src)
+    obj=json.loads(src.read_text(encoding='utf-8')); obj['strip_height']=PLATE_H
+    src.write_text(json.dumps(obj,separators=(',',':')),encoding='utf-8')
     try:
-        p=subprocess.run(args,cwd=work,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
-        text=p.stdout or ''
-        Path('/tmp',log).write_text(text,encoding='utf-8')
-        ws=widths(text)
-        return p.returncode,(min(ws) if ws else None),text
+        p=subprocess.run([SPARROW,'-i',str(src),'-e',str(explore),'-c',str(compress),'--min-item-separation',str(SEP),'--workers','1','-s',str(seed)],cwd=work,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
+        text=p.stdout or ''; rc=p.returncode
     except subprocess.TimeoutExpired as e:
-        text=(e.stdout or '') if isinstance(e.stdout,str) else ''
-        Path('/tmp',log).write_text(text+'\nTIMEOUT',encoding='utf-8')
-        ws=widths(text)
-        return 124,(min(ws) if ws else None),text
+        text=(e.stdout or '') if isinstance(e.stdout,str) else ''; rc=124
+    Path('/tmp',f'multimodel_case09_{label}.log').write_text(text+'\n'+('TIMEOUT' if rc==124 else ''),encoding='utf-8')
+    ws=widths(text)
+    js,svg=final_files(work)
+    cert=validate(js)
+    reported=min(ws) if ws else None
+    return {'label':label,'seed':seed,'exploration':explore,'compression':compress,'returncode':rc,'reported_width':reported,**cert,'json':js,'svg':svg}
+
 
 base=json.loads(FIXTURE.read_text(encoding='utf-8'))
-assert len(base['solution']['layout']['placed_items'])==EXPECTED_ITEMS, 'fixture must contain all 24 pieces'
+assert len(base['solution']['layout']['placed_items'])==EXPECTED_ITEMS
 base['strip_height']=PLATE_H
-rows=[]; solved=False; champion=None
+rows=[]; solved=False
 
-# Full 24-piece warm starts only. The first run gives Sparrow the real 580 mm physical height.
-plans=[
-    ('full24-height-release',35,115,536870909),
-    ('full24-alt-basin',45,135,1073741789),
-    ('full24-deep',60,165,1610612741),
+# Many short probes instead of one long search. All start from the same full 24-piece checkpoint.
+scouts=[
+    ('micro_a',10,28,536870909),
+    ('micro_b',14,30,1073741789),
+    ('micro_c',18,28,1610612741),
+    ('micro_d',8,36,268435399),
+    ('micro_e',20,24,805306457),
+    ('micro_f',12,34,402653189),
 ]
 
 with tempfile.TemporaryDirectory() as tmp:
     td=Path(tmp)
     source=td/'base.json'; source.write_text(json.dumps(base,separators=(',',':')),encoding='utf-8')
-    best_w=None
-    for i,(label,explore,compress,seed) in enumerate(plans,1):
-        if solved: break
-        work=td/f'run_{i:02d}'; work.mkdir()
-        src=work/'warm.json'
-        if champion and champion.get('checkpoint'):
-            shutil.copy2(champion['checkpoint'],src)
-            # keep physical height explicit on every chained warm start
-            tmpobj=json.loads(src.read_text(encoding='utf-8')); tmpobj['strip_height']=PLATE_H
-            src.write_text(json.dumps(tmpobj,separators=(',',':')),encoding='utf-8')
-        else:
-            shutil.copy2(source,src)
-        rc,w,text=run([SPARROW,'-i',str(src),'-e',str(explore),'-c',str(compress),'--min-item-separation',str(SEP),'--workers','3','-s',str(seed)],work,f'multimodel_case09_full24_{i:02d}.log',explore+compress+55)
-        js,svg=final_files(work)
-        cert=validate(js)
-        actual_strip=None
-        if js and js.exists():
-            actual_strip=json.loads(js.read_text(encoding='utf-8')).get('solution',{}).get('strip_width')
-        success=bool(cert['valid'] and actual_strip is not None and actual_strip<=PLATE_W+0.01)
-        row={'stage':i,'phase':'full24-physical-plate','label':label,'seed':seed,'returncode':rc,'reported_width':w,'strip_width':actual_strip,'placed':cert['placed'],'bbox':cert['bbox'],'certificate':cert['reason'],'solved':success,'exploration':explore,'compression':compress}
-        rows.append(row); print('FULL24',json.dumps(row),flush=True)
-        if cert['valid'] and actual_strip is not None and (best_w is None or actual_strip<best_w):
-            best_w=actual_strip
-            cp=td/'champion.json'; shutil.copy2(js,cp)
-            sp=None
-            if svg is not None:
-                sp=td/'champion.svg'; shutil.copy2(svg,sp)
-            champion={'width':actual_strip,'checkpoint':cp,'svg':sp}
-        solved=success
+    results=[]
+    # 3 simultaneous Sparrow processes, one worker each: short wall-clock batch.
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs=[ex.submit(run_one,source,td,*plan,55) for plan in scouts]
+        for fut in as_completed(futs):
+            r=fut.result(); results.append(r)
+            row={k:v for k,v in r.items() if k not in ('json','svg')}
+            row['phase']='micro-scout'; rows.append(row); print('MICRO',json.dumps(row),flush=True)
+
+    candidates=sorted([r for r in results if r['candidate']],key=lambda r:r['strip_width'])
+    solved=any(r['solved'] for r in candidates)
+    champion=candidates[0] if candidates else None
+
+    # Refine only the best two basins, also in parallel, and only briefly.
+    refined=[]
+    if not solved:
+        top=candidates[:2]
+        refine_specs=[]
+        for i,c in enumerate(top,1):
+            cp=td/f'top_{i}.json'; shutil.copy2(c['json'],cp)
+            refine_specs.append((cp,f'refine_{i}',18+6*i,46+8*i,[2147483629,134217689][i-1]))
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            futs=[ex.submit(run_one,cp,td,label,e,c,s,80) for cp,label,e,c,s in refine_specs]
+            for fut in as_completed(futs):
+                r=fut.result(); refined.append(r)
+                row={k:v for k,v in r.items() if k not in ('json','svg')}
+                row['phase']='micro-refine'; rows.append(row); print('REFINE',json.dumps(row),flush=True)
+        candidates += [r for r in refined if r['candidate']]
+        candidates=sorted(candidates,key=lambda r:r['strip_width'])
+        solved=any(r['solved'] for r in candidates)
+        champion=candidates[0] if candidates else champion
 
     if champion:
-        shutil.copy2(champion['checkpoint'],'/tmp/case9_best_checkpoint.json')
+        shutil.copy2(champion['json'],'/tmp/case9_best_checkpoint.json')
         if champion.get('svg') and Path(champion['svg']).exists(): shutil.copy2(champion['svg'],'/tmp/case9_best.svg')
 
-best=min([r['strip_width'] for r in rows if r.get('strip_width') is not None and r.get('placed')==EXPECTED_ITEMS],default=None)
+best=min([r['strip_width'] for r in rows if r.get('candidate') and r.get('strip_width') is not None],default=None)
 summary={
-    'cases':12,
-    'adaptive_cases_solved':12 if solved else 11,
+    'cases':12,'adaptive_cases_solved':12 if solved else 11,
     'adaptive_success_rate':100.0 if solved else 91.67,
     'focused_cases':[9],
-    'focused_strategy':'strict full-24 warm search on physical plate; no partial-solution false positives',
+    'focused_strategy':'fast parallel micro-search: 6 scouts -> top2 short refine',
     'physical_plate_mm':[PLATE_W,PLATE_H],
-    'minimum_separation_mm':SEP,
-    'required_placed_items':EXPECTED_ITEMS,
-    'previous_valid_best_mm':PREVIOUS_BEST,
-    'best_width':best,
-    'width_goal_reached':solved,
-    'total_runs':len(rows),
-    'stages':rows
+    'minimum_separation_mm':SEP,'required_placed_items':EXPECTED_ITEMS,
+    'previous_valid_best_mm':PREVIOUS_BEST,'best_width':best,
+    'width_goal_reached':solved,'total_runs':len(rows),'stages':rows
 }
 Path('/tmp/multimodel_rows.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
 Path('/tmp/multimodel_summary.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
