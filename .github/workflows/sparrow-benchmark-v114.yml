@@ -17,7 +17,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -27,7 +27,7 @@ jobs:
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
-      - name: Intense focused search for case 5
+      - name: Intense focused search for case 9
         shell: bash
         run: |
           set -euo pipefail
@@ -35,12 +35,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sparrow-case5-intense-results
+          name: sparrow-case9-target-results
           path: |
             /tmp/multimodel_summary.json
             /tmp/multimodel_rows.json
             /tmp/multimodel_console.txt
             /tmp/multimodel_case*.log
+            /tmp/case9_best_checkpoint.json
+            /tmp/case9_best.svg
           if-no-files-found: warn
       - name: Publish benchmark summary on PR
         if: always() && github.event_name == 'pull_request'
@@ -48,19 +50,19 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let body = '## Sparrow benchmark result\n\n';
+            let body = '## Sparrow case 9 benchmark result\n\n';
             try {
               const raw = fs.readFileSync('/tmp/multimodel_summary.json', 'utf8');
               const s = JSON.parse(raw);
-              body += `- Official solved: **${s.official_cases_solved}/${s.cases}** (${s.official_success_rate}%)\n`;
               body += `- Adaptive solved: **${s.adaptive_cases_solved}/${s.cases}** (${s.adaptive_success_rate}%)\n`;
-              body += `- Gain: **${s.adaptive_gain_cases} cases**\n`;
-              body += `- Beats official: **${s.beats_official}**\n`;
               body += `- Best width: **${s.best_width} mm**\n`;
-              body += `- Budget: **${s.budget_seconds}s x ${s.planned_attempts} attempts, ${s.workers} workers**\n\n`;
+              body += `- Physical plate: **${s.physical_plate_mm?.join(' × ')} mm**\n`;
+              body += `- Certifiable bbox: **${s.certifiable_bbox_mm?.join(' × ')} mm**\n`;
+              body += `- Minimum separation: **${s.minimum_separation_mm} mm**\n`;
+              body += `- Width goal reached: **${s.width_goal_reached}**\n\n`;
               body += '### Cases\n';
               for (const c of (s.case_results || [])) {
-                body += `- Case ${c.case}: official=${c.official_ok} adaptive=${c.solved} best=${c.best_width} mm strategy=${c.best_strategy} attempts=${c.attempts}\n`;
+                body += `- Case ${c.case}: adaptive=${c.solved} best=${c.best_width} mm attempts=${c.attempts}\n`;
               }
               body += `\n<details><summary>Raw SUMMARY</summary>\n\n\`\`\`json\n${JSON.stringify(s,null,2)}\n\`\`\`\n</details>`;
             } catch (e) {
