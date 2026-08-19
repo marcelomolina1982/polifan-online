@@ -18,7 +18,6 @@ MODEL_AREA={n:sum(area(p) for p in MODELS[n]['parts']) for n in names}
 
 
 def legacy_best_order(base):
-    # Reproduce legacy attempt 19 exactly: model-area-small + one adjacent perturbation.
     ranked=sorted(list(base), key=lambda n:(MODEL_AREA[n],n))
     rr=random.Random(BEST_SEED + 19*100003)
     i=rr.randrange(len(ranked)-1)
@@ -32,7 +31,6 @@ def build_items(order):
         for pi,p in enumerate(MODELS[m]['parts']):
             xs=[q[0] for q in p]; ys=[q[1] for q in p]
             rec.append({'m':m,'mi':mi,'pi':pi,'p':p,'a':area(p),'w':max(xs)-min(xs),'h':max(ys)-min(ys)})
-    # Exact legacy winning part order for attempt 19.
     return sorted(rec,key=lambda r:(r['a'],r['w'],r['h']))
 
 
@@ -63,9 +61,8 @@ with tempfile.TemporaryDirectory() as tmp:
     items=[{'id':i,'demand':1,'shape':{'type':'simple_polygon','data':r['p']}} for i,r in enumerate(seq)]
     inp.write_text(json.dumps({'name':'case9_warm','strip_height':STRIP_HEIGHT,'items':items},separators=(',',':')),encoding='utf-8')
 
-    # Stage 1: reproduce the true best basin, but with 3 workers and enough compression.
     p,text,w=run_cmd([
-        SPARROW,'-i',str(inp),'-t','45','-e','24','-c','21',
+        SPARROW,'-i',str(inp),'-e','24','-c','21',
         '--min-item-separation','2.5','--workers',str(WORKERS),'-s',str(BEST_SEED)
     ],td,'multimodel_case09_stage1.log',80)
     row={'stage':1,'kind':'rebuild-best','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
@@ -74,20 +71,19 @@ with tempfile.TemporaryDirectory() as tmp:
     solved=row['ok']
 
     final_json=td/'output'/'final_case9_warm.json'
-    # Stages 2-4: keep the actual final placement and compress from it instead of rebuilding.
-    for stage,(total,explore,compress,seed) in enumerate([
-        (75,5,70,BEST_SEED),
-        (90,8,82,BEST_SEED+104729),
-        (105,10,95,BEST_SEED-104729),
+    for stage,(explore,compress,seed) in enumerate([
+        (5,70,BEST_SEED),
+        (8,82,BEST_SEED+104729),
+        (10,95,BEST_SEED-104729),
     ],start=2):
         if solved or not final_json.exists():
             break
         warm=td/f'warm_stage{stage}.json'
         shutil.copy2(final_json,warm)
         p,text,w=run_cmd([
-            SPARROW,'-i',str(warm),'-t',str(total),'-e',str(explore),'-c',str(compress),
+            SPARROW,'-i',str(warm),'-e',str(explore),'-c',str(compress),
             '--min-item-separation','2.5','--workers',str(WORKERS),'-s',str(seed)
-        ],td,f'multimodel_case09_stage{stage}.log',total+40)
+        ],td,f'multimodel_case09_stage{stage}.log',explore+compress+40)
         row={'stage':stage,'kind':'warm-compress','seed':seed,'width':w,'ok':w is not None and w<=MAX_WIDTH,
              'exploration':explore,'compression':compress}
         rows.append(row)
