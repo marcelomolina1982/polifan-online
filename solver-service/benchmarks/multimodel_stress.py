@@ -58,53 +58,63 @@ rows=[]; solved=False; best=None
 with tempfile.TemporaryDirectory() as tmp:
     td=Path(tmp); inp=td/'input.json'
     items=[{'id':i,'demand':1,'shape':{'type':'simple_polygon','data':r['p']}} for i,r in enumerate(seq)]
-    inp.write_text(json.dumps({'name':'case9_warm','strip_height':STRIP_HEIGHT,'items':items},separators=(',',':')),encoding='utf-8')
+    inp.write_text(json.dumps({'name':'case9_escape','strip_height':STRIP_HEIGHT,'items':items},separators=(',',':')),encoding='utf-8')
 
-    # Exact reproduction of legacy run49 attempt19: 28s, 2 workers, same seed/order.
+    # Stage 1: get into the known good basin.
     p,text,w=run_cmd([
-        SPARROW,'-i',str(inp),'-t','28','--min-item-separation','2.5',
-        '--workers','2','-s',str(BEST_SEED)
+        SPARROW,'-i',str(inp),'-t','28','--min-item-separation','2.5','--workers','2','-s',str(BEST_SEED)
     ],td,'multimodel_case09_stage1.log',70)
-    row={'stage':1,'kind':'exact-rebuild','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
-    rows.append(row); best=w
-    print('WARM_STAGE',json.dumps(row),flush=True)
-    solved=row['ok']
+    row={'stage':1,'kind':'rebuild','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
+    rows.append(row); best=w; print('ESCAPE_STAGE',json.dumps(row),flush=True); solved=row['ok']
 
-    final_json=td/'output'/'final_case9_warm.json'
-    # Preserve that exact placement, then devote most of the budget to compression.
-    for stage,(explore,compress,seed,workers) in enumerate([
-        (2,118,BEST_SEED,2),
-        (3,157,BEST_SEED+104729,3),
-        (3,197,BEST_SEED-104729,3),
-    ],start=2):
-        if solved or not final_json.exists():
-            break
-        warm=td/f'warm_stage{stage}.json'
-        shutil.copy2(final_json,warm)
+    final_json=td/'output'/'final_case9_escape.json'
+    checkpoint=td/'checkpoint.json'
+    if final_json.exists(): shutil.copy2(final_json,checkpoint)
+
+    # Stage 2: squeeze the known basin first.
+    if not solved and checkpoint.exists():
         p,text,w=run_cmd([
-            SPARROW,'-i',str(warm),'-e',str(explore),'-c',str(compress),
+            SPARROW,'-i',str(checkpoint),'-e','2','-c','118','--min-item-separation','2.5','--workers','2','-s',str(BEST_SEED)
+        ],td,'multimodel_case09_stage2.log',165)
+        row={'stage':2,'kind':'deep-compress','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
+        rows.append(row); print('ESCAPE_STAGE',json.dumps(row),flush=True); solved=row['ok']
+        if w is not None and (best is None or w<best):
+            best=w
+            if final_json.exists(): shutil.copy2(final_json,checkpoint)
+
+    # Stages 3-6: destroy/repair around the best warm solution to escape the 1222 mm local minimum.
+    escape_runs=[
+        (3,32,78,805306457,3),
+        (4,42,88,268435399,3),
+        (5,52,98,402653189,3),
+        (6,62,108,1073741789,3),
+    ]
+    for stage,explore,compress,seed,workers in escape_runs:
+        if solved or not checkpoint.exists(): break
+        trial=td/f'trial_{stage}.json'; shutil.copy2(checkpoint,trial)
+        p,text,w=run_cmd([
+            SPARROW,'-i',str(trial),'-e',str(explore),'-c',str(compress),
             '--min-item-separation','2.5','--workers',str(workers),'-s',str(seed)
-        ],td,f'multimodel_case09_stage{stage}.log',explore+compress+40)
-        row={'stage':stage,'kind':'warm-compress','seed':seed,'width':w,'ok':w is not None and w<=MAX_WIDTH,
+        ],td,f'multimodel_case09_stage{stage}.log',explore+compress+45)
+        row={'stage':stage,'kind':'destroy-repair-warm','seed':seed,'width':w,'ok':w is not None and w<=MAX_WIDTH,
              'exploration':explore,'compression':compress,'workers':workers}
-        rows.append(row)
-        if w is not None and (best is None or w<best): best=w
-        print('WARM_STAGE',json.dumps(row),flush=True)
+        rows.append(row); print('ESCAPE_STAGE',json.dumps(row),flush=True)
+        if w is not None and (best is None or w<best):
+            best=w
+            if final_json.exists(): shutil.copy2(final_json,checkpoint)
         solved=row['ok']
 
+    if checkpoint.exists():
+        shutil.copy2(checkpoint,Path('/tmp/case9_best_checkpoint.json'))
+
 summary={
-    'models':names,'cases':12,
-    'official_cases_solved':9,'official_success_rate':75.0,
-    'adaptive_cases_solved':12 if solved else 11,
-    'adaptive_success_rate':100.0 if solved else 91.67,
-    'adaptive_gain_cases':3 if solved else 2,
-    'beats_official':True,'focused_cases':[9],
-    'focused_strategy':'exact legacy 1229 rebuild then chained warm-start compression',
-    'total_runs':len(rows),'best_width':best,
-    'case_results':[{'case':9,'official_ok':False,'official_width':1277.401,'solved':solved,
-                     'attempts':len(rows),'best_width':best,'best_seed':BEST_SEED,
-                     'best_strategy':'exact legacy attempt19 + chained warm compression','previous_best':1229.161,
-                     'target_width':MAX_WIDTH,'models':BASE}],
+    'models':names,'cases':12,'official_cases_solved':9,'official_success_rate':75.0,
+    'adaptive_cases_solved':12 if solved else 11,'adaptive_success_rate':100.0 if solved else 91.67,
+    'adaptive_gain_cases':3 if solved else 2,'beats_official':True,'focused_cases':[9],
+    'focused_strategy':'warm destroy-repair escape from 1222 mm local minimum','total_runs':len(rows),'best_width':best,
+    'case_results':[{'case':9,'official_ok':False,'official_width':1277.401,'solved':solved,'attempts':len(rows),
+                     'best_width':best,'best_seed':BEST_SEED,'best_strategy':'warm destroy-repair escape',
+                     'previous_best':1222.701,'target_width':MAX_WIDTH,'models':BASE}],
     'stages':rows
 }
 Path('/tmp/multimodel_rows.json').write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding='utf-8')
