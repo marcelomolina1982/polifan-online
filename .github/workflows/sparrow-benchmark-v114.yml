@@ -8,6 +8,12 @@ on:
     paths:
       - 'solver-service/benchmarks/**'
       - '.github/workflows/sparrow-benchmark-v114.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'solver-service/benchmarks/**'
+      - '.github/workflows/sparrow-benchmark-v114.yml'
   workflow_dispatch:
 
 jobs:
