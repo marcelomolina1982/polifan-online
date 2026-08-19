@@ -1,6 +1,9 @@
 name: Sparrow V1.14 benchmark 12
 
 on:
+  push:
+    branches:
+      - bench/focused-case5-clean
   pull_request:
     branches:
       - bench/sparrow-v114-base
@@ -14,7 +17,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -24,7 +27,7 @@ jobs:
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
-      - name: Stress real multimodel orders
+      - name: Intense focused search for case 5
         shell: bash
         run: |
           set -euo pipefail
@@ -32,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sparrow-multimodel-results
+          name: sparrow-case5-intense-results
           path: |
             /tmp/multimodel_summary.json
             /tmp/multimodel_rows.json
@@ -54,7 +57,7 @@ jobs:
               body += `- Gain: **${s.adaptive_gain_cases} cases**\n`;
               body += `- Beats official: **${s.beats_official}**\n`;
               body += `- Best width: **${s.best_width} mm**\n`;
-              body += `- Worst measured width: **${s.worst_width} mm**\n\n`;
+              body += `- Budget: **${s.budget_seconds}s x ${s.planned_attempts} attempts, ${s.workers} workers**\n\n`;
               body += '### Cases\n';
               for (const c of (s.case_results || [])) {
                 body += `- Case ${c.case}: official=${c.official_ok} adaptive=${c.solved} best=${c.best_width} mm strategy=${c.best_strategy} attempts=${c.attempts}\n`;
