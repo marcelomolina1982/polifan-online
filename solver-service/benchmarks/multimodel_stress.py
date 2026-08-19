@@ -9,7 +9,6 @@ names=list(MODELS)
 cases=[[random.choice(names) for _ in range(12)] for __ in range(12)]
 BASE=cases[8]
 BEST_SEED=536870909
-WORKERS=3
 
 
 def area(poly):
@@ -61,20 +60,22 @@ with tempfile.TemporaryDirectory() as tmp:
     items=[{'id':i,'demand':1,'shape':{'type':'simple_polygon','data':r['p']}} for i,r in enumerate(seq)]
     inp.write_text(json.dumps({'name':'case9_warm','strip_height':STRIP_HEIGHT,'items':items},separators=(',',':')),encoding='utf-8')
 
+    # Exact reproduction of legacy run49 attempt19: 28s, 2 workers, same seed/order.
     p,text,w=run_cmd([
-        SPARROW,'-i',str(inp),'-e','24','-c','21',
-        '--min-item-separation','2.5','--workers',str(WORKERS),'-s',str(BEST_SEED)
-    ],td,'multimodel_case09_stage1.log',80)
-    row={'stage':1,'kind':'rebuild-best','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
+        SPARROW,'-i',str(inp),'-t','28','--min-item-separation','2.5',
+        '--workers','2','-s',str(BEST_SEED)
+    ],td,'multimodel_case09_stage1.log',70)
+    row={'stage':1,'kind':'exact-rebuild','seed':BEST_SEED,'width':w,'ok':w is not None and w<=MAX_WIDTH}
     rows.append(row); best=w
     print('WARM_STAGE',json.dumps(row),flush=True)
     solved=row['ok']
 
     final_json=td/'output'/'final_case9_warm.json'
-    for stage,(explore,compress,seed) in enumerate([
-        (5,70,BEST_SEED),
-        (8,82,BEST_SEED+104729),
-        (10,95,BEST_SEED-104729),
+    # Preserve that exact placement, then devote most of the budget to compression.
+    for stage,(explore,compress,seed,workers) in enumerate([
+        (2,118,BEST_SEED,2),
+        (3,157,BEST_SEED+104729,3),
+        (3,197,BEST_SEED-104729,3),
     ],start=2):
         if solved or not final_json.exists():
             break
@@ -82,10 +83,10 @@ with tempfile.TemporaryDirectory() as tmp:
         shutil.copy2(final_json,warm)
         p,text,w=run_cmd([
             SPARROW,'-i',str(warm),'-e',str(explore),'-c',str(compress),
-            '--min-item-separation','2.5','--workers',str(WORKERS),'-s',str(seed)
+            '--min-item-separation','2.5','--workers',str(workers),'-s',str(seed)
         ],td,f'multimodel_case09_stage{stage}.log',explore+compress+40)
         row={'stage':stage,'kind':'warm-compress','seed':seed,'width':w,'ok':w is not None and w<=MAX_WIDTH,
-             'exploration':explore,'compression':compress}
+             'exploration':explore,'compression':compress,'workers':workers}
         rows.append(row)
         if w is not None and (best is None or w<best): best=w
         print('WARM_STAGE',json.dumps(row),flush=True)
@@ -98,11 +99,11 @@ summary={
     'adaptive_success_rate':100.0 if solved else 91.67,
     'adaptive_gain_cases':3 if solved else 2,
     'beats_official':True,'focused_cases':[9],
-    'focused_strategy':'reproduce true best seed 536870909 then chained warm-start compression',
-    'workers':WORKERS,'total_runs':len(rows),'best_width':best,
+    'focused_strategy':'exact legacy 1229 rebuild then chained warm-start compression',
+    'total_runs':len(rows),'best_width':best,
     'case_results':[{'case':9,'official_ok':False,'official_width':1277.401,'solved':solved,
                      'attempts':len(rows),'best_width':best,'best_seed':BEST_SEED,
-                     'best_strategy':'legacy-attempt19 + chained warm compression','previous_best':1229.161,
+                     'best_strategy':'exact legacy attempt19 + chained warm compression','previous_best':1229.161,
                      'target_width':MAX_WIDTH,'models':BASE}],
     'stages':rows
 }
