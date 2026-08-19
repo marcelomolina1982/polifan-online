@@ -1,20 +1,15 @@
 name: Sparrow V1.14 benchmark 12
 
 on:
-  push:
-    branches:
-      - lab/sparrow-v114-global-human-search
-      - bench/sparrow-v114-base
-    paths:
-      - 'solver-service/benchmarks/**'
-      - '.github/workflows/sparrow-benchmark-v114.yml'
   pull_request:
     branches:
-      - main
-    paths:
-      - 'solver-service/benchmarks/**'
-      - '.github/workflows/sparrow-benchmark-v114.yml'
+      - bench/sparrow-v114-base
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   benchmark:
@@ -44,4 +39,33 @@ jobs:
             /tmp/multimodel_console.txt
             /tmp/multimodel_case*.log
           if-no-files-found: warn
-# trigger official-vs-adaptive benchmark 2026-08-19
+      - name: Publish benchmark summary on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## Sparrow benchmark result\n\n';
+            try {
+              const raw = fs.readFileSync('/tmp/multimodel_summary.json', 'utf8');
+              const s = JSON.parse(raw);
+              body += `- Official solved: **${s.official_cases_solved}/${s.cases}** (${s.official_success_rate}%)\n`;
+              body += `- Adaptive solved: **${s.adaptive_cases_solved}/${s.cases}** (${s.adaptive_success_rate}%)\n`;
+              body += `- Gain: **${s.adaptive_gain_cases} cases**\n`;
+              body += `- Beats official: **${s.beats_official}**\n`;
+              body += `- Best width: **${s.best_width} mm**\n`;
+              body += `- Worst measured width: **${s.worst_width} mm**\n\n`;
+              body += '### Cases\n';
+              for (const c of (s.case_results || [])) {
+                body += `- Case ${c.case}: official=${c.official_ok} adaptive=${c.solved} best=${c.best_width} mm strategy=${c.best_strategy} attempts=${c.attempts}\n`;
+              }
+              body += `\n<details><summary>Raw SUMMARY</summary>\n\n\`\`\`json\n${JSON.stringify(s,null,2)}\n\`\`\`\n</details>`;
+            } catch (e) {
+              body += `Benchmark did not produce a readable summary: ${e.message}`;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
