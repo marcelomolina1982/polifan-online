@@ -38,4 +38,4 @@ jobs:
             /tmp/multimodel_console.txt
             /tmp/multimodel_case*.log
           if-no-files-found: warn
-# trigger multimodel benchmark 2026-08-18
+# trigger official-vs-adaptive benchmark 2026-08-19
