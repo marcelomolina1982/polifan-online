@@ -4,9 +4,10 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 SPARROW = '/tmp/sparrow-bin'
 FIXTURE = ROOT / 'case9_run67_checkpoint.json'
-MAX_WIDTH = 1214.0
-MAX_HEIGHT = 574.0
+PLATE_W = 1220.0
+PLATE_H = 580.0
 SEP = 3.0
+EXPECTED_ITEMS = 24
 PREVIOUS_BEST = 1248.347
 
 
@@ -21,22 +22,41 @@ def widths(text):
     return vals
 
 
-def bbox_right(obj, placed):
-    shapes={it['id']:it['shape']['data'] for it in obj['items']}
-    right=0.0
-    for pl in placed:
-        pts=shapes[pl['item_id']]
-        a=math.radians(pl['transformation']['rotation']); c=math.cos(a); s=math.sin(a)
-        tx,ty=pl['transformation']['translation']
-        right=max(right,max(x*c-y*s+tx for x,y in pts))
-    return right
-
-
 def final_files(work):
     out=work/'output'
     js=list(out.glob('final_*.json')) if out.exists() else []
     sv=list(out.glob('final_*.svg')) if out.exists() else []
     return (js[0] if js else None),(sv[0] if sv else None)
+
+
+def transformed_bbox(obj):
+    shapes={it['id']:it['shape']['data'] for it in obj['items']}
+    placed=obj.get('solution',{}).get('layout',{}).get('placed_items',[])
+    xs=[]; ys=[]
+    for pl in placed:
+        pts=shapes[pl['item_id']]
+        a=math.radians(pl['transformation']['rotation']); c=math.cos(a); s=math.sin(a)
+        tx,ty=pl['transformation']['translation']
+        for x,y in pts:
+            xs.append(x*c-y*s+tx); ys.append(x*s+y*c+ty)
+    if not xs: return None
+    return (min(xs),min(ys),max(xs),max(ys))
+
+
+def validate(path):
+    if path is None or not path.exists():
+        return {'valid':False,'reason':'no-final-json','placed':0,'bbox':None}
+    obj=json.loads(path.read_text(encoding='utf-8'))
+    placed=obj.get('solution',{}).get('layout',{}).get('placed_items',[])
+    ids=[p.get('item_id') for p in placed]
+    bbox=transformed_bbox(obj)
+    count_ok=len(placed)==EXPECTED_ITEMS and len(set(ids))==EXPECTED_ITEMS
+    # Sparrow's --min-item-separation=3 applies the 3 mm border margin to the physical container.
+    border_ok=False
+    if bbox:
+        minx,miny,maxx,maxy=bbox
+        border_ok=(minx>=SEP-0.15 and miny>=SEP-0.15 and maxx<=PLATE_W-SEP+0.15 and maxy<=PLATE_H-SEP+0.15)
+    return {'valid':bool(count_ok and border_ok),'reason':'ok' if count_ok and border_ok else ('piece-count' if not count_ok else 'border'),'placed':len(placed),'bbox':bbox}
 
 
 def run(args,work,log,timeout):
@@ -52,78 +72,65 @@ def run(args,work,log,timeout):
         ws=widths(text)
         return 124,(min(ws) if ws else None),text
 
-
 base=json.loads(FIXTURE.read_text(encoding='utf-8'))
-original=list(base['solution']['layout']['placed_items'])
-# The three pieces actually forming the right edge are 15, 23 and 18.
-# Adjacent variants release one/two neighbours so Sparrow can cross the local basin.
-variants=[
-    ('edge3',[15,18,23],536870909),
-    ('edge4-left',[15,18,19,23],268435399),
-    ('edge4-up',[15,17,18,23],805306457),
-    ('edge5',[15,18,19,20,23],1073741789),
+assert len(base['solution']['layout']['placed_items'])==EXPECTED_ITEMS, 'fixture must contain all 24 pieces'
+base['strip_height']=PLATE_H
+rows=[]; solved=False; champion=None
+
+# Full 24-piece warm starts only. The first run gives Sparrow the real 580 mm physical height.
+plans=[
+    ('full24-height-release',35,115,536870909),
+    ('full24-alt-basin',45,135,1073741789),
+    ('full24-deep',60,165,1610612741),
 ]
-rows=[]; candidates=[]; solved=False
 
 with tempfile.TemporaryDirectory() as tmp:
     td=Path(tmp)
-    for i,(label,release,seed) in enumerate(variants,1):
-        work=td/f'surgical_{i:02d}'; work.mkdir()
-        obj=json.loads(json.dumps(base))
-        kept=[p for p in original if p['item_id'] not in set(release)]
-        obj['name']=f'case9_surgical_{label}'
-        obj['solution']['layout']['placed_items']=kept
-        fixed_right=bbox_right(obj,kept)
-        # Give the partial layout only a small tail beyond its frozen right edge.
-        # Missing items remain in `items` and are the only pieces Sparrow needs to repair.
-        obj['solution']['strip_width']=min(PREVIOUS_BEST,max(fixed_right+80.0,MAX_WIDTH+8.0))
-        obj['solution']['layout']['density']=0.0
-        obj['solution']['density']=0.0
-        inp=work/'partial.json'; inp.write_text(json.dumps(obj,separators=(',',':')),encoding='utf-8')
-        rc,w,text=run([SPARROW,'-i',str(inp),'-e','22','-c','68','--min-item-separation',str(SEP),'--workers','3','-s',str(seed)],work,f'multimodel_case09_surgical_{i:02d}.log',125)
+    source=td/'base.json'; source.write_text(json.dumps(base,separators=(',',':')),encoding='utf-8')
+    best_w=None
+    for i,(label,explore,compress,seed) in enumerate(plans,1):
+        if solved: break
+        work=td/f'run_{i:02d}'; work.mkdir()
+        src=work/'warm.json'
+        if champion and champion.get('checkpoint'):
+            shutil.copy2(champion['checkpoint'],src)
+            # keep physical height explicit on every chained warm start
+            tmpobj=json.loads(src.read_text(encoding='utf-8')); tmpobj['strip_height']=PLATE_H
+            src.write_text(json.dumps(tmpobj,separators=(',',':')),encoding='utf-8')
+        else:
+            shutil.copy2(source,src)
+        rc,w,text=run([SPARROW,'-i',str(src),'-e',str(explore),'-c',str(compress),'--min-item-separation',str(SEP),'--workers','3','-s',str(seed)],work,f'multimodel_case09_full24_{i:02d}.log',explore+compress+55)
         js,svg=final_files(work)
-        row={'stage':i,'phase':'surgical-scout','label':label,'released':release,'fixed_right':round(fixed_right,3),'seed':seed,'returncode':rc,'width':w,'improves_previous':bool(w is not None and w<PREVIOUS_BEST),'solved':bool(w is not None and w<=MAX_WIDTH)}
-        rows.append(row); print('SURGICAL',json.dumps(row),flush=True)
-        if w is not None and js is not None:
-            cp=td/f'cand_{i}.json'; shutil.copy2(js,cp)
+        cert=validate(js)
+        actual_strip=None
+        if js and js.exists():
+            actual_strip=json.loads(js.read_text(encoding='utf-8')).get('solution',{}).get('strip_width')
+        success=bool(cert['valid'] and actual_strip is not None and actual_strip<=PLATE_W+0.01)
+        row={'stage':i,'phase':'full24-physical-plate','label':label,'seed':seed,'returncode':rc,'reported_width':w,'strip_width':actual_strip,'placed':cert['placed'],'bbox':cert['bbox'],'certificate':cert['reason'],'solved':success,'exploration':explore,'compression':compress}
+        rows.append(row); print('FULL24',json.dumps(row),flush=True)
+        if cert['valid'] and actual_strip is not None and (best_w is None or actual_strip<best_w):
+            best_w=actual_strip
+            cp=td/'champion.json'; shutil.copy2(js,cp)
             sp=None
-            if svg is not None: sp=td/f'cand_{i}.svg'; shutil.copy2(svg,sp)
-            candidates.append({'width':w,'label':label,'checkpoint':cp,'svg':sp,'seed':seed})
-        if row['solved']:
-            solved=True; break
-
-    candidates.sort(key=lambda c:c['width'])
-    champion=candidates[0] if candidates else None
-
-    # Only a real improvement receives one deeper repair/compression pass.
-    if not solved and champion and champion['width'] < PREVIOUS_BEST:
-        work=td/'surgical_refine'; work.mkdir()
-        src=work/'warm.json'; shutil.copy2(champion['checkpoint'],src)
-        rc,w,text=run([SPARROW,'-i',str(src),'-e','35','-c','125','--min-item-separation',str(SEP),'--workers','3','-s','1610612741'],work,'multimodel_case09_surgical_refine.log',205)
-        js,svg=final_files(work)
-        row={'stage':len(rows)+1,'phase':'surgical-refine','source':champion['label'],'seed':1610612741,'returncode':rc,'width':w,'improves_previous':bool(w is not None and w<PREVIOUS_BEST),'solved':bool(w is not None and w<=MAX_WIDTH)}
-        rows.append(row); print('SURGICAL_REFINE',json.dumps(row),flush=True)
-        if w is not None and js is not None and w < champion['width']:
-            cp=td/'refined.json'; shutil.copy2(js,cp)
-            sp=None
-            if svg is not None: sp=td/'refined.svg'; shutil.copy2(svg,sp)
-            champion={'width':w,'label':champion['label'],'checkpoint':cp,'svg':sp,'seed':1610612741}
-        solved=bool(w is not None and w<=MAX_WIDTH)
+            if svg is not None:
+                sp=td/'champion.svg'; shutil.copy2(svg,sp)
+            champion={'width':actual_strip,'checkpoint':cp,'svg':sp}
+        solved=success
 
     if champion:
         shutil.copy2(champion['checkpoint'],'/tmp/case9_best_checkpoint.json')
         if champion.get('svg') and Path(champion['svg']).exists(): shutil.copy2(champion['svg'],'/tmp/case9_best.svg')
 
-best=min([r['width'] for r in rows if r.get('width') is not None],default=None)
+best=min([r['strip_width'] for r in rows if r.get('strip_width') is not None and r.get('placed')==EXPECTED_ITEMS],default=None)
 summary={
     'cases':12,
     'adaptive_cases_solved':12 if solved else 11,
     'adaptive_success_rate':100.0 if solved else 91.67,
     'focused_cases':[9],
-    'focused_strategy':'surgical right-edge destroy/repair from run67 checkpoint',
-    'physical_plate_mm':[1220.0,580.0],
-    'certifiable_bbox_mm':[MAX_WIDTH,MAX_HEIGHT],
+    'focused_strategy':'strict full-24 warm search on physical plate; no partial-solution false positives',
+    'physical_plate_mm':[PLATE_W,PLATE_H],
     'minimum_separation_mm':SEP,
+    'required_placed_items':EXPECTED_ITEMS,
     'previous_valid_best_mm':PREVIOUS_BEST,
     'best_width':best,
     'width_goal_reached':solved,
