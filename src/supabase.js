@@ -65,7 +65,16 @@ function orderPieceCount(order,items){
   if(Number.isFinite(explicit)&&explicit>0)return explicit
   return items.reduce((sum,item)=>sum+(Number(item.qty)||0),0)
 }
+function webRequestKey(order){
+  const direct=[order?.webRequestId,order?.requestId,order?.sourceId,order?.web_request_id].map(v=>String(v||'').trim()).find(Boolean)
+  if(direct)return normText(direct)
+  const text=[order?.notes,order?.observations,order?.observation,order?.comments].map(v=>String(v||'')).join(' ')
+  const match=text.match(/WEB-\d{6}-\d{6}/i)
+  return match?normText(match[0]):''
+}
 function orderDuplicateSignature(order){
+  const webKey=webRequestKey(order)
+  if(webKey)return `web:${webKey}`
   const number=normText(order?.number)
   if(!number)return ''
   const items=normalizedOrderItems(order)
@@ -237,7 +246,7 @@ async function mergeCriticalState(state){
   if(deduped.removed.length){
     merged={...merged,orders:deduped.orders}
     await persistCollectionDelta('orders',deduped.orders,beforeDedupe)
-    console.warn(`Se eliminaron ${deduped.removed.length} pedido(s) duplicado(s) comercialmente idéntico(s) y quedaron bloqueados para recuperación.`)
+    console.warn(`Se eliminaron ${deduped.removed.length} pedido(s) duplicado(s) comercialmente idéntico(s) o de la misma solicitud web y quedaron bloqueados para recuperación.`)
   }
 
   const recoveredBatches=(merged.cutBatches||[]).length-(state.cutBatches||[]).length
