@@ -3,7 +3,7 @@ export default async function handler(req,res){
   const raw=String(req.query?.id||'').trim()
   if(!raw)return res.status(400).json({ok:false,error:'Falta id del trabajo'})
 
-  let key='lab'
+  let key='test'
   let id=raw
   const sep=raw.indexOf(':')
   if(sep>0){
@@ -11,10 +11,11 @@ export default async function handler(req,res){
     id=raw.slice(sep+1)
   }
   const bases={
+    test:'https://polifan-cnc-solver-test.onrender.com',
     lab:'https://polifan-cnc-solver-lab.onrender.com',
     prod:'https://polifan-cnc-solver.onrender.com',
   }
-  const base=bases[key]||bases.lab
+  const base=bases[key]||bases.test
 
   try{
     const r=await fetch(base+'/nest-jobs/'+encodeURIComponent(id),{headers:{accept:'application/json'}})
