@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - bench/focused-case5-clean
+  pull_request:
+    branches:
+      - bench/sparrow-v114-base
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
