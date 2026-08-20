@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { isOrderCommitted, normalizeFigureKey, stockRows } from '../lib/inventory'
-import { today } from '../lib/format'
 
 function dateLabel(value){
   if(!value) return 'Sin fecha de entrega'
@@ -16,8 +15,6 @@ function pendingFromVisibleInventory(db){
   const available={}
   const labels={}
 
-  // Fuente de verdad: exactamente lo que Inventario muestra como CORTADAS AHORA.
-  // También suma EN CORTE para no volver a pedir una pieza que ya está en máquina.
   inventoryRows.forEach(r=>{
     const key=normalizeFigureKey(r.figure)
     if(!key)return
@@ -63,19 +60,35 @@ function pendingFromVisibleInventory(db){
     .sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
 }
 
-const PACKED_TODAY_KEY='polifan-cutlist-packed-today'
+const PACKED_DATES_KEY='polifan-cutlist-packed-dates-v1'
+const LEGACY_PACKED_TODAY_KEY='polifan-cutlist-packed-today'
+
+function loadPackedDates(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(PACKED_DATES_KEY)||'[]')
+    const dates=Array.isArray(saved)?saved.filter(Boolean):[]
+    const legacy=localStorage.getItem(LEGACY_PACKED_TODAY_KEY)
+    if(legacy&&!dates.includes(legacy))dates.push(legacy)
+    return dates
+  }catch{return []}
+}
 
 export default function CutList({db,goMotor}){
-  const todayKey=today()
-  const [packedToday,setPackedToday]=useState(()=>{
-    try{return localStorage.getItem(PACKED_TODAY_KEY)===todayKey}catch{return false}
-  })
+  const [packedDates,setPackedDates]=useState(loadPackedDates)
+
+  function savePackedDates(next){
+    const clean=[...new Set(next.filter(Boolean))].sort()
+    try{localStorage.setItem(PACKED_DATES_KEY,JSON.stringify(clean))}catch{}
+    setPackedDates(clean)
+  }
 
   const calcDb=useMemo(()=>{
-    if(!packedToday)return db
-    return {...db,orders:(db.orders||[]).filter(o=>String(o?.delivery||'').slice(0,10)!==todayKey)}
-  },[db,packedToday,todayKey])
+    if(!packedDates.length)return db
+    const packed=new Set(packedDates)
+    return {...db,orders:(db.orders||[]).filter(o=>!packed.has(orderDate(o)))}
+  },[db,packedDates])
 
+  const allGroups=useMemo(()=>pendingFromVisibleInventory(db),[db])
   const groups=useMemo(()=>pendingFromVisibleInventory(calcDb),[calcDb])
   const summaryRows=useMemo(()=>{
     const totals={}
@@ -90,16 +103,15 @@ export default function CutList({db,goMotor}){
   const [selectedDate,setSelectedDate]=useState('')
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
-  function markTodayPacked(){
-    if(!window.confirm('¿Confirmás que los pedidos de HOY ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nDesde ahora esos pedidos no consumirán inventario al calcular “Para cortar”. No se modifica ningún pedido ni cantidad del inventario.'))return
-    try{localStorage.setItem(PACKED_TODAY_KEY,todayKey)}catch{}
-    setPackedToday(true)
-    setSelectedDate('')
+  function markPacked(date){
+    if(!date)return
+    if(!window.confirm(`¿Confirmás que los pedidos del ${dateLabel(date)} ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nEsa fecha dejará de consumir inventario en “Para cortar”. No se modifica el inventario ni los pedidos.`))return
+    savePackedDates([...packedDates,date])
+    if(selectedDate===date)setSelectedDate('')
   }
 
-  function undoTodayPacked(){
-    try{localStorage.removeItem(PACKED_TODAY_KEY)}catch{}
-    setPackedToday(false)
+  function undoPacked(date){
+    savePackedDates(packedDates.filter(d=>d!==date))
   }
 
   function printDailyList(){
@@ -114,15 +126,15 @@ export default function CutList({db,goMotor}){
     win.document.close()
   }
 
-  const originalTodayGroup=useMemo(()=>pendingFromVisibleInventory(db).find(g=>g.date===todayKey),[db,todayKey])
-  const todayQty=originalTodayGroup?.rows?.reduce((a,r)=>a+r.qty,0)||0
+  const packableGroups=allGroups.filter(g=>g.date&&!packedDates.includes(g.date))
 
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes por fecha, usando como fuente de verdad el stock físico que ves en Inventario." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo corregido</b><span>“Para cortar” ahora toma exactamente las cantidades que ves en Inventario como <b>Cortadas ahora</b>, suma lo que ya está <b>En corte</b> y recién después calcula la diferencia de los pedidos, empezando por la fecha más próxima.</span></div>
+    <div className="notice"><b>Cálculo por inventario físico</b><span>“Para cortar” usa las cantidades de <b>Cortadas ahora</b> + lo que está <b>En corte</b>. Si una fecha ya fue embalada y esas piezas están incluidas en tu recuento, marcá esa fecha como embalada para que no consuma el stock otra vez.</span></div>
 
-    {originalTodayGroup&&!packedToday&&<div className="notice" style={{border:'2px solid #e89acb'}}><b>¿Los pedidos de hoy ya están embalados?</b><span>Figuran {todayQty} piezas de hoy. Si esas piezas ya están en cajas y están incluidas en tu recuento físico, marcá esta opción para que no vuelvan a consumir stock en el cálculo.</span><button type="button" className="primary smallbtn" onClick={markTodayPacked}>📦 Hoy ya está embalado</button></div>}
-    {packedToday&&<div className="notice"><b>📦 Hoy embalado</b><span>Los pedidos de hoy no consumen inventario en el cálculo. El inventario y los pedidos siguen intactos.</span><button type="button" className="ghost smallbtn" onClick={undoTodayPacked}>Deshacer</button></div>}
+    {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas para esa fecha. Si ya están dentro de cajas y están incluidas en el recuento físico, marcala como embalada.</span><button type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
+
+    {packedDates.length>0&&<div className="notice"><b>📦 Fechas embaladas</b><span>{packedDates.map(dateLabel).join(' · ')}</span>{packedDates.map(d=><button key={d} type="button" className="ghost smallbtn" onClick={()=>undoPacked(d)}>Deshacer {dateLabel(d)}</button>)}</div>}
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
