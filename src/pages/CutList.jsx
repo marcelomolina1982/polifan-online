@@ -15,6 +15,7 @@ function pendingFromVisibleInventory(db){
   const available={}
   const labels={}
 
+  // Fuente de verdad: lo que Inventario muestra como CORTADAS AHORA + EN CORTE.
   inventoryRows.forEach(r=>{
     const key=normalizeFigureKey(r.figure)
     if(!key)return
@@ -82,30 +83,29 @@ export default function CutList({db,goMotor}){
     setPackedDates(clean)
   }
 
-  const calcDb=useMemo(()=>{
-    if(!packedDates.length)return db
-    const packed=new Set(packedDates)
-    return {...db,orders:(db.orders||[]).filter(o=>!packed.has(orderDate(o)))}
-  },[db,packedDates])
-
+  // MUY IMPORTANTE:
+  // Las fechas embaladas siguen RESERVANDO/CONSUMIENDO el stock porque el recuento físico
+  // incluye las piezas que ya están dentro de las cajas. Sólo se ocultan visualmente de
+  // “Para cortar”. Así no se liberan esas piezas para pedidos posteriores por error.
   const allGroups=useMemo(()=>pendingFromVisibleInventory(db),[db])
-  const groups=useMemo(()=>pendingFromVisibleInventory(calcDb),[calcDb])
+  const groups=useMemo(()=>allGroups.filter(g=>!packedDates.includes(g.date)),[allGroups,packedDates])
+
   const summaryRows=useMemo(()=>{
     const totals={}
     groups.forEach(g=>g.rows.forEach(r=>{totals[r.figure]=(totals[r.figure]||0)+Number(r.qty||0)}))
-    const inv=Object.fromEntries(stockRows(calcDb).map(r=>[normalizeFigureKey(r.figure),r]))
+    const inv=Object.fromEntries(stockRows(db).map(r=>[normalizeFigureKey(r.figure),r]))
     return Object.entries(totals).map(([figure,pending])=>{
       const base=inv[normalizeFigureKey(figure)]||{figure,cut:0,inCut:0,total:0}
       return {...base,figure,pending}
     }).sort((a,b)=>b.pending-a.pending)
-  },[groups,calcDb])
+  },[groups,db])
 
   const [selectedDate,setSelectedDate]=useState('')
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
   function markPacked(date){
     if(!date)return
-    if(!window.confirm(`¿Confirmás que los pedidos del ${dateLabel(date)} ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nEsa fecha dejará de consumir inventario en “Para cortar”. No se modifica el inventario ni los pedidos.`))return
+    if(!window.confirm(`¿Confirmás que los pedidos del ${dateLabel(date)} ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nLa fecha se ocultará de “Para cortar”, pero seguirá reservando esas piezas dentro del inventario para no usarlas otra vez en pedidos posteriores. No se modifica ningún dato del inventario ni de los pedidos.`))return
     savePackedDates([...packedDates,date])
     if(selectedDate===date)setSelectedDate('')
   }
@@ -122,7 +122,7 @@ export default function CutList({db,goMotor}){
       return `<section><h2>Entrega: ${dateLabel(g.date)}</h2><p class="orders">Pedidos: ${g.orders.map(n=>'#'+n).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th>Total</th><th>${total}</th></tr></tfoot></table></section>`
     }).join('')
     const win=window.open('','_blank')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}</style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada directamente desde lo que Inventario muestra como cortado, más lo que ya está en corte.</p><script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}</style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada desde Inventario. Las fechas embaladas siguen reservando stock, pero no se muestran como faltantes.</p><script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
   }
 
@@ -130,11 +130,11 @@ export default function CutList({db,goMotor}){
 
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes por fecha, usando como fuente de verdad el stock físico que ves en Inventario." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo por inventario físico</b><span>“Para cortar” usa las cantidades de <b>Cortadas ahora</b> + lo que está <b>En corte</b>. Si una fecha ya fue embalada y esas piezas están incluidas en tu recuento, marcá esa fecha como embalada para que no consuma el stock otra vez.</span></div>
+    <div className="notice"><b>Cálculo por inventario físico</b><span>“Para cortar” usa <b>Cortadas ahora + En corte</b>. Si una fecha ya está embalada y esas piezas están incluidas en tu recuento, esa fecha se oculta pero <b>sus piezas siguen reservadas</b>; no quedan disponibles para pedidos posteriores.</span></div>
 
-    {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas para esa fecha. Si ya están dentro de cajas y están incluidas en el recuento físico, marcala como embalada.</span><button type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
+    {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas pendientes para esa fecha. Si ya están dentro de cajas y están incluidas en el recuento físico, marcala como embalada.</span><button type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
 
-    {packedDates.length>0&&<div className="notice"><b>📦 Fechas embaladas</b><span>{packedDates.map(dateLabel).join(' · ')}</span>{packedDates.map(d=><button key={d} type="button" className="ghost smallbtn" onClick={()=>undoPacked(d)}>Deshacer {dateLabel(d)}</button>)}</div>}
+    {packedDates.length>0&&<div className="notice"><b>📦 Fechas embaladas</b><span>{packedDates.map(dateLabel).join(' · ')}</span><span>Estas fechas no se muestran, pero siguen reservando las piezas que ya están dentro de sus cajas.</span>{packedDates.map(d=><button key={d} type="button" className="ghost smallbtn" onClick={()=>undoPacked(d)}>Deshacer {dateLabel(d)}</button>)}</div>}
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
@@ -153,7 +153,7 @@ export default function CutList({db,goMotor}){
       {!visibleGroups.length&&<div className="panel">No hay piezas pendientes para cortar.</div>}
     </div>
 
-    <details className="panel cut-summary"><summary><b>Ver resumen general por figura</b></summary><div className="table-wrap"><table><thead><tr><th>Figura</th><th>Stock actual</th><th>En corte</th><th>Falta cortar</th></tr></thead><tbody>
+    <details className="panel cut-summary"><summary><b>Ver resumen general por figura</b></summary><div className="table-wrap"><table><thead><tr><th>Figura</th><th>Stock físico contado</th><th>En corte</th><th>Falta cortar</th></tr></thead><tbody>
       {summaryRows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td>{Number(r.cut||0)}</td><td className="purple-text">{Number(r.inCut||0)}</td><td className="big">{r.pending}</td></tr>)}
       {!summaryRows.length&&<tr><td colSpan="4">No hay figuras pendientes para cortar.</td></tr>}
     </tbody></table></div></details>
