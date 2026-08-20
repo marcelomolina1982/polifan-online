@@ -49,13 +49,52 @@ const COLLECTIONS={
 const stamp=o=>String(o?.updatedAt||o?.finishedAt||o?.createdAt||o?.date||'')
 const rowId=(prefix,id)=>`${prefix}${id}`
 
+function canonicalValue(value){
+  if(Array.isArray(value))return value.map(canonicalValue)
+  if(!value||typeof value!=='object')return value
+  const out={}
+  for(const key of Object.keys(value).sort()){
+    if(['id','createdAt','updatedAt','savedAt','lastModifiedAt'].includes(key))continue
+    out[key]=canonicalValue(value[key])
+  }
+  return out
+}
+function exactOrderSignature(order){
+  const number=String(order?.number||'').trim()
+  if(!number)return ''
+  try{return `${number}|${JSON.stringify(canonicalValue(order))}`}catch{return ''}
+}
+function dedupeExactOrders(orders=[]){
+  const kept=[],seen=new Map(),removed=[]
+  for(const order of (orders||[])){
+    const sig=exactOrderSignature(order)
+    if(!sig){kept.push(order);continue}
+    const previous=seen.get(sig)
+    if(!previous){seen.set(sig,{order,index:kept.length});kept.push(order);continue}
+    const prevTime=Date.parse(previous.order?.createdAt||'')||Number.MAX_SAFE_INTEGER
+    const nextTime=Date.parse(order?.createdAt||'')||Number.MAX_SAFE_INTEGER
+    if(nextTime<prevTime){
+      removed.push(previous.order)
+      kept[previous.index]=order
+      seen.set(sig,{order,index:previous.index})
+    }else removed.push(order)
+  }
+  return {orders:kept,removed}
+}
+
 async function persistCollectionDelta(name,nextItems=[],previousItems=[]){
   const cfg=COLLECTIONS[name];if(!cfg)return {ok:true,changed:0}
   const prev=new Map((previousItems||[]).map(o=>[cfg.key(o),o]).filter(([id])=>id)),rows=[],now=new Date().toISOString()
+  const nextIds=new Set()
   for(const item of (nextItems||[])){
     const id=cfg.key(item);if(!id)continue
+    nextIds.add(id)
     const before=prev.get(id)
     if(!before||JSON.stringify(before)!==JSON.stringify(item))rows.push({id:rowId(cfg.prefix,id),data:{collection:name,item},updated_at:stamp(item)||now})
+  }
+  for(const [id,item] of prev){
+    if(nextIds.has(id))continue
+    rows.push({id:rowId(cfg.prefix,id),data:{collection:name,deleted:true,deletedId:id,deletedAt:now},updated_at:now})
   }
   if(!rows.length)return {ok:true,changed:0}
   try{
@@ -72,12 +111,31 @@ async function readDurableCollection(name){
   try{const {data,error}=await client.from('app_state').select('id,data,updated_at').like('id',`${cfg.prefix}%`);if(error)throw error;return {ok:true,rows:data||[]}}
   catch(error){console.error(`No se pudo leer ${name} durable`,error);return {ok:false,error,rows:[]}}
 }
+function deletedIdsFromRows(rows=[],name){
+  const cfg=COLLECTIONS[name],set=new Set()
+  if(!cfg)return set
+  for(const row of rows){
+    const d=row?.data||{}
+    if(!d.deleted)continue
+    const fromData=String(d.deletedId||'').trim()
+    const fromRow=String(row?.id||'').startsWith(cfg.prefix)?String(row.id).slice(cfg.prefix.length):''
+    const id=fromData||fromRow
+    if(id)set.add(id)
+  }
+  return set
+}
 function mergeRows(base=[],rows=[],name){
   const cfg=COLLECTIONS[name],map=new Map((base||[]).map(o=>[cfg.key(o),o]).filter(([id])=>id))
   for(const row of rows){
     const d=row?.data||{}
     if(d.collection&&d.collection!==name)continue
-    if(d.deleted)continue
+    if(d.deleted){
+      const fromData=String(d.deletedId||'').trim()
+      const fromRow=String(row?.id||'').startsWith(cfg.prefix)?String(row.id).slice(cfg.prefix.length):''
+      const deletedId=fromData||fromRow
+      if(deletedId)map.delete(deletedId)
+      continue
+    }
     const item=d.item||d.order,id=cfg.key(item);if(!id)continue
     const current=map.get(id)
     if(!current||stamp(item)>=stamp(current))map.set(id,item)
@@ -90,12 +148,13 @@ function backupStates(){
   if(Array.isArray(backs))backs.forEach(b=>{if(b?.state)out.push(b.state)})
   return out
 }
-function unionCriticalFromStates(state,sources=[]){
+function unionCriticalFromStates(state,sources=[],blocked={}){
   let merged={...state}
   for(const [name,cfg] of Object.entries(COLLECTIONS)){
-    const map=new Map((merged[name]||[]).map(item=>[cfg.key(item),item]).filter(([id])=>id))
+    const blockedIds=blocked[name]||new Set()
+    const map=new Map((merged[name]||[]).map(item=>[cfg.key(item),item]).filter(([id])=>id&&!blockedIds.has(id)))
     for(const source of sources)for(const item of (source?.[name]||[])){
-      const id=cfg.key(item);if(!id)continue
+      const id=cfg.key(item);if(!id||blockedIds.has(id))continue
       const current=map.get(id)
       if(!current||stamp(item)>=stamp(current))map.set(id,item)
     }
@@ -122,7 +181,7 @@ function recentBatchGaps(state){
   for(let n=min;n<=max;n++)if(!set.has(n))missing.push(n)
   return missing
 }
-async function recoverRecentGapsFromCloud(state){
+async function recoverRecentGapsFromCloud(state,blocked={}){
   let merged=state,missing=recentBatchGaps(merged);if(!missing.length)return merged
   const max=Math.max(0,...(merged.cutBatches||[]).map(b=>Number(b?.number)||0)),marker=readJson(RECOVERY_SCAN_KEY)
   if(marker?.max===max&&Date.now()-Number(marker.scannedAt||0)<12*60*60*1000)return merged
@@ -138,17 +197,30 @@ async function recoverRecentGapsFromCloud(state){
     }
   }catch(error){console.error('Falló la recuperación histórica de placas',error)}
   writeJson(RECOVERY_SCAN_KEY,{max,scannedAt:Date.now(),missing})
-  if(found.length)merged=unionCriticalFromStates(merged,found)
+  if(found.length)merged=unionCriticalFromStates(merged,found,blocked)
   return merged
 }
 async function mergeCriticalState(state){
   if(isPublicCatalog())return state
   let merged={...state}
   const results=await Promise.all(Object.keys(COLLECTIONS).map(async name=>[name,await readDurableCollection(name)]))
-  for(const [name,durable] of results)if(durable.ok)merged={...merged,[name]:mergeRows(merged[name]||[],durable.rows,name)}
-  merged=unionCriticalFromStates(merged,backupStates())
+  const blocked={}
+  for(const [name,durable] of results){
+    blocked[name]=deletedIdsFromRows(durable.rows,name)
+    if(durable.ok)merged={...merged,[name]:mergeRows(merged[name]||[],durable.rows,name)}
+  }
+  merged=unionCriticalFromStates(merged,backupStates(),blocked)
   merged=recoverMotorPlan(merged)
-  merged=await recoverRecentGapsFromCloud(merged)
+  merged=await recoverRecentGapsFromCloud(merged,blocked)
+
+  const beforeDedupe=Array.isArray(merged.orders)?merged.orders:[]
+  const deduped=dedupeExactOrders(beforeDedupe)
+  if(deduped.removed.length){
+    merged={...merged,orders:deduped.orders}
+    await persistCollectionDelta('orders',deduped.orders,beforeDedupe)
+    console.warn(`Se eliminaron ${deduped.removed.length} pedido(s) duplicado(s) exacto(s) y quedaron bloqueados para recuperación.`)
+  }
+
   const recoveredBatches=(merged.cutBatches||[]).length-(state.cutBatches||[]).length
   const recoveredMovements=(merged.movements||[]).length-(state.movements||[]).length
   const recoveredOrders=(merged.orders||[]).length-(state.orders||[]).length
