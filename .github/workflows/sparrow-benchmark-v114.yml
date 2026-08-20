@@ -1,4 +1,4 @@
-name: Sparrow V1.14 tuned case 9 matrix
+name: Sparrow V1.14 large-aware sprint case 9
 
 on:
   push:
@@ -17,31 +17,31 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - profile: focussed
-            focussed_samples: 50
-            coord_descents: 5
-            pool_stddev: 0.25
-            large_cutoff: 0.75
-          - profile: deep-local
-            focussed_samples: 40
-            coord_descents: 8
-            pool_stddev: 0.20
-            large_cutoff: 0.75
-          - profile: divergent
-            focussed_samples: 35
-            coord_descents: 5
-            pool_stddev: 0.45
-            large_cutoff: 0.75
-          - profile: large-aware
+          - profile: la-baseline
             focussed_samples: 45
             coord_descents: 6
             pool_stddev: 0.35
             large_cutoff: 0.55
+          - profile: la-tight
+            focussed_samples: 55
+            coord_descents: 8
+            pool_stddev: 0.30
+            large_cutoff: 0.45
+          - profile: la-wide
+            focussed_samples: 40
+            coord_descents: 7
+            pool_stddev: 0.45
+            large_cutoff: 0.50
+          - profile: la-local
+            focussed_samples: 50
+            coord_descents: 10
+            pool_stddev: 0.25
+            large_cutoff: 0.60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -74,7 +74,7 @@ jobs:
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
-      - name: Tuned search for case 9 (${{ matrix.profile }})
+      - name: Large-aware sprint for case 9 (${{ matrix.profile }})
         shell: bash
         run: |
           set -euo pipefail
@@ -99,7 +99,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let body = `## Sparrow case 9 tuned profile: ${process.env.PROFILE}\n\n`;
+            let body = `## Sparrow case 9 large-aware sprint: ${process.env.PROFILE}\n\n`;
             try {
               const s = JSON.parse(fs.readFileSync('/tmp/multimodel_summary.json','utf8'));
               body += `- Best width: **${s.best_width} mm**\n`;
