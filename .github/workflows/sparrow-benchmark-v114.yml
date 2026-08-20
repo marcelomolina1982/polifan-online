@@ -1,4 +1,4 @@
-name: Sparrow V1.14 benchmark 12
+name: Sparrow V1.14 tuned case 9 matrix
 
 on:
   push:
@@ -18,16 +18,63 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: focussed
+            focussed_samples: 50
+            coord_descents: 5
+            pool_stddev: 0.25
+            large_cutoff: 0.75
+          - profile: deep-local
+            focussed_samples: 40
+            coord_descents: 8
+            pool_stddev: 0.20
+            large_cutoff: 0.75
+          - profile: divergent
+            focussed_samples: 35
+            coord_descents: 5
+            pool_stddev: 0.45
+            large_cutoff: 0.75
+          - profile: large-aware
+            focussed_samples: 45
+            coord_descents: 6
+            pool_stddev: 0.35
+            large_cutoff: 0.55
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build official Sparrow
+      - name: Build tuned Sparrow (${{ matrix.profile }})
+        env:
+          FOCUSSED: ${{ matrix.focussed_samples }}
+          DESCENTS: ${{ matrix.coord_descents }}
+          STDDEV: ${{ matrix.pool_stddev }}
+          LARGE_CUTOFF: ${{ matrix.large_cutoff }}
+          RUSTFLAGS: -C target-cpu=native
         run: |
+          set -euo pipefail
           git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+          p=Path('/tmp/sparrow/src/config.rs')
+          s=p.read_text()
+          f=os.environ['FOCUSSED']
+          d=os.environ['DESCENTS']
+          std=os.environ['STDDEV']
+          cut=os.environ['LARGE_CUTOFF']
+          s=re.sub(r'n_focussed_samples:\s*25', f'n_focussed_samples: {f}', s)
+          s=re.sub(r'n_coord_descents:\s*3', f'n_coord_descents: {d}', s)
+          s=re.sub(r'solution_pool_distribution_stddev:\s*0\.25', f'solution_pool_distribution_stddev: {std}', s)
+          s=re.sub(r'large_item_ch_area_cutoff_percentile:\s*0\.75', f'large_item_ch_area_cutoff_percentile: {cut}', s)
+          p.write_text(s)
+          print('PROFILE', os.environ.get('FOCUSSED'), os.environ.get('DESCENTS'), os.environ.get('STDDEV'), os.environ.get('LARGE_CUTOFF'))
+          PY
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
-      - name: Intense focused search for case 9
+      - name: Tuned search for case 9 (${{ matrix.profile }})
         shell: bash
         run: |
           set -euo pipefail
@@ -35,7 +82,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sparrow-case9-target-results
+          name: sparrow-case9-${{ matrix.profile }}
           path: |
             /tmp/multimodel_summary.json
             /tmp/multimodel_rows.json
@@ -47,30 +94,20 @@ jobs:
       - name: Publish benchmark summary on PR
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
+        env:
+          PROFILE: ${{ matrix.profile }}
         with:
           script: |
             const fs = require('fs');
-            let body = '## Sparrow case 9 benchmark result\n\n';
+            let body = `## Sparrow case 9 tuned profile: ${process.env.PROFILE}\n\n`;
             try {
-              const raw = fs.readFileSync('/tmp/multimodel_summary.json', 'utf8');
-              const s = JSON.parse(raw);
-              body += `- Adaptive solved: **${s.adaptive_cases_solved}/${s.cases}** (${s.adaptive_success_rate}%)\n`;
+              const s = JSON.parse(fs.readFileSync('/tmp/multimodel_summary.json','utf8'));
               body += `- Best width: **${s.best_width} mm**\n`;
-              body += `- Physical plate: **${s.physical_plate_mm?.join(' × ')} mm**\n`;
-              body += `- Certifiable bbox: **${s.certifiable_bbox_mm?.join(' × ')} mm**\n`;
-              body += `- Minimum separation: **${s.minimum_separation_mm} mm**\n`;
-              body += `- Width goal reached: **${s.width_goal_reached}**\n\n`;
-              body += '### Cases\n';
-              for (const c of (s.case_results || [])) {
-                body += `- Case ${c.case}: adaptive=${c.solved} best=${c.best_width} mm attempts=${c.attempts}\n`;
-              }
-              body += `\n<details><summary>Raw SUMMARY</summary>\n\n\`\`\`json\n${JSON.stringify(s,null,2)}\n\`\`\`\n</details>`;
+              body += `- 24/24 required: **${s.required_placed_items}**\n`;
+              body += `- Plate: **${s.physical_plate_mm?.join(' × ')} mm**\n`;
+              body += `- Separation: **${s.minimum_separation_mm} mm**\n`;
+              body += `- Goal reached: **${s.width_goal_reached}**\n`;
             } catch (e) {
-              body += `Benchmark did not produce a readable summary: ${e.message}`;
+              body += `No readable summary: ${e.message}`;
             }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body
-            });
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
