@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - bench/focused-case5-clean
-    paths:
-      - 'solver-service/benchmarks/stage2_real_svg.py'
-      - 'solver-service/benchmarks/real-svg-stage2/**'
-      - '.github/workflows/stage2-real-svg.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,20 +12,17 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       max-parallel: 15
       matrix:
-        model:
-          - Mate.svg
-          - Manzana.svg
-          - Escudo Boca Jr.svg
-        qty: [10, 11, 12, 13, 14]
+        model: ["Mate", "Manzana", "Escudo Boca Jr"]
+        count: [10, 11, 12, 13, 14]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build Sparrow large-aware
+      - name: Build large-aware Sparrow
         env:
           RUSTFLAGS: -C target-cpu=native
         run: |
@@ -49,20 +42,54 @@ jobs:
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
-      - name: Test ${{ matrix.model }} x ${{ matrix.qty }}
-        run: |
-          python3 solver-service/benchmarks/stage2_real_svg.py \
-            --model '${{ matrix.model }}' \
-            --qty '${{ matrix.qty }}' \
-            --exploration 28 --compression 22 \
-            --seed $((20260820 + ${{ matrix.qty }}))
+      - name: Run real SVG test
+        env:
+          MODEL: ${{ matrix.model }}
+          COUNT: ${{ matrix.count }}
+          SOLVER_TIMEOUT: 105
+        run: python3 solver-service/benchmarks/stage2_real_svg_benchmark.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: stage2-${{ matrix.model }}-q${{ matrix.qty }}
+          name: stage2-${{ matrix.model }}-${{ matrix.count }}
           path: |
-            /tmp/stage2_result.json
-            /tmp/stage2_console.txt
-            /tmp/stage2_final.json
-            /tmp/stage2_final.svg
+            /tmp/stage2_result_*.json
+            /tmp/stage2_log_*.txt
+            /tmp/stage2_*_final.json
+            /tmp/stage2_*_final.svg
           if-no-files-found: warn
+
+  aggregate:
+    if: always()
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stage2-*
+          path: /tmp/stage2-results
+      - name: Aggregate production results
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          rows=[]
+          for p in pathlib.Path('/tmp/stage2-results').rglob('stage2_result_*.json'):
+              try: rows.append(json.loads(p.read_text()))
+              except Exception: pass
+          rows.sort(key=lambda r:(r['model'],r['count_complete']))
+          print('\n=== STAGE 2 REAL SVG RESULTS ===')
+          for r in rows:
+              print(f"{r['model']:16} n={r['count_complete']:2} valid={str(r['valid_fit']):5} util={r['plate_utilization_pct']:6.2f}% waste={r['plate_waste_pct']:6.2f}% width={r['strip_width_mm']} time={r['elapsed_s']}s err={r['error']}")
+          best={}
+          for r in rows:
+              if r['valid_fit']:
+                  cur=best.get(r['model'])
+                  if cur is None or (r['plate_utilization_pct'],r['count_complete'])>(cur['plate_utilization_pct'],cur['count_complete']): best[r['model']]=r
+          summary={'rows':rows,'best_by_model':best,'models_tested':sorted(set(r['model'] for r in rows)),'valid_tests':sum(1 for r in rows if r['valid_fit'])}
+          pathlib.Path('/tmp/stage2_summary.json').write_text(json.dumps(summary,indent=2))
+          print('SUMMARY',json.dumps(summary))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage2-real-svg-summary
+          path: /tmp/stage2_summary.json
