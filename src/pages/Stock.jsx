@@ -52,14 +52,12 @@ function buildRecountState(db){
     target.set(figure,{complete:Number(complete)||0,tapa:Number(tapa)||0,base:Number(base)||0})
     if(!names.includes(figure))names.push(figure)
   }
-
   const rawManual=manualBalance(db)
   const autoOut=automaticOrderOutflow(db)
   const rawLoose=looseComponentBalance(db)
   const every=new Set([...names,...Object.keys(rawManual),...Object.keys(autoOut),...Object.keys(rawLoose)])
   const movements=[...(db.movements||[])]
   const now=new Date().toISOString(),date=today()
-
   for(const figure of every){
     const wanted=target.get(figure)||{complete:0,tapa:0,base:0}
     for(const component of ['tapa','base']){
@@ -73,7 +71,6 @@ function buildRecountState(db){
     const delta=desiredManual-currentManual
     if(delta!==0)movements.push({id:crypto.randomUUID(),date,figure,type:delta>0?'Ajuste positivo':'Ajuste negativo',qty:Math.abs(delta),detail:`RECUENTO FÍSICO 14/08 · fijar figuras completas en ${wanted.complete}`,createdAt:now})
   }
-
   const figures=[...new Set([...(db.figures||[]),...PHYSICAL_RECOUNT.map(([raw])=>resolveName(raw,names))])].filter(Boolean).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
   return {...db,figures,movements,inventoryRecount:{id:RECOUNT_ID,appliedAt:now,completeTotal:170,looseBases:4,looseTops:3,source:'INVENTARIO PIEZAS 14-08.txt'}}
 }
@@ -113,6 +110,9 @@ export default function Stock(props){
   const [bulkSaving,setBulkSaving]=useState(false)
   const closeoutApplied=db.inventoryRecountCloseout?.id===CLOSEOUT_ID
   const physicalRows=useMemo(()=>stockRows(db).sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'})),[db])
+  // Sólo amplía las opciones del selector de UNIFICAR. No modifica ni guarda el inventario.
+  // Así también aparecen nombres históricos que existen como filas físicas (ej. "chop" y "Chopp").
+  const mergeDb=useMemo(()=>({...db,figures:[...new Set([...(db.figures||[]),...physicalRows.map(r=>r.figure)])]}),[db,physicalRows])
   const visibleBulkRows=useMemo(()=>physicalRows.filter(r=>r.figure.toLowerCase().includes(bulkSearch.toLowerCase())),[physicalRows,bulkSearch])
   const changedCount=Object.keys(bulkValues).filter(f=>{
     const r=physicalRows.find(x=>x.figure===f)||{}
@@ -199,6 +199,6 @@ export default function Stock(props){
 
     {bulkMode&&<div className="panel bulk-recount"><div className="bulk-head"><div><h3>🧮 Reajuste masivo</h3><p className="muted">Nada se guarda hasta que pulses “Guardar todo el inventario”.</p></div><div className="bulk-badge">Cambios: {changedCount}</div></div><input style={{width:'100%',marginTop:10}} type="search" placeholder="Buscar figura..." value={bulkSearch} onChange={e=>setBulkSearch(e.target.value)}/><div className="bulk-table-wrap"><table className="bulk-table"><thead><tr><th>Figura</th><th>Completas</th><th>Tapas sueltas</th><th>Bases sueltas</th></tr></thead><tbody>{visibleBulkRows.map(r=>{const v=bulkValues[r.figure]||{};return <tr key={r.figure}><td><b>{r.figure}</b></td><td><input type="number" min="0" value={v.complete??r.cut??0} onChange={e=>setBulk(r.figure,'complete',e.target.value)}/></td><td><input type="number" min="0" value={v.tapa??r.looseTapa??0} onChange={e=>setBulk(r.figure,'tapa',e.target.value)}/></td><td><input type="number" min="0" value={v.base??r.looseBase??0} onChange={e=>setBulk(r.figure,'base',e.target.value)}/></td></tr>})}</tbody></table></div><div className="bulk-actions"><button type="button" onClick={()=>{if(changedCount&&!window.confirm('Descartar todos los cambios del reajuste?'))return;setBulkMode(false);setBulkValues({})}} disabled={bulkSaving}>Cancelar cambios</button><button type="button" className="primary" onClick={saveBulk} disabled={bulkSaving||!changedCount}>{bulkSaving?'Guardando…':`💾 Guardar todo el inventario (${changedCount})`}</button></div></div>}
 
-    {!bulkMode&&<StockBase {...props}/>} 
+    {!bulkMode&&<StockBase {...props} db={mergeDb}/>} 
   </div>
 }
