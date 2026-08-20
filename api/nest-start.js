@@ -3,6 +3,9 @@ export const config={maxDuration:60}
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms))
 const RETRYABLE=new Set([429,502,503,504])
 const SOLVERS=[
+  // Motor adaptativo nuevo: cambia candidatos y crece hasta base 10.
+  {key:'test',base:'https://polifan-cnc-solver-test.onrender.com'},
+  // Fallbacks estables: si TEST está levantando o falla, producción sigue operativa.
   {key:'lab',base:'https://polifan-cnc-solver-lab.onrender.com'},
   {key:'prod',base:'https://polifan-cnc-solver.onrender.com'},
 ]
@@ -20,8 +23,6 @@ async function wake(base){
 
 function sendBackendResponse(res,r,text,key){
   const ct=r.headers.get('content-type')||'application/json'
-  // Marcamos el jobId con el backend que lo creó. Así nest-status consulta
-  // exactamente la misma instancia incluso si hubo failover.
   if(r.status===202 && ct.includes('application/json')){
     try{
       const body=JSON.parse(text)
@@ -49,7 +50,6 @@ export default async function handler(req,res){
   const failures=[]
 
   for(const solver of SOLVERS){
-    // Un intento directo. Si el servicio está despierto, sale por acá.
     try{
       const r=await fetchTimed(solver.base+'/nest-jobs',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)
@@ -61,7 +61,6 @@ export default async function handler(req,res){
       failures.push({backend:solver.key,error:e?.message||String(e)})
     }
 
-    // Si Render lo durmió o limitó, un único wake y un único reintento.
     await wake(solver.base)
     await sleep(900)
     try{
@@ -78,7 +77,7 @@ export default async function handler(req,res){
 
   return res.status(503).json({
     ok:false,
-    error:'Los dos motores de Render están temporalmente no disponibles. La placa no se perdió ni se modificó el inventario.',
+    error:'Los motores de Render están temporalmente no disponibles. La placa no se perdió ni se modificó el inventario.',
     failures,
     retryable:true
   })
