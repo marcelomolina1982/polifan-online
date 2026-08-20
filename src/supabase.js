@@ -161,8 +161,16 @@ function wrapReadBuilder(builder,ctx={}){
   if(!builder||typeof builder!=='object')return builder
   return new Proxy(builder,{get(target,prop){
     if(prop==='maybeSingle')return async(...args)=>{
-      const result=await target.maybeSingle(...args)
-      if(ctx.table!=='app_state'||ctx.id!=='main'||result?.error||!result?.data?.data)return result
+      let result
+      const mainState=ctx.table==='app_state'&&ctx.id==='main'
+      const attempts=mainState?3:1
+      for(let attempt=1;attempt<=attempts;attempt++){
+        result=await target.maybeSingle(...args)
+        const timedOut=/statement timeout|canceling statement due to statement timeout/i.test(result?.error?.message||'')
+        if(!timedOut||attempt===attempts)break
+        await new Promise(resolve=>setTimeout(resolve,300*attempt))
+      }
+      if(!mainState||result?.error||!result?.data?.data)return result
       const merged=await mergeCriticalState(result.data.data)
       if(!isPublicCatalog()){writeJson(APP_CACHE_KEY,merged);writeJson(EMERGENCY_CACHE_KEY,merged)}
       return {...result,data:{...result.data,data:merged},__criticalMerged:true}
