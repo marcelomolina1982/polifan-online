@@ -1,11 +1,11 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "25.0.25",
+  "version": "25.0.26",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.25.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.26.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
