@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { isOrderCommitted, normalizeFigureKey, stockRows } from '../lib/inventory'
 
@@ -15,7 +15,6 @@ function pendingFromVisibleInventory(db){
   const available={}
   const labels={}
 
-  // Fuente de verdad: lo que Inventario muestra como CORTADAS AHORA + EN CORTE.
   inventoryRows.forEach(r=>{
     const key=normalizeFigureKey(r.figure)
     if(!key)return
@@ -31,7 +30,7 @@ function pendingFromVisibleInventory(db){
     .forEach(order=>{
       const date=orderDate(order)
       const groupKey=date||'sin-fecha'
-      if(!groups[groupKey])groups[groupKey]={key:groupKey,date,orders:[],rows:{}}
+      if(!groups[groupKey])groups[groupKey]={key:groupKey,date,orders:[],rows:{},audit:{}}
       groups[groupKey].orders.push(order.number)
       ;(order.items||[]).forEach(item=>{
         if(!item?.figure || item.inventoryTracked===false || Number(item.qty||0)<=0)return
@@ -43,6 +42,9 @@ function pendingFromVisibleInventory(db){
         const covered=Math.min(onHand,qty)
         available[key]=onHand-covered
         const pending=qty-covered
+        if(!groups[groupKey].audit[key])groups[groupKey].audit[key]={figure,ordered:0,covered:0,pending:0,stockBefore:onHand}
+        const a=groups[groupKey].audit[key]
+        a.ordered+=qty;a.covered+=covered;a.pending+=pending
         if(pending>0)groups[groupKey].rows[figure]=(groups[groupKey].rows[figure]||0)+pending
       })
     })
@@ -55,16 +57,17 @@ function pendingFromVisibleInventory(db){
       rows:Object.entries(g.rows)
         .map(([figure,qty])=>({figure,qty:Number(qty||0)}))
         .filter(r=>r.qty>0)
-        .sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
+        .sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'})),
+      auditRows:Object.values(g.audit).sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
     }))
-    .filter(g=>g.rows.length)
+    .filter(g=>g.rows.length || g.auditRows.length)
     .sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
 }
 
 const PACKED_DATES_KEY='polifan-cutlist-packed-dates-v1'
 const LEGACY_PACKED_TODAY_KEY='polifan-cutlist-packed-today'
 
-function loadPackedDates(){
+function loadLocalPackedDates(){
   try{
     const saved=JSON.parse(localStorage.getItem(PACKED_DATES_KEY)||'[]')
     const dates=Array.isArray(saved)?saved.filter(Boolean):[]
@@ -74,21 +77,34 @@ function loadPackedDates(){
   }catch{return []}
 }
 
-export default function CutList({db,goMotor}){
-  const [packedDates,setPackedDates]=useState(loadPackedDates)
+export default function CutList({db,onSave,goMotor}){
+  const localPacked=useMemo(loadLocalPackedDates,[])
+  const packedDates=useMemo(()=>[...new Set([...(db.packedDeliveryDates||[]),...localPacked])].filter(Boolean).sort(),[db.packedDeliveryDates,localPacked])
+  const [selectedDate,setSelectedDate]=useState('')
+  const [savingPacked,setSavingPacked]=useState(false)
 
-  function savePackedDates(next){
+  useEffect(()=>{
+    const dbDates=[...(db.packedDeliveryDates||[])].filter(Boolean).sort()
+    if(!localPacked.length || JSON.stringify(dbDates)===JSON.stringify(packedDates) || savingPacked)return
+    ;(async()=>{
+      setSavingPacked(true)
+      try{await onSave({...db,packedDeliveryDates:packedDates})}finally{setSavingPacked(false)}
+    })()
+  },[])
+
+  async function savePackedDates(next){
     const clean=[...new Set(next.filter(Boolean))].sort()
     try{localStorage.setItem(PACKED_DATES_KEY,JSON.stringify(clean))}catch{}
-    setPackedDates(clean)
+    setSavingPacked(true)
+    try{
+      const result=await onSave({...db,packedDeliveryDates:clean})
+      if(result?.ok===false)return false
+      return true
+    }finally{setSavingPacked(false)}
   }
 
-  // MUY IMPORTANTE:
-  // Las fechas embaladas siguen RESERVANDO/CONSUMIENDO el stock porque el recuento físico
-  // incluye las piezas que ya están dentro de las cajas. Sólo se ocultan visualmente de
-  // “Para cortar”. Así no se liberan esas piezas para pedidos posteriores por error.
   const allGroups=useMemo(()=>pendingFromVisibleInventory(db),[db])
-  const groups=useMemo(()=>allGroups.filter(g=>!packedDates.includes(g.date)),[allGroups,packedDates])
+  const groups=useMemo(()=>allGroups.filter(g=>!packedDates.includes(g.date) && g.rows.length),[allGroups,packedDates])
 
   const summaryRows=useMemo(()=>{
     const totals={}
@@ -100,18 +116,17 @@ export default function CutList({db,goMotor}){
     }).sort((a,b)=>b.pending-a.pending)
   },[groups,db])
 
-  const [selectedDate,setSelectedDate]=useState('')
   const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
-  function markPacked(date){
+  async function markPacked(date){
     if(!date)return
-    if(!window.confirm(`¿Confirmás que los pedidos del ${dateLabel(date)} ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nLa fecha se ocultará de “Para cortar”, pero seguirá reservando esas piezas dentro del inventario para no usarlas otra vez en pedidos posteriores. No se modifica ningún dato del inventario ni de los pedidos.`))return
-    savePackedDates([...packedDates,date])
-    if(selectedDate===date)setSelectedDate('')
+    if(!window.confirm(`¿Confirmás que los pedidos del ${dateLabel(date)} ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nLa fecha se ocultará de “Para cortar”, pero seguirá reservando esas piezas para no usarlas otra vez en pedidos posteriores. NO se modifica el inventario.`))return
+    const ok=await savePackedDates([...packedDates,date])
+    if(ok&&selectedDate===date)setSelectedDate('')
   }
 
-  function undoPacked(date){
-    savePackedDates(packedDates.filter(d=>d!==date))
+  async function undoPacked(date){
+    await savePackedDates(packedDates.filter(d=>d!==date))
   }
 
   function printDailyList(){
@@ -122,19 +137,19 @@ export default function CutList({db,goMotor}){
       return `<section><h2>Entrega: ${dateLabel(g.date)}</h2><p class="orders">Pedidos: ${g.orders.map(n=>'#'+n).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th>Total</th><th>${total}</th></tr></tfoot></table></section>`
     }).join('')
     const win=window.open('','_blank')
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}</style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada desde Inventario. Las fechas embaladas siguen reservando stock, pero no se muestran como faltantes.</p><script>window.onload=()=>window.print()</script></body></html>`)
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Lista para cortar</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}h1{font-size:20px;margin:0 0 4px}header p{margin:0}section{break-inside:avoid;margin:0 0 14px}h2{font-size:15px;margin:0;background:#eee;padding:7px;border:1px solid #111}.orders{margin:5px 0;font-size:10px;color:#444}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:6px;text-align:left}th:last-child,td:last-child{width:26%;text-align:center;font-weight:700}tfoot th{background:#f3f3f3}.note{margin-top:12px;font-size:10px;text-align:center}</style></head><body><header><h1>TU VIDA EN TINTA · POLIFAN</h1><p>LISTA DE PIEZAS PARA CORTAR</p></header>${sections}<p class="note">Lista calculada desde Inventario. Las fechas embaladas reservan stock pero no se muestran.</p><script>window.onload=()=>window.print()</script></body></html>`)
     win.document.close()
   }
 
-  const packableGroups=allGroups.filter(g=>g.date&&!packedDates.includes(g.date))
+  const packableGroups=allGroups.filter(g=>g.date&&!packedDates.includes(g.date) && g.rows.length)
 
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes por fecha, usando como fuente de verdad el stock físico que ves en Inventario." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo por inventario físico</b><span>“Para cortar” usa <b>Cortadas ahora + En corte</b>. Si una fecha ya está embalada y esas piezas están incluidas en tu recuento, esa fecha se oculta pero <b>sus piezas siguen reservadas</b>; no quedan disponibles para pedidos posteriores.</span></div>
+    <div className="notice"><b>Cálculo por inventario físico</b><span>Inventario no se modifica desde esta pantalla. Las fechas embaladas quedan guardadas online y siguen reservando sus piezas.</span></div>
 
-    {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas pendientes para esa fecha. Si ya están dentro de cajas y están incluidas en el recuento físico, marcala como embalada.</span><button type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
+    {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas pendientes para esa fecha.</span><button disabled={savingPacked} type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
 
-    {packedDates.length>0&&<div className="notice"><b>📦 Fechas embaladas</b><span>{packedDates.map(dateLabel).join(' · ')}</span><span>Estas fechas no se muestran, pero siguen reservando las piezas que ya están dentro de sus cajas.</span>{packedDates.map(d=><button key={d} type="button" className="ghost smallbtn" onClick={()=>undoPacked(d)}>Deshacer {dateLabel(d)}</button>)}</div>}
+    {packedDates.length>0&&<div className="notice"><b>📦 Fechas embaladas guardadas online</b><span>{packedDates.map(dateLabel).join(' · ')}</span>{packedDates.map(d=><button disabled={savingPacked} key={d} type="button" className="ghost smallbtn" onClick={()=>undoPacked(d)}>Deshacer {dateLabel(d)}</button>)}</div>}
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
@@ -149,6 +164,7 @@ export default function CutList({db,goMotor}){
       {visibleGroups.map(g=><div className="panel delivery-group" key={g.key}>
         <div className="delivery-head"><div><small>FECHA DE ENTREGA</small><h3>{dateLabel(g.date)}</h3><span>Pedidos: {g.orders.map(n=>'#'+n).join(', ')}</span></div><b>{g.rows.reduce((a,r)=>a+r.qty,0)} piezas</b></div>
         <div className="table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad a cortar</th></tr></thead><tbody>{g.rows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td className="big">{r.qty}</td></tr>)}</tbody></table></div>
+        <details style={{marginTop:10}}><summary><b>Ver cómo se calculó esta fecha</b></summary><div className="table-wrap" style={{marginTop:8}}><table><thead><tr><th>Figura</th><th>Pedido</th><th>Cubierto por inventario</th><th>Falta cortar</th></tr></thead><tbody>{g.auditRows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td>{r.ordered}</td><td>{r.covered}</td><td className={r.pending>0?'big':'green-text'}>{r.pending}</td></tr>)}</tbody></table></div></details>
       </div>)}
       {!visibleGroups.length&&<div className="panel">No hay piezas pendientes para cortar.</div>}
     </div>
