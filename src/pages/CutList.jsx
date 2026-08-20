@@ -9,25 +9,31 @@ function dateLabel(value){
   return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(new Date(y,m-1,d))
 }
 
-function groupedPendingByDelivery(db){
-  return pendingCutByDelivery(db)
-}
-
 const PACKED_TODAY_KEY='polifan-cutlist-packed-today'
 
 export default function CutList({db,goMotor}){
-  const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
-  const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
   const todayKey=today()
   const [packedToday,setPackedToday]=useState(()=>{
     try{return localStorage.getItem(PACKED_TODAY_KEY)===todayKey}catch{return false}
   })
-  const effectiveGroups=packedToday?groups.filter(g=>g.date!==todayKey):groups
+
+  // IMPORTANTE: si hoy ya está embalado y el recuento físico incluye esas piezas,
+  // esos pedidos no deben consumir inventario al calcular lo que falta para mañana.
+  const calcDb=useMemo(()=>{
+    if(!packedToday)return db
+    return {
+      ...db,
+      orders:(db.orders||[]).filter(o=>String(o?.delivery||'').slice(0,10)!==todayKey)
+    }
+  },[db,packedToday,todayKey])
+
+  const groups=useMemo(()=>pendingCutByDelivery(calcDb),[calcDb])
+  const rows=useMemo(()=>pendingCutRows(calcDb).sort((a,b)=>b.pending-a.pending),[calcDb])
   const [selectedDate,setSelectedDate]=useState('')
-  const visibleGroups=selectedDate ? effectiveGroups.filter(g=>g.key===selectedDate) : effectiveGroups
+  const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
 
   function markTodayPacked(){
-    if(!window.confirm('¿Confirmás que los pedidos de HOY ya están embalados?\n\nSólo se ocultarán de “Para cortar” hasta mañana. NO cambia pedidos, inventario ni historial.'))return
+    if(!window.confirm('¿Confirmás que los pedidos de HOY ya están embalados y que esas piezas están incluidas en tu recuento físico?\n\nDesde ahora esos pedidos no consumirán inventario al calcular “Para cortar”. No se modifica ningún pedido ni cantidad del inventario.'))return
     try{localStorage.setItem(PACKED_TODAY_KEY,todayKey)}catch{}
     setPackedToday(true)
     setSelectedDate('')
@@ -50,21 +56,21 @@ export default function CutList({db,goMotor}){
     win.document.close()
   }
 
-  const todayGroup=groups.find(g=>g.date===todayKey)
-  const todayQty=todayGroup?.rows?.reduce((a,r)=>a+r.qty,0)||0
+  const originalTodayGroup=useMemo(()=>pendingCutByDelivery(db).find(g=>g.date===todayKey),[db,todayKey])
+  const todayQty=originalTodayGroup?.rows?.reduce((a,r)=>a+r.qty,0)||0
 
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo automático</b><span>El stock y las piezas en corte se aplican primero a las entregas más próximas. Las placas se generan únicamente desde “Generar placas” con el Motor Definitivo V1.7.</span></div>
+    <div className="notice"><b>Cálculo automático</b><span>Para cortar se forma comparando los pedidos contra el inventario físico cortado. Si una fecha ya está embalada y esas piezas están incluidas en el recuento, esa fecha no debe consumir inventario otra vez.</span></div>
 
-    {todayGroup&&!packedToday&&<div className="notice" style={{border:'2px solid #e89acb'}}><b>¿Los pedidos de hoy ya están embalados?</b><span>Ahora figuran {todayQty} piezas de hoy para cortar. Si ya están dentro de las cajas y tu recuento físico corresponde a lo que quedó afuera, ocultalas de esta lista sin tocar el inventario.</span><button type="button" className="primary smallbtn" onClick={markTodayPacked}>📦 Hoy ya está embalado · quitar de Para cortar</button></div>}
-    {packedToday&&<div className="notice"><b>📦 Pedidos de hoy ocultos de Para cortar</b><span>No se modificó el inventario ni los pedidos. Mañana esta exclusión deja de tener efecto.</span><button type="button" className="ghost smallbtn" onClick={undoTodayPacked}>Deshacer</button></div>}
+    {originalTodayGroup&&!packedToday&&<div className="notice" style={{border:'2px solid #e89acb'}}><b>¿Los pedidos de hoy ya están embalados?</b><span>Figuran {todayQty} piezas de hoy. Si esas piezas ya están en cajas y están incluidas en tu recuento físico, marcá esta opción para que no vuelvan a consumir stock en el cálculo.</span><button type="button" className="primary smallbtn" onClick={markTodayPacked}>📦 Hoy ya está embalado</button></div>}
+    {packedToday&&<div className="notice"><b>📦 Hoy embalado</b><span>Los pedidos de hoy ya no consumen inventario dentro del cálculo de “Para cortar”. El inventario y los pedidos no fueron modificados.</span><button type="button" className="ghost smallbtn" onClick={undoTodayPacked}>Deshacer</button></div>}
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
       <select value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}>
         <option value="">Todas las fechas pendientes</option>
-        {effectiveGroups.map(g=><option key={g.key} value={g.key}>{dateLabel(g.date)}</option>)}
+        {groups.map(g=><option key={g.key} value={g.key}>{dateLabel(g.date)}</option>)}
       </select>
       <button className="ghost" onClick={printDailyList}>Imprimir lista seleccionada</button>
     </div>
