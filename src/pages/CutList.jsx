@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { isOrderCommitted, normalizeFigureKey, stockRows } from '../lib/inventory'
+import { today } from '../lib/format'
 
 function dateLabel(value){
   if(!value) return 'Sin fecha de entrega'
@@ -14,17 +15,22 @@ function pendingFromVisibleInventory(db){
   const inventoryRows=stockRows(db)
   const available={}
   const labels={}
+  const snapshotDate=today()
 
+  // FUENTE DE VERDAD: solamente "Cortadas ahora" del Inventario.
+  // No reconstruimos el stock desde pedidos ni sumamos "En corte": en corte todavía no es stock físico.
   inventoryRows.forEach(r=>{
     const key=normalizeFigureKey(r.figure)
     if(!key)return
-    available[key]=(available[key]||0)+Math.max(0,Number(r.cut||0))+Math.max(0,Number(r.inCut||0))
+    available[key]=(available[key]||0)+Math.max(0,Number(r.cut||0))
     if(!labels[key])labels[key]=r.figure
   })
 
   const groups={}
   ;(db.orders||[])
     .filter(o=>isOrderCommitted(o))
+    // El inventario es una foto física de AHORA. Pedidos de días anteriores no pueden volver a consumirla.
+    .filter(o=>!orderDate(o) || orderDate(o)>=snapshotDate)
     .slice()
     .sort((a,b)=>(orderDate(a)||'9999-12-31').localeCompare(orderDate(b)||'9999-12-31') || String(a.number||'').localeCompare(String(b.number||'')))
     .forEach(order=>{
@@ -145,7 +151,7 @@ export default function CutList({db,onSave,goMotor}){
 
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes por fecha, usando como fuente de verdad el stock físico que ves en Inventario." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
-    <div className="notice"><b>Cálculo por inventario físico</b><span>Inventario no se modifica desde esta pantalla. Las fechas embaladas quedan guardadas online y siguen reservando sus piezas.</span></div>
+    <div className="notice"><b>Cálculo por inventario físico</b><span>Inventario no se modifica desde esta pantalla. Se parte de Cortadas ahora y se reserva por fecha desde hoy hacia adelante. Los pedidos anteriores a hoy no vuelven a consumir el recuento físico.</span></div>
 
     {packableGroups.map(g=><div className="notice" key={`pack-${g.key}`} style={{border:'2px solid #e89acb'}}><b>¿{dateLabel(g.date)} ya está embalado?</b><span>Figuran {g.rows.reduce((a,r)=>a+r.qty,0)} piezas pendientes para esa fecha.</span><button disabled={savingPacked} type="button" className="primary smallbtn" onClick={()=>markPacked(g.date)}>📦 Marcar {dateLabel(g.date)} como embalado</button></div>)}
 
