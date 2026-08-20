@@ -8,6 +8,18 @@ import { upsertClientFromOrder } from '../lib/clients'
 import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
 import { downloadQuoteJpg } from '../lib/quoteReceipt'
 
+const normalizeFigureName=value=>String(value||'').trim().toLocaleLowerCase('es').replace(/\s+/g,' ')
+const hasCustomCatalogPrice=product=>Boolean(product?.priceUnit||product?.price6||product?.price12||product?.price100||product?.fixedPrice)
+const customCatalogPrice=(product,qty)=>{
+  const q=Math.max(0,Number(qty)||0)
+  if(!q)return 0
+  if(product?.price100&&q>=100)return q*(Number(product.price100)/100)
+  if(product?.price12&&q>=12)return q*(Number(product.price12)/12)
+  if(product?.price6&&q>=6)return q*(Number(product.price6)/6)
+  if(product?.priceUnit)return q*Number(product.priceUnit)
+  return q*Number(product?.fixedPrice||0)
+}
+
 export default function OrderForm({db,onSave,editing,clearEdit}){
   const DRAFT_KEY='polifan-order-draft-v1'
   const nextOrderNumber=(orders=db.orders)=>String(Math.max(0,...(orders||[]).map(o=>Number(o.number)||0))+1).padStart(3,'0')
@@ -19,6 +31,9 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   const [form,setForm]=useState(()=>{try{const saved=localStorage.getItem(DRAFT_KEY);if(!saved)return blank();const draft=JSON.parse(saved);return {...blank(),...draft,number:nextOrderNumber()}}catch{return blank()}})
   const [draftSaved,setDraftSaved]=useState(false)
   const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const catalogById=useMemo(()=>new Map((db.customerCatalog||[]).map(p=>[String(p?.id||''),p]).filter(([id])=>id)),[db.customerCatalog])
+  const catalogByName=useMemo(()=>new Map((db.customerCatalog||[]).map(p=>[normalizeFigureName(p?.name),p]).filter(([name])=>name)),[db.customerCatalog])
+  const catalogProductFor=item=>catalogById.get(String(item?.productId||''))||catalogByName.get(normalizeFigureName(item?.figure))||null
 
   useEffect(()=>{
     if(!editing)return
@@ -35,7 +50,12 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   const regularItems=(form.items||[]).filter(i=>i.figure&&Number(i.qty)>0)
   const qty=regularItems.reduce((a,i)=>a+Number(i.qty||0),0)
-  const regularTotal=qty*pricePerUnit(qty)
+  const pricedRegularItems=regularItems.map(item=>({item,product:catalogProductFor(item)}))
+  const standardQty=pricedRegularItems.filter(({product})=>!hasCustomCatalogPrice(product)).reduce((sum,{item})=>sum+Number(item.qty||0),0)
+  const standardUnitPrice=standardQty?pricePerUnit(standardQty):0
+  const standardTotal=standardQty*standardUnitPrice
+  const specialTotal=pricedRegularItems.filter(({product})=>hasCustomCatalogPrice(product)).reduce((sum,{item,product})=>sum+customCatalogPrice(product,item.qty),0)
+  const regularTotal=standardTotal+specialTotal
   const validManualItems=(form.manualItems||[]).filter(i=>String(i.figure||'').trim()&&Number(i.qty)>0&&Number(i.unitPrice)>=0)
   const manualQty=validManualItems.reduce((a,i)=>a+Number(i.qty||0),0)
   const manualTotal=validManualItems.reduce((a,i)=>a+Number(i.qty||0)*Number(i.unitPrice||0),0)
@@ -59,7 +79,12 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
 
   function nextQuoteCode(){const max=Math.max(0,...(db.quotes||[]).map(q=>Number(String(q.code||'').match(/\d+$/)?.[0]||0)));return`PRES-${String(max+1).padStart(4,'0')}`}
   function combinedItems(){
-    const regular=regularItems.map(i=>({...i,qty:Number(i.qty),unitPrice:pricePerUnit(qty),inventoryTracked:true,manualItem:false}))
+    const regular=regularItems.map(i=>{
+      const product=catalogProductFor(i),itemQty=Number(i.qty)
+      const itemTotal=hasCustomCatalogPrice(product)?customCatalogPrice(product,itemQty):itemQty*standardUnitPrice
+      const unitPrice=itemQty?itemTotal/itemQty:0
+      return {...i,productId:i.productId||product?.id||'',qty:itemQty,unitPrice,subtotal:itemTotal,customPricing:hasCustomCatalogPrice(product),inventoryTracked:true,manualItem:false}
+    })
     const manual=validManualItems.map(i=>({figure:String(i.figure).trim(),qty:Number(i.qty),unitPrice:Number(i.unitPrice),subtotal:Number(i.qty)*Number(i.unitPrice),inventoryTracked:false,manualItem:true}))
     return [...regular,...manual]
   }
@@ -91,7 +116,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     if(form.delivery&&isSunday(form.delivery))return alert('Los domingos no se cuentan como días de producción. Elegí otra fecha de entrega.')
     if(qty>0&&form.delivery&&projectedPieces>=DAILY_PIECE_LIMIT){const excess=Math.max(0,projectedPieces-DAILY_PIECE_LIMIT);const message=projectedPieces===DAILY_PIECE_LIMIT?`Ese día llegará exactamente a ${DAILY_PIECE_LIMIT} piezas. ¿Querés guardar el pedido igualmente?`:`Ese día pasará a ${projectedPieces} piezas, superando el límite por ${excess}. ¿Querés seguir?`;if(!window.confirm(message))return}
     const automaticNumber=editing?form.number:nextOrderNumber(db.orders),fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim()
-    const final={...form,...(deliveryType==='Retiro en el local'?{address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',agencyDelivery:'',shippingCost:0,shippingPaid:'No corresponde',shippingPackaging:'No'}:{}),deliveryType,carrier:deliveryType,client:fullName,zone:deliveryType==='Retiro en el local'?'Retiro en el local':[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:qty?pricePerUnit(qty):null,productionSheets:sheets,productionDays,items:combinedItems(),manualItems:undefined,updatedAt:new Date().toISOString()}
+    const final={...form,...(deliveryType==='Retiro en el local'?{address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',agencyDelivery:'',shippingCost:0,shippingPaid:'No corresponde',shippingPackaging:'No'}:{}),deliveryType,carrier:deliveryType,client:fullName,zone:deliveryType==='Retiro en el local'?'Retiro en el local':[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:standardQty===qty&&qty?standardUnitPrice:null,productionSheets:sheets,productionDays,items:combinedItems(),manualItems:undefined,updatedAt:new Date().toISOString()}
     const orders=editing?db.orders.map(o=>o.id===final.id?final:o):[...db.orders,{...final,createdAt:new Date().toISOString()}]
     const clients=upsertClientFromOrder(db.clients||[],final)
     const saved=await onSave({...db,orders,clients});if(saved?.ok===false)return
