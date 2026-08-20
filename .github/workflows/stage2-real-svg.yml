@@ -1,0 +1,68 @@
+name: Stage 2 real SVG production benchmark
+
+on:
+  push:
+    branches:
+      - bench/focused-case5-clean
+    paths:
+      - 'solver-service/benchmarks/stage2_real_svg.py'
+      - 'solver-service/benchmarks/real-svg-stage2/**'
+      - '.github/workflows/stage2-real-svg.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        model:
+          - Mate.svg
+          - Manzana.svg
+          - Escudo Boca Jr.svg
+        qty: [10, 11, 12, 13, 14]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Sparrow large-aware
+        env:
+          RUSTFLAGS: -C target-cpu=native
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/sparrow/src/config.rs')
+          s=p.read_text()
+          s=re.sub(r'n_focussed_samples:\s*25', 'n_focussed_samples: 45', s)
+          s=re.sub(r'n_coord_descents:\s*3', 'n_coord_descents: 6', s)
+          s=re.sub(r'solution_pool_distribution_stddev:\s*0\.25', 'solution_pool_distribution_stddev: 0.35', s)
+          s=re.sub(r'large_item_ch_area_cutoff_percentile:\s*0\.75', 'large_item_ch_area_cutoff_percentile: 0.55', s)
+          p.write_text(s)
+          PY
+          cd /tmp/sparrow
+          cargo build --release --features only_final_svg --bin sparrow
+          cp target/release/sparrow /tmp/sparrow-bin
+      - name: Test ${{ matrix.model }} x ${{ matrix.qty }}
+        run: |
+          python3 solver-service/benchmarks/stage2_real_svg.py \
+            --model '${{ matrix.model }}' \
+            --qty '${{ matrix.qty }}' \
+            --exploration 28 --compression 22 \
+            --seed $((20260820 + ${{ matrix.qty }}))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage2-${{ matrix.model }}-q${{ matrix.qty }}
+          path: |
+            /tmp/stage2_result.json
+            /tmp/stage2_console.txt
+            /tmp/stage2_final.json
+            /tmp/stage2_final.svg
+          if-no-files-found: warn
