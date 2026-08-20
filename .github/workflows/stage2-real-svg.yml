@@ -1,0 +1,92 @@
+name: Stage 2 real SVG production benchmark
+
+on:
+  push:
+    branches:
+      - bench/focused-case5-clean
+  pull_request:
+    branches:
+      - bench/sparrow-v114-base
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        seed_base: [20260820, 20260841, 20260873, 20260917, 20260961, 20261007, 20261103, 20261231]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build aggressive large-aware Sparrow
+        env:
+          RUSTFLAGS: -C target-cpu=native
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/sparrow/src/config.rs')
+          s=p.read_text()
+          s=re.sub(r'n_focussed_samples:\s*25', 'n_focussed_samples: 70', s)
+          s=re.sub(r'n_coord_descents:\s*3', 'n_coord_descents: 10', s)
+          s=re.sub(r'solution_pool_distribution_stddev:\s*0\.25', 'solution_pool_distribution_stddev: 0.42', s)
+          s=re.sub(r'large_item_ch_area_cutoff_percentile:\s*0\.75', 'large_item_ch_area_cutoff_percentile: 0.50', s)
+          p.write_text(s)
+          PY
+          cd /tmp/sparrow
+          cargo build --release --features only_final_svg --bin sparrow
+          cp target/release/sparrow /tmp/sparrow-bin
+      - name: Attack Mate x17
+        env:
+          MODEL: Mate
+          COUNT: 17
+          SEED: ${{ matrix.seed_base }}
+          SOLVER_TIMEOUT: 125
+        run: python3 solver-service/benchmarks/stage2_real_svg_benchmark.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage2-mate17-seed-${{ matrix.seed_base }}
+          path: |
+            /tmp/stage2_result_*.json
+            /tmp/stage2_log_*.txt
+            /tmp/stage2_*_final.json
+            /tmp/stage2_*_final.svg
+          if-no-files-found: warn
+
+  aggregate:
+    if: always()
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stage2-mate17-*
+          path: /tmp/stage2-results
+      - name: Aggregate Mate 17 seeds
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          rows=[]
+          for p in pathlib.Path('/tmp/stage2-results').rglob('stage2_result_*.json'):
+              try: rows.append(json.loads(p.read_text()))
+              except Exception: pass
+          rows.sort(key=lambda r:(not r['valid_fit'], r['strip_width_mm'] if r['strip_width_mm'] is not None else 99999))
+          print('\n=== MATE 17 FOCUSED RESULTS ===')
+          for r in rows:
+              print(f"valid={str(r['valid_fit']):5} width={r['strip_width_mm']} util={r['plate_utilization_pct']}% waste={r['plate_waste_pct']}% time={r['elapsed_s']}s err={r['error']}")
+          pathlib.Path('/tmp/stage2_summary.json').write_text(json.dumps({'rows':rows},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage2-mate17-focused-summary
+          path: /tmp/stage2_summary.json

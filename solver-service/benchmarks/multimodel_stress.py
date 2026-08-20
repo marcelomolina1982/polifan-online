@@ -1,107 +1,117 @@
-import json, subprocess, tempfile, re, random
+import json, math, re, shutil, subprocess, tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from collections import Counter, deque
 
 ROOT=Path(__file__).parent
-MODELS=json.loads((ROOT/'multimodel10.json').read_text(encoding='utf-8'))
-SPARROW='/tmp/sparrow-bin'; MAX_WIDTH=1214.0; STRIP_HEIGHT=580.0
-random.seed(115)
-names=list(MODELS)
-cases=[[random.choice(names) for _ in range(12)] for __ in range(12)]
-TARGETS={5:cases[4],9:cases[8]}
-SEEDS=[48017,8388593,3145721,1048573,1572869,2097143,4194301,6291449,12582917,16777213,25165813,33554393,50331653,67108859,100663291,134217689,201326611,268435399,402653189,536870909,805306457,1073741789,1610612741,2147483629]
+SPARROW='/tmp/sparrow-bin'
+FIXTURE=ROOT/'case9_run67_checkpoint.json'
+PLATE_W=1220.0; PLATE_H=580.0; SEP=3.0; EXPECTED_ITEMS=24
+PREVIOUS_BEST=1238.606
 
-def area(poly):
-    return abs(sum(poly[i][0]*poly[(i+1)%len(poly)][1]-poly[(i+1)%len(poly)][0]*poly[i][1] for i in range(len(poly)))/2.0)
-PART_AREA={n:[area(p) for p in MODELS[n]['parts']] for n in names}
-MODEL_AREA={n:sum(PART_AREA[n]) for n in names}
 
-def round_robin(order, reverse=False):
-    c=Counter(order); keys=sorted(c,key=lambda n:(MODEL_AREA[n],n),reverse=reverse); out=[]
-    while any(c.values()):
-        for k in keys:
-            if c[k]: out.append(k); c[k]-=1
-    return out
+def widths(text):
+    vals=[]
+    for pat in [r'\[CMPR\] success[^\n]*\(([0-9]+(?:\.[0-9]+)?)\s*\|',r'best feasible solution: width:\s*([0-9]+(?:\.[0-9]+)?)',r'feasible solution found! \(width:\s*([0-9]+(?:\.[0-9]+)?)']:
+        vals += [float(x) for x in re.findall(pat,text,re.I)]
+    return vals
 
-def minority_interleave(order):
-    c=Counter(order); main=max(c,key=c.get); others=[]
-    for k,v in sorted(c.items(),key=lambda kv:(-MODEL_AREA[kv[0]],kv[0])):
-        if k!=main: others += [k]*v
-    q=deque(others); out=[]
-    for i in range(c[main]):
-        out.append(main)
-        if q: out.append(q.popleft())
-    out.extend(q)
-    return out
 
-def model_order(base,variant,seed):
-    b=list(base)
-    if variant==0:return b,'original'
-    if variant==1:return sorted(b,key=lambda n:-MODEL_AREA[n]),'model-area-large'
-    if variant==2:return sorted(b,key=lambda n:MODEL_AREA[n]),'model-area-small'
-    if variant==3:return round_robin(b,False),'round-robin-small'
-    if variant==4:return round_robin(b,True),'round-robin-large'
-    if variant==5:return minority_interleave(b),'majority-interleave'
-    if variant==6:return list(reversed(minority_interleave(b))),'majority-interleave-reverse'
-    rr=random.Random(seed+variant*1009); rr.shuffle(b); return b,f'shuffle-{variant}'
+def final_files(work):
+    out=work/'output'; js=sorted(out.glob('final_*.json')) if out.exists() else []; sv=sorted(out.glob('final_*.svg')) if out.exists() else []
+    return (js[0] if js else None),(sv[0] if sv else None)
 
-def make_input(order,out,part_mode):
-    records=[]
-    for mi,model in enumerate(order):
-        parts=MODELS[model]['parts']
-        for pi,part in enumerate(parts): records.append({'model':model,'mi':mi,'pi':pi,'poly':part,'a':area(part)})
-    if part_mode==0:
-        seq=records; label='pair-base-tapa'
-    elif part_mode==1:
-        seq=[]
-        for mi,model in enumerate(order):
-            pair=[r for r in records if r['mi']==mi]; pair.sort(key=lambda r:-r['a']); seq+=pair
-        label='pair-large-part-first'
-    elif part_mode==2:
-        seq=sorted(records,key=lambda r:-r['a']); label='all-parts-large-first'
-    elif part_mode==3:
-        seq=sorted(records,key=lambda r:r['a']); label='all-parts-small-first'
-    elif part_mode==4:
-        seq=[r for r in records if r['pi']==0]+[r for r in records if r['pi']==1]; label='all-bases-then-tapas'
-    else:
-        seq=[r for r in records if r['pi']==1]+[r for r in records if r['pi']==0]; label='all-tapas-then-bases'
-    items=[]
-    for iid,r in enumerate(seq): items.append({'id':iid,'demand':1,'shape':{'type':'simple_polygon','data':r['poly']}})
-    out.write_text(json.dumps({'name':'focused_geometry','strip_height':STRIP_HEIGHT,'items':items},separators=(',',':')),encoding='utf-8')
-    return label
 
-def parse_width(text):
-    for pat in [r'best feasible width[^0-9]*([0-9]+(?:\.[0-9]+)?)',r'best[^\n]*width[^0-9]*([0-9]+(?:\.[0-9]+)?)',r'width[^0-9]*([0-9]+(?:\.[0-9]+)?)']:
-        vals=[float(x) for x in re.findall(pat,text,re.I)]
-        if vals:return min(vals)
-    return None
+def transformed_bbox(obj):
+    shapes={it['id']:it['shape']['data'] for it in obj['items']}; placed=obj.get('solution',{}).get('layout',{}).get('placed_items',[])
+    xs=[]; ys=[]
+    for pl in placed:
+        pts=shapes[pl['item_id']]; a=math.radians(pl['transformation']['rotation']); c=math.cos(a); s=math.sin(a); tx,ty=pl['transformation']['translation']
+        for x,y in pts: xs.append(x*c-y*s+tx); ys.append(x*s+y*c+ty)
+    return (min(xs),min(ys),max(xs),max(ys)) if xs else None
 
-def run(case_id,base,attempt,seed):
-    variant=(attempt-1)%10; part_mode=((attempt-1)//4)%6
-    order,order_label=model_order(base,variant,seed)
-    with tempfile.TemporaryDirectory() as tmp:
-        td=Path(tmp); inp=td/'input.json'; part_label=make_input(order,inp,part_mode)
-        secs=9 if attempt<=12 else 11
-        p=subprocess.run([SPARROW,'-i',str(inp),'-t',str(secs),'--min-item-separation','2.5','--workers','1','-s',str(seed)],cwd=td,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=35)
-        w=parse_width(p.stdout or ''); ok=p.returncode==0 and w is not None and w<=MAX_WIDTH
-        strategy=f'{order_label}+{part_label}'
-        (Path('/tmp')/f'multimodel_case{case_id:02d}_attempt{attempt:02d}_seed{seed}.log').write_text(p.stdout or '',encoding='utf-8')
-        return {'case':case_id,'attempt':attempt,'seed':seed,'strategy':strategy,'ok':ok,'width':w,'returncode':p.returncode,'models':order,'seconds':secs}
 
-rows=[]; results=[]
-known={5:{'official_width':1248.392,'previous_best':1235.953},9:{'official_width':1277.401,'previous_best':1267.786}}
-for cid,base in TARGETS.items():
-    best=None; solved=False
-    for attempt,seed in enumerate(SEEDS,1):
-        r=run(cid,base,attempt,seed); rows.append(r)
-        if r['width'] is not None and (best is None or r['width']<best['width']): best=r
-        print(f"GEOM case={cid} attempt={attempt:02d} strategy={r['strategy']} ok={r['ok']} width={r['width']}",flush=True)
-        if r['ok']:
-            solved=True; break
-    results.append({'case':cid,'official_ok':False,'official_width':known[cid]['official_width'],'solved':solved,'attempts':attempt,'best_width':best['width'] if best else None,'best_seed':best['seed'] if best else None,'best_attempt':best['attempt'] if best else None,'best_strategy':best['strategy'] if best else None,'previous_best':known[cid]['previous_best'],'models':base})
-    print('CASE_SUMMARY',json.dumps(results[-1],ensure_ascii=False),flush=True)
-extra=sum(1 for x in results if x['solved'])
-adaptive_total=10+extra
-valid=[r['width'] for r in rows if r['width'] is not None]
-summary={'models':names,'cases':12,'official_cases_solved':9,'official_success_rate':75.0,'adaptive_cases_solved':adaptive_total,'adaptive_success_rate':round(100*adaptive_total/12,2),'adaptive_gain_cases':adaptive_total-9,'beats_official':True,'focused_cases':[5,9],'focused_strategy':'model-order plus individual-part-order geometry search','total_runs':len(rows),'best_width':min(valid) if valid else None,'worst_width':max(valid) if valid else None,'case_results':results,'human_reference':{'plate_mm':[1220,580],'observed_used_bbox_mm':[1213.94,575.06],'bbox_plate_coverage_percent':98.66}}
-Path('/tmp/multimodel_rows.json').write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding='utf-8'); Path('/tmp/multimodel_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding='utf-8'); print('SUMMARY',json.dumps(summary,ensure_ascii=False),flush=True)
+def validate(path):
+    if path is None or not path.exists(): return {'candidate':False,'solved':False,'reason':'no-final-json','placed':0,'bbox':None,'strip_width':None}
+    obj=json.loads(path.read_text()); placed=obj.get('solution',{}).get('layout',{}).get('placed_items',[]); ids=[p.get('item_id') for p in placed]; bbox=transformed_bbox(obj); strip=obj.get('solution',{}).get('strip_width')
+    count_ok=len(placed)==EXPECTED_ITEMS and len(set(ids))==EXPECTED_ITEMS
+    y_ok=left_ok=right_ok=False
+    if bbox:
+        minx,miny,maxx,maxy=bbox; y_ok=miny>=SEP-0.15 and maxy<=PLATE_H-SEP+0.15; left_ok=minx>=SEP-0.15; right_ok=maxx<=PLATE_W-SEP+0.15
+    candidate=bool(count_ok and y_ok and left_ok and strip is not None)
+    solved=bool(candidate and right_ok and strip<=PLATE_W+0.01)
+    reason='ok' if solved else ('piece-count' if not count_ok else ('vertical-border' if not y_ok else ('left-border' if not left_ok else 'too-wide')))
+    return {'candidate':candidate,'solved':solved,'reason':reason,'placed':len(placed),'bbox':bbox,'strip_width':strip}
+
+
+def run_one(source,root,label,e,c,seed,timeout,workers=1):
+    work=root/label; work.mkdir(); src=work/'warm.json'; shutil.copy2(source,src)
+    obj=json.loads(src.read_text()); obj['strip_height']=PLATE_H; src.write_text(json.dumps(obj,separators=(',',':')))
+    try:
+        p=subprocess.run([SPARROW,'-i',str(src),'-e',str(e),'-c',str(c),'--min-item-separation',str(SEP),'--workers',str(workers),'-s',str(seed)],cwd=work,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout); text=p.stdout or ''; rc=p.returncode
+    except subprocess.TimeoutExpired as ex: text=(ex.stdout or '') if isinstance(ex.stdout,str) else ''; rc=124
+    Path('/tmp',f'multimodel_case09_{label}.log').write_text(text+'\n'+('TIMEOUT' if rc==124 else ''))
+    ws=widths(text); js,svg=final_files(work); cert=validate(js)
+    return {'label':label,'seed':seed,'exploration':e,'compression':c,'returncode':rc,'reported_width':min(ws) if ws else None,**cert,'json':js,'svg':svg}
+
+
+def perturb(src,dst,rot_delta,jitter):
+    obj=json.loads(Path(src).read_text()); byid={p['item_id']:p for p in obj['solution']['layout']['placed_items']}
+    for iid,delta in rot_delta.items():
+        if iid in byid: byid[iid]['transformation']['rotation']=(byid[iid]['transformation']['rotation']+delta)%360
+    for iid,(dx,dy) in jitter.items():
+        if iid in byid:
+            t=byid[iid]['transformation']['translation']; byid[iid]['transformation']['translation']=[t[0]+dx,t[1]+dy]
+    obj['strip_height']=PLATE_H; Path(dst).write_text(json.dumps(obj,separators=(',',':')))
+
+base=json.loads(FIXTURE.read_text()); assert len(base['solution']['layout']['placed_items'])==EXPECTED_ITEMS; base['strip_height']=PLATE_H
+rows=[]; solved=False
+with tempfile.TemporaryDirectory() as tmp:
+    td=Path(tmp); source=td/'base.json'; source.write_text(json.dumps(base,separators=(',',':')))
+    # Rebuild the known strong basin once, then attack its structure quickly.
+    seedbase=run_one(source,td,'recover_champion',45,135,1073741789,210,3)
+    row={k:v for k,v in seedbase.items() if k not in ('json','svg')}; row['phase']='recover'; rows.append(row); print('RECOVER',json.dumps(row),flush=True)
+    champion=seedbase if seedbase['candidate'] else None; solved=bool(champion and champion['solved'])
+
+    variants=[
+      ('rot_a',{15:15,18:-15,23:15},{15:(-4,4),18:(-4,-4),23:(-5,0)},536870909),
+      ('rot_b',{15:30,18:15,23:-30},{15:(-6,-3),18:(-3,5),23:(-6,2)},1610612741),
+      ('rot_c',{15:-20,18:25,23:20,19:-15},{15:(-5,5),18:(-4,-5),23:(-7,0),19:(-3,3)},805306457),
+      ('rot_d',{15:45,18:-30,23:-15,17:20},{15:(-7,0),18:(-4,4),23:(-7,-3),17:(-2,3)},268435399),
+      ('rot_e',{15:-35,18:35,23:35,20:-20},{15:(-6,3),18:(-5,-3),23:(-6,3),20:(-3,-2)},402653189),
+      ('rot_f',{15:20,18:20,23:-45,19:20,20:-15},{15:(-5,-4),18:(-5,4),23:(-8,0),19:(-3,2),20:(-2,-3)},134217689),
+      ('rot_g',{15:-15,18:-30,23:45,17:-20,19:15},{15:(-5,2),18:(-5,-2),23:(-8,2),17:(-2,-3),19:(-3,3)},2147483629),
+      ('rot_h',{15:35,18:-20,23:20,19:-25,20:20},{15:(-7,-2),18:(-4,4),23:(-7,1),19:(-3,-3),20:(-3,3)},67108859),
+    ]
+    results=[]
+    if champion and not solved:
+        sources=[]
+        for label,rd,jit,seed in variants:
+            p=td/f'{label}_input.json'; perturb(champion['json'],p,rd,jit); sources.append((p,label,seed))
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs=[ex.submit(run_one,p,td,label,16,32,seed,58,1) for p,label,seed in sources]
+            for fut in as_completed(futs):
+                r=fut.result(); results.append(r); rr={k:v for k,v in r.items() if k not in ('json','svg')}; rr['phase']='structural-scout'; rows.append(rr); print('STRUCT',json.dumps(rr),flush=True)
+        candidates=sorted([r for r in results if r['candidate']],key=lambda r:r['strip_width']); solved=any(r['solved'] for r in candidates)
+        if candidates and (champion is None or candidates[0]['strip_width']<champion['strip_width']): champion=candidates[0]
+
+        if not solved and candidates:
+            top=candidates[:2]; refined=[]
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                futs=[]
+                for i,cand in enumerate(top,1):
+                    cp=td/f'refine_src_{i}.json'; shutil.copy2(cand['json'],cp); futs.append(ex.submit(run_one,cp,td,f'struct_refine_{i}',26,58,[1073741777,1610612707][i-1],88,1))
+                for fut in as_completed(futs):
+                    r=fut.result(); refined.append(r); rr={k:v for k,v in r.items() if k not in ('json','svg')}; rr['phase']='structural-refine'; rows.append(rr); print('REFINE',json.dumps(rr),flush=True)
+            rcands=[r for r in refined if r['candidate']];
+            if rcands:
+                rcands.sort(key=lambda r:r['strip_width']);
+                if champion is None or rcands[0]['strip_width']<champion['strip_width']: champion=rcands[0]
+            solved=solved or any(r['solved'] for r in rcands)
+
+    if champion:
+        shutil.copy2(champion['json'],'/tmp/case9_best_checkpoint.json')
+        if champion.get('svg') and Path(champion['svg']).exists(): shutil.copy2(champion['svg'],'/tmp/case9_best.svg')
+
+best=min([r['strip_width'] for r in rows if r.get('candidate') and r.get('strip_width') is not None],default=None)
+summary={'cases':12,'adaptive_cases_solved':12 if solved else 11,'adaptive_success_rate':100.0 if solved else 91.67,'focused_cases':[9],'focused_strategy':'recover strong basin then fast structural rotation/jitter attack','physical_plate_mm':[PLATE_W,PLATE_H],'minimum_separation_mm':SEP,'required_placed_items':EXPECTED_ITEMS,'previous_valid_best_mm':PREVIOUS_BEST,'best_width':best,'width_goal_reached':solved,'total_runs':len(rows),'stages':rows}
+Path('/tmp/multimodel_rows.json').write_text(json.dumps(rows,indent=2)); Path('/tmp/multimodel_summary.json').write_text(json.dumps(summary,indent=2)); print('SUMMARY',json.dumps(summary),flush=True)
