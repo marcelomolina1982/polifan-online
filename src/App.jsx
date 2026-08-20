@@ -81,7 +81,7 @@ const mergeArrayById=(baseline,latest,next,key='')=>{
   const order=[...(latest||[]).map(x=>String(x?.id)),...(next||[]).map(x=>String(x?.id))]
   return{ok:true,value:[...new Set(order)].map(id=>merged.get(id)).filter(Boolean)}
 }
-const MERGE_BY_RECORD=new Set(['customerCatalog','catalogCollections','orders','clients','svgLibrary','cutBatches'])
+const MERGE_BY_RECORD=new Set(['customerCatalog','catalogCollections','orders','clients','svgLibrary','cutBatches','movements','quotes','incomes','expenses','generatedSheets','customerReviews','customerPhotos'])
 
 function CatalogAccess(){
   const base=`${window.location.origin}/?pedido=1`
