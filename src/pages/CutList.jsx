@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
+import { today } from '../lib/format'
 
 function dateLabel(value){
   if(!value) return 'Sin fecha de entrega'
@@ -12,11 +13,30 @@ function groupedPendingByDelivery(db){
   return pendingCutByDelivery(db)
 }
 
+const PACKED_TODAY_KEY='polifan-cutlist-packed-today'
+
 export default function CutList({db,goMotor}){
   const rows=pendingCutRows(db).sort((a,b)=>b.pending-a.pending)
   const groups=useMemo(()=>groupedPendingByDelivery(db),[db])
+  const todayKey=today()
+  const [packedToday,setPackedToday]=useState(()=>{
+    try{return localStorage.getItem(PACKED_TODAY_KEY)===todayKey}catch{return false}
+  })
+  const effectiveGroups=packedToday?groups.filter(g=>g.date!==todayKey):groups
   const [selectedDate,setSelectedDate]=useState('')
-  const visibleGroups=selectedDate ? groups.filter(g=>g.key===selectedDate) : groups
+  const visibleGroups=selectedDate ? effectiveGroups.filter(g=>g.key===selectedDate) : effectiveGroups
+
+  function markTodayPacked(){
+    if(!window.confirm('¿Confirmás que los pedidos de HOY ya están embalados?\n\nSólo se ocultarán de “Para cortar” hasta mañana. NO cambia pedidos, inventario ni historial.'))return
+    try{localStorage.setItem(PACKED_TODAY_KEY,todayKey)}catch{}
+    setPackedToday(true)
+    setSelectedDate('')
+  }
+
+  function undoTodayPacked(){
+    try{localStorage.removeItem(PACKED_TODAY_KEY)}catch{}
+    setPackedToday(false)
+  }
 
   function printDailyList(){
     if(!visibleGroups.length) return alert('No hay piezas pendientes para la fecha seleccionada.')
@@ -30,15 +50,21 @@ export default function CutList({db,goMotor}){
     win.document.close()
   }
 
+  const todayGroup=groups.find(g=>g.date===todayKey)
+  const todayQty=todayGroup?.rows?.reduce((a,r)=>a+r.qty,0)||0
+
   return <>
     <Title title="Pedidos para cortar" sub="Piezas pendientes agrupadas por fecha de entrega, descontando inventario y piezas que ya están en corte." actions={<div className="actions"><button className="primary" onClick={goMotor}>Generar placas</button><button className="ghost" onClick={printDailyList}>Imprimir lista</button></div>}/>
     <div className="notice"><b>Cálculo automático</b><span>El stock y las piezas en corte se aplican primero a las entregas más próximas. Las placas se generan únicamente desde “Generar placas” con el Motor Definitivo V1.7.</span></div>
+
+    {todayGroup&&!packedToday&&<div className="notice" style={{border:'2px solid #e89acb'}}><b>¿Los pedidos de hoy ya están embalados?</b><span>Ahora figuran {todayQty} piezas de hoy para cortar. Si ya están dentro de las cajas y tu recuento físico corresponde a lo que quedó afuera, ocultalas de esta lista sin tocar el inventario.</span><button type="button" className="primary smallbtn" onClick={markTodayPacked}>📦 Hoy ya está embalado · quitar de Para cortar</button></div>}
+    {packedToday&&<div className="notice"><b>📦 Pedidos de hoy ocultos de Para cortar</b><span>No se modificó el inventario ni los pedidos. Mañana esta exclusión deja de tener efecto.</span><button type="button" className="ghost smallbtn" onClick={undoTodayPacked}>Deshacer</button></div>}
 
     <div className="panel filters cut-date-filter">
       <label><b>Ver por fecha de entrega</b></label>
       <select value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}>
         <option value="">Todas las fechas pendientes</option>
-        {groups.map(g=><option key={g.key} value={g.key}>{dateLabel(g.date)}</option>)}
+        {effectiveGroups.map(g=><option key={g.key} value={g.key}>{dateLabel(g.date)}</option>)}
       </select>
       <button className="ghost" onClick={printDailyList}>Imprimir lista seleccionada</button>
     </div>
