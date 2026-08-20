@@ -49,30 +49,49 @@ const COLLECTIONS={
 const stamp=o=>String(o?.updatedAt||o?.finishedAt||o?.createdAt||o?.date||'')
 const rowId=(prefix,id)=>`${prefix}${id}`
 
-function canonicalValue(value){
-  if(Array.isArray(value))return value.map(canonicalValue)
-  if(!value||typeof value!=='object')return value
-  const out={}
-  for(const key of Object.keys(value).sort()){
-    if(['id','createdAt','updatedAt','savedAt','lastModifiedAt'].includes(key))continue
-    out[key]=canonicalValue(value[key])
-  }
-  return out
+const normText=value=>String(value??'').trim().toLocaleLowerCase('es').replace(/\s+/g,' ')
+const normDigits=value=>String(value??'').replace(/\D/g,'')
+const normMoney=value=>{const n=Number(value);return Number.isFinite(n)?Math.round(n*100)/100:null}
+function normalizedOrderItems(order){
+  const raw=[...(Array.isArray(order?.items)?order.items:[]),...(Array.isArray(order?.manualItems)?order.manualItems:[])]
+  return raw.map(item=>({
+    figure:normText(item?.figure||item?.name||item?.productName||item?.productId||''),
+    qty:Number(item?.qty||item?.quantity||1)||1,
+    unit:normMoney(item?.unitPrice??item?.price??item?.unit_price)
+  })).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))
 }
-function exactOrderSignature(order){
-  const number=String(order?.number||'').trim()
+function orderPieceCount(order,items){
+  const explicit=Number(order?.totalPieces??order?.pieces??order?.pieceCount??order?.qty)
+  if(Number.isFinite(explicit)&&explicit>0)return explicit
+  return items.reduce((sum,item)=>sum+(Number(item.qty)||0),0)
+}
+function orderDuplicateSignature(order){
+  const number=normText(order?.number)
   if(!number)return ''
-  try{return `${number}|${JSON.stringify(canonicalValue(order))}`}catch{return ''}
+  const items=normalizedOrderItems(order)
+  const fullName=normText(order?.client||order?.customerName||order?.name||[order?.firstName,order?.lastName].filter(Boolean).join(' '))
+  const total=normMoney(order?.total??order?.grandTotal??order?.finalTotal??order?.amount??order?.totalAmount)
+  const payload={
+    number,
+    date:normText(order?.date),
+    name:fullName,
+    phone:normDigits(order?.phone||order?.telephone||order?.whatsapp),
+    dni:normDigits(order?.dni||order?.document),
+    pieces:orderPieceCount(order,items),
+    total,
+    items
+  }
+  return JSON.stringify(payload)
 }
 function dedupeExactOrders(orders=[]){
   const kept=[],seen=new Map(),removed=[]
   for(const order of (orders||[])){
-    const sig=exactOrderSignature(order)
+    const sig=orderDuplicateSignature(order)
     if(!sig){kept.push(order);continue}
     const previous=seen.get(sig)
     if(!previous){seen.set(sig,{order,index:kept.length});kept.push(order);continue}
-    const prevTime=Date.parse(previous.order?.createdAt||'')||Number.MAX_SAFE_INTEGER
-    const nextTime=Date.parse(order?.createdAt||'')||Number.MAX_SAFE_INTEGER
+    const prevTime=Date.parse(previous.order?.createdAt||previous.order?.updatedAt||'')||Number.MAX_SAFE_INTEGER
+    const nextTime=Date.parse(order?.createdAt||order?.updatedAt||'')||Number.MAX_SAFE_INTEGER
     if(nextTime<prevTime){
       removed.push(previous.order)
       kept[previous.index]=order
@@ -218,7 +237,7 @@ async function mergeCriticalState(state){
   if(deduped.removed.length){
     merged={...merged,orders:deduped.orders}
     await persistCollectionDelta('orders',deduped.orders,beforeDedupe)
-    console.warn(`Se eliminaron ${deduped.removed.length} pedido(s) duplicado(s) exacto(s) y quedaron bloqueados para recuperación.`)
+    console.warn(`Se eliminaron ${deduped.removed.length} pedido(s) duplicado(s) comercialmente idéntico(s) y quedaron bloqueados para recuperación.`)
   }
 
   const recoveredBatches=(merged.cutBatches||[]).length-(state.cutBatches||[]).length
