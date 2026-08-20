@@ -19,10 +19,15 @@ jobs:
     timeout-minutes: 8
     strategy:
       fail-fast: false
-      max-parallel: 15
+      max-parallel: 8
       matrix:
-        model: ["Mate", "Manzana", "Escudo Boca Jr"]
-        count: [10, 11, 12, 13, 14]
+        include:
+          - { model: "Mate", count: 15 }
+          - { model: "Mate", count: 16 }
+          - { model: "Mate", count: 17 }
+          - { model: "Mate", count: 18 }
+          - { model: "Escudo Boca Jr", count: 12 }
+          - { model: "Manzana", count: 12 }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -37,8 +42,8 @@ jobs:
           import re
           p=Path('/tmp/sparrow/src/config.rs')
           s=p.read_text()
-          s=re.sub(r'n_focussed_samples:\s*25', 'n_focussed_samples: 45', s)
-          s=re.sub(r'n_coord_descents:\s*3', 'n_coord_descents: 6', s)
+          s=re.sub(r'n_focussed_samples:\s*25', 'n_focussed_samples: 55', s)
+          s=re.sub(r'n_coord_descents:\s*3', 'n_coord_descents: 8', s)
           s=re.sub(r'solution_pool_distribution_stddev:\s*0\.25', 'solution_pool_distribution_stddev: 0.35', s)
           s=re.sub(r'large_item_ch_area_cutoff_percentile:\s*0\.75', 'large_item_ch_area_cutoff_percentile: 0.55', s)
           p.write_text(s)
@@ -50,7 +55,7 @@ jobs:
         env:
           MODEL: ${{ matrix.model }}
           COUNT: ${{ matrix.count }}
-          SOLVER_TIMEOUT: 105
+          SOLVER_TIMEOUT: 120
         run: python3 solver-service/benchmarks/stage2_real_svg_benchmark.py
       - uses: actions/upload-artifact@v4
         if: always()
@@ -84,14 +89,7 @@ jobs:
           print('\n=== STAGE 2 REAL SVG RESULTS ===')
           for r in rows:
               print(f"{r['model']:16} n={r['count_complete']:2} valid={str(r['valid_fit']):5} util={r['plate_utilization_pct']:6.2f}% waste={r['plate_waste_pct']:6.2f}% width={r['strip_width_mm']} time={r['elapsed_s']}s err={r['error']}")
-          best={}
-          for r in rows:
-              if r['valid_fit']:
-                  cur=best.get(r['model'])
-                  if cur is None or (r['plate_utilization_pct'],r['count_complete'])>(cur['plate_utilization_pct'],cur['count_complete']): best[r['model']]=r
-          summary={'rows':rows,'best_by_model':best,'models_tested':sorted(set(r['model'] for r in rows)),'valid_tests':sum(1 for r in rows if r['valid_fit'])}
-          pathlib.Path('/tmp/stage2_summary.json').write_text(json.dumps(summary,indent=2))
-          print('SUMMARY',json.dumps(summary))
+          pathlib.Path('/tmp/stage2_summary.json').write_text(json.dumps({'rows':rows},indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
