@@ -16,6 +16,11 @@ from revolutionary.ensemble_v1 import revolutionary_solve
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 
+@app.get('/health')
+def lab_render_health():
+    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='revolutionary-lab')
+
+
 @app.get('/runtime-info')
 def runtime_info():
     view=app.view_functions.get('nest_sparrow')
