@@ -13,7 +13,7 @@ import json, threading, time
 from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v1 import revolutionary_solve
-from revolutionary.realcase_plate06 import run_plate06_mama
+from revolutionary.realcase_plate06_exact import run_plate06_mama
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
@@ -28,7 +28,7 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolucionario-lab-v2-realcase',
+        build='motor-revolucionario-lab-v2.3-exact-svg',
         runtime='sparrow+jagua ensemble lab',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
@@ -45,13 +45,14 @@ def runtime_info():
 def revolutionary_health():
     return jsonify(
         ok=True,
-        engine='TVT Revolutionary Ensemble V2.1',
+        engine='TVT Revolutionary Ensemble V2.3',
         mode='isolated-lab',
         minGapMm=3.0,
         completeCountFirst=True,
         ensemble=True,
         racingSelector=True,
         realHistoricalGate=True,
+        exactSvgSnapshot=True,
         productionUntouched=True,
     )
 
@@ -100,13 +101,13 @@ def revolutionary_selftest():
         except Exception as exc:
             rejected.append({'kitId':kit['kitId'],'reason':str(exc)})
     if len(prepared) < 10:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.3',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
     try:
         result=revolutionary_solve(prepared,total_seconds=75.0,max_workers=4)
         result['benchmark']='synthetic-deterministic-v2-smoke'; result['candidatePool']=len(prepared); result['prepared']=len(prepared); result['rejected']=rejected; result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',benchmark='synthetic-deterministic-v2-smoke',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.3',benchmark='synthetic-deterministic-v2-smoke',error=str(exc),productionUntouched=True),500
 
 
 @app.get('/revolutionary/realcase/plate06-mama')
@@ -116,7 +117,7 @@ def revolutionary_realcase_plate06_mama():
         result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',benchmark='plate06_mama_real_geometry',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.3',benchmark='plate06_mama_exact_svg_geometry_v3',error=str(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -140,7 +141,7 @@ def revolutionary_nest():
         result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=workers); result['candidatePool']=len(prepared); result['rejected']=rejected[:12]
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2.1'),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2.3'),500
 
 
 def _background_benchmarks():
@@ -156,6 +157,6 @@ def _background_benchmarks():
         real['productionUntouched']=True
         print('REV_REALCASE_RESULT '+json.dumps(real,separators=(',',':'),ensure_ascii=False),flush=True)
     except Exception as exc:
-        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_real_geometry','error':str(exc),'productionUntouched':True},separators=(',',':')),flush=True)
+        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_exact_svg_geometry_v3','error':str(exc),'productionUntouched':True},separators=(',',':')),flush=True)
 
 threading.Thread(target=_background_benchmarks,name='revolutionary-benchmarks',daemon=True).start()
