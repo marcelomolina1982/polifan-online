@@ -9,6 +9,7 @@ import hybrid_strategy_runtime
 import final_runtime_v20
 
 import async_jobs
+import json, threading, time
 from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v1 import revolutionary_solve
@@ -147,3 +148,17 @@ def revolutionary_nest():
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
         return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2'),500
+
+
+def _background_revolutionary_selftest():
+    """Runs once after boot and writes the benchmark JSON to Render logs."""
+    try:
+        time.sleep(6)
+        with app.test_client() as client:
+            response=client.get('/revolutionary/selftest')
+            payload=response.get_json(silent=True) or {'ok':False,'error':'no json','statusCode':response.status_code}
+            print('REV_BENCH_RESULT '+json.dumps(payload,separators=(',',':'),ensure_ascii=False),flush=True)
+    except Exception as exc:
+        print('REV_BENCH_RESULT '+json.dumps({'ok':False,'error':str(exc),'background':True},separators=(',',':')),flush=True)
+
+threading.Thread(target=_background_revolutionary_selftest,name='revolutionary-selftest',daemon=True).start()
