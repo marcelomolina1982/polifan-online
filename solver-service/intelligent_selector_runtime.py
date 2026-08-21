@@ -3,21 +3,23 @@ import time
 from itertools import combinations
 import nest_sparrow as ns
 
-# Sparrow Smart V1.12 AREA FIRST
-# Regla productiva real: garantizar 10 figuras completas y, desde ahí, maximizar
-# porcentaje de placa utilizado. La cantidad 11/12/13... sólo desempata cuando
-# dos soluciones tienen una ocupación prácticamente equivalente.
+# Sparrow Smart V1.14 GLOBAL REPACK
+# Regla productiva: garantizar 10 figuras completas y conservar esa placa como respaldo.
+# Desde allí, intentar 11, 12, 13... reorganizando globalmente. La cantidad de figuras
+# completas es el criterio principal; la ocupación y el ancho usado desempatan.
 MAX_POOL=72
 FAST_BASE_SECONDS=58
 TOTAL_SECONDS=245
 BASE_CANDIDATES=18
-GROWTH_CANDIDATES=12
+GROWTH_CANDIDATES=14
+TARGET11_CANDIDATES=24
 TARGET12_CANDIDATES=20
 PRODUCTIVE_TARGET_PERCENT=70.0
 MAX_GROWTH_TARGET=16
 LAB_GAP_MM=2.5
 PER_LEVEL_SECONDS=18.0
-TARGET12_SECONDS=48.0
+TARGET11_SECONDS=42.0
+TARGET12_SECONDS=36.0
 RECOMPACT_SECONDS=62.0
 V112_SEEDS=(429,1701,7919,31337,7001,17011,27183,48017,65537)
 _memory={}
@@ -31,17 +33,16 @@ def _compact_score(k):
     return env + .35*(env-area) + 15000.0*(1.0-solidity) + learned*5000.0 + positive
 
 def _area_score(k):
-    # Preferimos área real grande, pero penalizamos envolventes muy ineficientes.
     area=max(1.0,float(k.get('area') or 1.0)); env=max(area,float(k.get('envelope') or area)); solidity=max(.01,float(k.get('solidity') or .01))
     return -(area * (0.72 + 0.28*solidity)) + 0.08*(env-area)
 
 def _solution_score(selected,result):
-    # PRINCIPAL: % material real de placa. SECUNDARIO: cantidad completa.
-    # TERCIARIO: menor ancho de strip, para dejar una solución más compacta.
-    density=float((result or {}).get('density') or 0.0)
+    # V1.14: PRINCIPAL cantidad completa. SECUNDARIO ocupación real.
+    # TERCIARIO menor ancho utilizado.
     count=len(selected)
+    density=float((result or {}).get('density') or 0.0)
     width=float((result or {}).get('stripWidthMm') or 1e18)
-    return (round(density,3),count,-width)
+    return (count,round(density,3),-width)
 
 def _better(selected,result,best_selected,best_result):
     if best_result is None:return True
@@ -63,7 +64,6 @@ def _priority_safe_candidates(kits,target,max_candidates):
     area_first=sorted(frontier,key=lambda k:(_area_score(k),str(k.get('kitId') or '')))
     add(mandatory+area_first[:slots],f'area-first-{target}')
     add(mandatory+compact[:slots],f'compact-{target}')
-    # Mezclas entre piezas grandes y compactas.
     if slots>=2:
         half=slots//2
         mix=area_first[:half]+[k for k in compact if k not in area_first[:half]][:slots-half]
@@ -80,7 +80,6 @@ def _priority_safe_candidates(kits,target,max_candidates):
     return out[:max_candidates]
 
 def _same_count_swaps(kits,best_selected,target,max_candidates=16):
-    # Reemplaza figuras dentro del MISMO número de completas buscando más área útil.
     if len(best_selected)!=target:return []
     chosen={str(k.get('kitId')) for k in best_selected}
     extras=[k for k in kits if str(k.get('kitId')) not in chosen]
@@ -115,8 +114,6 @@ def _recompact_candidates(kits,best_selected,target,max_candidates=14):
     add(list(best_selected)+extras[:need],f'core-plus-area-{target}')
     for off in range(1,min(10,max(1,len(extras)-need+1))):add(list(best_selected)+extras[off:off+need],f'core-window-{target}-{off}')
     if need==1 and len(best_selected)>=10 and len(extras)>=2:
-        # Sacar una figura de poca área/peor encastre y meter dos candidatas puede subir
-        # simultáneamente la cantidad y la ocupación real.
         removable=sorted(best_selected,key=lambda k:(float(k.get('area') or 0),-_compact_score(k)))
         for ridx,old in enumerate(removable[:6]):
             core=[k for k in best_selected if str(k.get('kitId'))!=str(old.get('kitId'))]
@@ -155,8 +152,7 @@ def intelligent_nest():
 
     attempts=[];best_selected=None;best_result=None;best_cert={}
 
-    # BASE 10: ya no aceptamos la primera válida. Comparamos varias y conservamos
-    # la que realmente usa más material de la placa.
+    # BASE 10 protegida: siempre queda disponible como fallback de producción.
     base_started=time.time()
     for idx,(label,g) in enumerate(_priority_safe_candidates(kits,10,BASE_CANDIDATES)):
         remaining=FAST_BASE_SECONDS-(time.time()-base_started)
@@ -164,47 +160,59 @@ def intelligent_nest():
         r,valid,cert=_attempt(g,gap,min(6.0,max(2.5,remaining-.5)),V112_SEEDS[idx%len(V112_SEEDS)],attempts,'base-10-'+label)
         if valid and _better(g,r,best_selected,best_result):best_selected,best_result,best_cert=g,r,cert
         if not valid:_learn_failed(g,r)
-    if best_result is None:return jsonify(ok=False,error='V1.12 no encontró base 10 certificada; conservar fallback estable.',engine='Smart V1.12 Area First',selectorVersion='smart-v112-area-first',attempts=attempts),422
+    if best_result is None:return jsonify(ok=False,error='V1.14 no encontró base 10 certificada; conservar fallback estable.',engine='Smart V1.14 Global Repack',selectorVersion='smart-v114-global-repack',attempts=attempts),422
 
-    # Optimización al MISMO conteo: puede ser mejor 10 grandes al 69% que 11 chicas al 61%.
+    # Refinar las 10 sin perder el respaldo.
     for idx,(label,candidate) in enumerate(_same_count_swaps(kits,best_selected,10,12)):
         if TOTAL_SECONDS-(time.time()-started)<4:break
-        r,valid,cert=_attempt(candidate,gap,4.0,V112_SEEDS[(idx+3)%len(V112_SEEDS)]+10003,attempts,'area-refine-10-'+label)
+        r,valid,cert=_attempt(candidate,gap,4.0,V112_SEEDS[(idx+3)%len(V112_SEEDS)]+10003,attempts,'repack-refine-10-'+label)
         if valid and _better(candidate,r,best_selected,best_result):best_selected,best_result,best_cert=candidate,r,cert
 
-    # Crecimiento 11..16. Cada solución sólo reemplaza a la actual si mejora la OCUPACIÓN.
+    # GLOBAL REPACK 11..16: no se detiene por haber llegado al 70%.
+    # Cada nivel reorganiza TODAS las piezas de ese conjunto. Si falla, la mejor
+    # solución anterior sigue intacta.
     for target in range(11,min(MAX_GROWTH_TARGET,len(kits))+1):
-        if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
         if TOTAL_SECONDS-(time.time()-started)<4:break
-        level_started=time.time();level_seconds=TARGET12_SECONDS if target==12 else PER_LEVEL_SECONDS
-        max_candidates=TARGET12_CANDIDATES if target==12 else GROWTH_CANDIDATES
+        level_started=time.time()
+        if target==11:
+            level_seconds=TARGET11_SECONDS;max_candidates=TARGET11_CANDIDATES;per_try=6.0
+        elif target==12:
+            level_seconds=TARGET12_SECONDS;max_candidates=TARGET12_CANDIDATES;per_try=5.5
+        else:
+            level_seconds=PER_LEVEL_SECONDS;max_candidates=GROWTH_CANDIDATES;per_try=4.0
+        found_this_level=False
         for idx,(label,candidate) in enumerate(_priority_safe_candidates(kits,target,max_candidates)):
             remaining_level=level_seconds-(time.time()-level_started)
             if remaining_level<3:break
-            budget=min(5.5 if target==12 else 4.0,max(2.4,remaining_level-.5))
+            budget=min(per_try,max(2.5,remaining_level-.5))
             seed=V112_SEEDS[(idx+target)%len(V112_SEEDS)]+target*977
-            r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'area-grow-{target}-{label}')
-            if valid and _better(candidate,r,best_selected,best_result):best_selected,best_result,best_cert=candidate,r,cert
-            elif not valid:_learn_failed(candidate,r)
+            r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'global-repack-{target}-{label}')
+            if valid:
+                found_this_level=True
+                if _better(candidate,r,best_selected,best_result):best_selected,best_result,best_cert=candidate,r,cert
+            else:_learn_failed(candidate,r)
+        # Si este conteo no encontró ninguna placa válida, no tiene sentido saltar
+        # directamente a uno mayor: conservamos la mejor encontrada y pasamos a
+        # recompactación local.
+        if not found_this_level:break
 
-    # Recompactación: prueba cambios de composición, incluso manteniendo el mismo número,
-    # hasta encontrar la mayor densidad certificada posible dentro del presupuesto.
+    # Recompactación final alrededor de la MEJOR cantidad alcanzada.
     rc_started=time.time();recompact=[]
-    for target in range(max(10,len(best_selected)),min(MAX_GROWTH_TARGET,len(kits))+1):
-        if float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT:break
+    start_target=max(10,len(best_selected))
+    for target in range(start_target,min(MAX_GROWTH_TARGET,len(kits))+1):
         if time.time()-rc_started>=RECOMPACT_SECONDS or TOTAL_SECONDS-(time.time()-started)<4:break
         recompact.append(target)
-        limit=18 if target in (10,11,12) else 10
+        limit=20 if target in (10,11,12) else 10
         for idx,(label,candidate) in enumerate(_recompact_candidates(kits,best_selected,target,limit)):
             remaining=min(RECOMPACT_SECONDS-(time.time()-rc_started),TOTAL_SECONDS-(time.time()-started))
             if remaining<3:break
-            budget=min(5.5,max(2.5,remaining-.5))
+            budget=min(6.0,max(2.5,remaining-.5))
             seed=V112_SEEDS[(idx+target)%len(V112_SEEDS)]+target*1931
-            r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'area-recompact-{target}-{label}')
+            r,valid,cert=_attempt(candidate,gap,budget,seed,attempts,f'global-recompact-{target}-{label}')
             if valid and _better(candidate,r,best_selected,best_result):best_selected,best_result,best_cert=candidate,r,cert
 
-    response=ns._result_payload(best_selected,f'Smart V1.12 Area First: {len(best_selected)} completas · {float(best_result.get("density") or 0):.1f}% placa',best_result,kits,rejected,attempts,started,None)
-    payload=response.get_json();payload.update({'engine':'Sparrow V1.12 Area First · mínimo 10 · maximiza ocupación certificada · cantidad secundaria','selectorVersion':'smart-v112-area-first','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'optimizationPriority':'plate-area-first','countIsSecondary':True,'continuousRotation':True,'recompactLevelsTried':recompact,'labGapMm':LAB_GAP_MM,'unusedRightMm':max(0.0,1220.0-float(best_result.get('stripWidthMm') or 1220.0))})
+    response=ns._result_payload(best_selected,f'Smart V1.14 Global Repack: {len(best_selected)} completas · {float(best_result.get("density") or 0):.1f}% placa',best_result,kits,rejected,attempts,started,None)
+    payload=response.get_json();payload.update({'engine':'Sparrow V1.14 Global Repack · base 10 protegida · maximiza completas · ocupación secundaria','selectorVersion':'smart-v114-global-repack','smartSelection':True,'candidatePool':len(kits),'minimumGapMm':best_cert.get('minimumGapMmCertified'),'requiredGapMm':float(getattr(ns,'MIN_PRODUCTION_GAP_MM',LAB_GAP_MM)),'protectedBase10':True,'completeFigures':len(best_selected),'productiveTargetPercent':PRODUCTIVE_TARGET_PERCENT,'productiveTargetReached':float(best_result.get('density') or 0)>=PRODUCTIVE_TARGET_PERCENT,'optimizationPriority':'complete-count-first','countIsSecondary':False,'continuousRotation':True,'globalRepack':True,'recompactLevelsTried':recompact,'labGapMm':LAB_GAP_MM,'unusedRightMm':max(0.0,1220.0-float(best_result.get('stripWidthMm') or 1220.0))})
     return jsonify(payload)
 
 ns.nest_sparrow=intelligent_nest
