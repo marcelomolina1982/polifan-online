@@ -8,10 +8,11 @@ from flask import jsonify
 from shapely.affinity import rotate, translate
 from shapely.geometry import box
 
-# V1.8 productiva: 2.5 mm es el mínimo físico aceptable entre piezas.
-MIN_PRODUCTION_GAP_MM = 2.5
+# Producción: 3.0 mm es el mínimo físico real exigido entre piezas.
+# Debe coincidir con lo que muestra la interfaz y con el criterio de corte.
+MIN_PRODUCTION_GAP_MM = 3.0
 # Pedimos un pequeño colchón al solver para que la reconstrucción geométrica
-# no convierta una solución nominal de 2.5 mm en 2.49 mm.
+# no convierta una solución nominal de 3.0 mm en 2.99 mm.
 SOLVER_GAP_SAFETY_MM = 0.20
 EDGE_MARGIN_MM = 3.0
 
@@ -59,7 +60,7 @@ def _validate_final_geometry(selected, result):
             d=float(a.distance(b))
             if min_gap is None or d<min_gap:min_gap=d;min_pair=[ida,idb]
             if d<MIN_PRODUCTION_GAP_MM:
-                return False,{'reason':'gap geométrico menor a 2.5 mm','pair':[ida,idb],'gapMm':round(d,9),'requiredGapMm':MIN_PRODUCTION_GAP_MM}
+                return False,{'reason':'gap geométrico menor a 3.0 mm','pair':[ida,idb],'gapMm':round(d,9),'requiredGapMm':MIN_PRODUCTION_GAP_MM}
     return True,{'minimumGapMmCertified':round(min_gap,9) if min_gap is not None else None,'minimumGapPair':min_pair,'requiredGapMm':MIN_PRODUCTION_GAP_MM,'solverRequestedGapMm':MIN_PRODUCTION_GAP_MM+SOLVER_GAP_SAFETY_MM,'edgeMarginMmCertified':EDGE_MARGIN_MM,'collisionCount':0,'outsidePlateCount':0}
 
 
