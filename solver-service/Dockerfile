@@ -12,7 +12,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SPARROW_BIN=/usr/local/bin/sparrow
-ENV MOTOR_RUNTIME_BUILD=v25.0.20-final-growth
+ENV MOTOR_RUNTIME_BUILD=tvt-revolutionary-lab-v1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
 COPY *.py .
+COPY revolutionary ./revolutionary
 
 EXPOSE 10000
 CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "300", "cors_app:app"]
