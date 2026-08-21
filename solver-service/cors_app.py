@@ -26,11 +26,12 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolutionario-lab',
+        build='motor-revolucionario-lab-v2',
         runtime='sparrow+jagua ensemble lab',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
         revolutionaryEndpoint='/revolutionary/nest',
+        selftestEndpoint='/revolutionary/selftest',
         targetDensity=70,
         minGapMm=3.0,
         edgeMarginMm=3.0,
@@ -41,13 +42,77 @@ def runtime_info():
 def revolutionary_health():
     return jsonify(
         ok=True,
-        engine='TVT Revolutionary Ensemble V1',
+        engine='TVT Revolutionary Ensemble V2',
         mode='isolated-lab',
         minGapMm=3.0,
         completeCountFirst=True,
         ensemble=True,
+        racingSelector=True,
         productionUntouched=True,
     )
+
+
+def _selftest_part(kit_id, idx, width_mm, height_mm, kind='rect'):
+    if kind == 'l':
+        d=f'M 0 0 H {width_mm} V {height_mm*0.38:.3f} H {width_mm*0.46:.3f} V {height_mm} H 0 Z'
+    elif kind == 'trap':
+        d=f'M {width_mm*0.12:.3f} 0 H {width_mm*0.88:.3f} L {width_mm} {height_mm} H 0 Z'
+    else:
+        d=f'M 0 0 H {width_mm} V {height_mm} H 0 Z'
+    svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width_mm}mm" height="{height_mm}mm" viewBox="0 0 {width_mm} {height_mm}"><path d="{d}" fill="none" stroke="#000"/></svg>'
+    return {
+        'instanceId':f'{kit_id}-p{idx}',
+        'name':f'pieza {idx+1}',
+        'role':'base' if idx == 0 else 'tapa',
+        'sourceWidthCm':width_mm/10.0,
+        'sourceHeightCm':height_mm/10.0,
+        'svgText':svg,
+    }
+
+
+@app.get('/revolutionary/selftest')
+def revolutionary_selftest():
+    """Deterministic plumbing/strategy benchmark. Lab only; never production."""
+    dims=[
+        (118,88,'rect'),(126,82,'l'),(108,96,'trap'),(132,76,'rect'),
+        (114,92,'l'),(124,84,'trap'),(106,98,'rect'),(136,74,'l'),
+        (112,90,'trap'),(128,80,'rect'),(104,100,'l'),(134,72,'trap'),
+        (116,86,'rect'),(122,88,'l'),(110,94,'trap'),(130,78,'rect'),
+        (108,90,'l'),(120,82,'trap'),
+    ]
+    raw=[]
+    for i,(w,h,kind) in enumerate(dims,1):
+        kid=f'selftest-{i:02d}'
+        raw.append({
+            'kitId':kid,
+            'figure':f'Selftest {i:02d}',
+            'priority':1,
+            'date':'2026-08-21',
+            'parts':[
+                _selftest_part(kid,0,w,h,kind),
+                _selftest_part(kid,1,max(76,w-16),max(58,h-14),'rect' if kind != 'rect' else 'trap'),
+            ],
+        })
+    prepared=[]; rejected=[]
+    for kit in raw:
+        try:
+            p=ns._prep_kit(kit,1220.0,580.0)
+            p['date']=kit['date']
+            prepared.append(p)
+        except Exception as exc:
+            rejected.append({'kitId':kit['kitId'],'reason':str(exc)})
+    if len(prepared) < 10:
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
+    try:
+        result=revolutionary_solve(prepared,total_seconds=75.0,max_workers=4)
+        result['benchmark']='synthetic-deterministic-v2-smoke'
+        result['candidatePool']=len(prepared)
+        result['prepared']=len(prepared)
+        result['rejected']=rejected
+        result['productionUntouched']=True
+        return jsonify(result),(200 if result.get('ok') else 422)
+    except Exception as exc:
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2',benchmark='synthetic-deterministic-v2-smoke',error=str(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -81,4 +146,4 @@ def revolutionary_nest():
         result['rejected']=rejected[:12]
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V1'),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2'),500
