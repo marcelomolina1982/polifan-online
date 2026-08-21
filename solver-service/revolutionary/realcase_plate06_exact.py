@@ -14,6 +14,7 @@ from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
 from revolutionary.ensemble_v1 import revolutionary_solve
+from revolutionary.independent_certifier import certify_layout
 
 CASE_PATH = Path(__file__).resolve().parent / 'cases' / 'plate06_mama_case.gz.b64'
 SPARROW_BIN = os.environ.get('SPARROW_BIN','/usr/local/bin/sparrow')
@@ -154,18 +155,31 @@ def _warm_start(kits, seconds=40):
             return {'ok':False,'error':f'warm start exit {proc.returncode}','elapsedSeconds':round(time.time()-started,2),'logTail':(proc.stdout or '')[-2500:]}
         with open(outpath,'r',encoding='utf-8') as f: out=json.load(f)
     sol=out.get('solution') or {}; layout=sol.get('layout') or {}; rows=layout.get('placed_items') or []
-    return {'ok':len(rows)==22 and float(sol.get('strip_width') or 1e18)<=1220.5,'completeFigures':11 if len(rows)==22 else len(rows)//2,'stripWidthMm':float(sol.get('strip_width') or 0.0),'density':float(sol.get('density') or 0.0)*100.0,'elapsedSeconds':round(time.time()-started,2),'placedItems':len(rows),'logTail':(proc.stdout or '')[-1200:]}
+    certificate=certify_layout(kits,rows,required_gap_mm=3.0)
+    all_placed=len(rows)==22
+    fits=float(sol.get('strip_width') or 1e18)<=1220.5
+    certified=bool(certificate.get('ok'))
+    return {
+        'ok':bool(all_placed and fits and certified),
+        'completeFigures':11 if all_placed else len(rows)//2,
+        'stripWidthMm':float(sol.get('strip_width') or 0.0),
+        'density':float(sol.get('density') or 0.0)*100.0,
+        'elapsedSeconds':round(time.time()-started,2),
+        'placedItems':len(rows),
+        'independentCertificate':certificate,
+        'sparrowFeasible':bool(all_placed and fits),
+        'logTail':(proc.stdout or '')[-1200:]
+    }
 
 
 def run_plate06_mama(seconds=105.0):
     kits,payload=_prepared_kits()
     snapshot=_snapshot_check(kits,3.0)
-    # Warm start is intentionally repaired at 3.2 mm: the manual plate itself
-    # is useful proof of 11 non-overlapping figures but is not assumed to be a
-    # certified 3 mm solution.
+    # Warm start is repaired at 3.2 mm by Sparrow, then independently certified
+    # with Shapely at a hard 3.0 mm minimum before it can pass the historical gate.
     warm=_warm_start(kits,seconds=min(45,max(18,int(seconds*0.38))))
     result=revolutionary_solve(kits,total_seconds=seconds,max_workers=4)
-    result['benchmark']='plate06_mama_exact_svg_geometry_v3'
+    result['benchmark']='plate06_mama_exact_svg_geometry_v4_certified'
     result['historicalEngineComplete']=10
     result['manualKnownComplete']=11
     result['snapshotCheck']=snapshot
@@ -173,8 +187,9 @@ def run_plate06_mama(seconds=105.0):
     result['sourceOriginal']='Pedido-2026-08-21-Placa-06(1).svg'
     result['sourceEdited']='Pedido-2026-08-21-Placa-06prueba(1).svg'
     fresh_ok=bool(result.get('ok') and int(result.get('completeFigures') or 0)>=11 and float(result.get('minimumGapMm') or 0.0)>=3.0 and int((result.get('productionCertificate') or {}).get('collisionCount') or 0)==0 and int((result.get('productionCertificate') or {}).get('outsidePlateCount') or 0)==0)
-    warm_ok=bool(warm.get('ok') and int(warm.get('completeFigures') or 0)>=11)
+    warm_cert=warm.get('independentCertificate') or {}
+    warm_ok=bool(warm.get('ok') and int(warm.get('completeFigures') or 0)>=11 and warm_cert.get('ok') and float(warm_cert.get('minimumGapMmCertified') or 0.0)>=3.0 and int(warm_cert.get('collisionCount') or 0)==0 and int(warm_cert.get('outsidePlateCount') or 0)==0)
     result['passedHistoricalGate']=bool(fresh_ok or warm_ok)
-    result['gatePath']='fresh-ensemble' if fresh_ok else ('warm-start-repaired' if warm_ok else 'failed')
+    result['gatePath']='fresh-ensemble' if fresh_ok else ('warm-start-independent-certified' if warm_ok else 'failed')
     result['productionUntouched']=True
     return result
