@@ -1,6 +1,7 @@
 // Case 9 guard for the active Sparrow production screen (MotorDefinitivo).
 // A kit is complete only when every original physical part is present exactly once.
 // If Sparrow returns an incomplete kit, request a new layout without that kit instead of stopping production.
+// Also retry transient mobile/network fetch failures before surfacing an error.
 export default function case9MotorGuardPlugin(){
   return {
     name:'case9-motor-complete-kit-guard',
@@ -15,6 +16,14 @@ export default function case9MotorGuardPlugin(){
 
       if(!code.includes(finishFrom))throw new Error('[Case9MotorGuard] No se encontró el conteo vulnerable de finishResult.')
       let out=code.replace(finishFrom,finishTo)
+
+      const helperAnchor=`  async function startJob(payload,multiplier){`
+      const helper=`  async function resilientFetch(url,options={},attempts=4){\n    let lastError=null\n    for(let attempt=1;attempt<=attempts;attempt++){\n      try{return await fetch(url,options)}catch(error){\n        lastError=error\n        if(attempt<attempts){\n          setProgress('Conexión inestable · reintentando '+attempt+'/'+attempts+'…')\n          await sleep(900*attempt)\n        }\n      }\n    }\n    const err=new Error('No se pudo conectar con Sparrow después de '+attempts+' intentos. Revisá la conexión y tocá Generar una placa nuevamente.')\n    err.cause=lastError\n    throw err\n  }\n  async function startJob(payload,multiplier){`
+      if(!out.includes(helperAnchor))throw new Error('[Case9MotorGuard] No se encontró startJob para instalar reintentos de red.')
+      out=out.replace(helperAnchor,helper)
+      out=out.replace(`const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})`,`const response=await resilientFetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)},4)`)
+      out=out.replace(`const response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})`,`const response=await resilientFetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'},5)`)
+      out=out.replace(`const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})`,`const response=await resilientFetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})},4)`)
 
       const generateFrom=`    try{\n      const data=await runPayload(payload,multiplier)\n      await finishResult(data,multiplier,industrial)\n    }catch(error){\n      clearActiveJob()\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])\n    }finally{setBusy(false);setProgress('')}`
 
