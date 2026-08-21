@@ -13,6 +13,7 @@ import json, threading, time
 from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v1 import revolutionary_solve
+from revolutionary.realcase_plate06 import run_plate06_mama
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
@@ -27,12 +28,13 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolucionario-lab-v2',
+        build='motor-revolucionario-lab-v2-realcase',
         runtime='sparrow+jagua ensemble lab',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
         revolutionaryEndpoint='/revolutionary/nest',
         selftestEndpoint='/revolutionary/selftest',
+        realCaseEndpoint='/revolutionary/realcase/plate06-mama',
         targetDensity=70,
         minGapMm=3.0,
         edgeMarginMm=3.0,
@@ -43,12 +45,13 @@ def runtime_info():
 def revolutionary_health():
     return jsonify(
         ok=True,
-        engine='TVT Revolutionary Ensemble V2',
+        engine='TVT Revolutionary Ensemble V2.1',
         mode='isolated-lab',
         minGapMm=3.0,
         completeCountFirst=True,
         ensemble=True,
         racingSelector=True,
+        realHistoricalGate=True,
         productionUntouched=True,
     )
 
@@ -73,7 +76,6 @@ def _selftest_part(kit_id, idx, width_mm, height_mm, kind='rect'):
 
 @app.get('/revolutionary/selftest')
 def revolutionary_selftest():
-    """Deterministic plumbing/strategy benchmark. Lab only; never production."""
     dims=[
         (118,88,'rect'),(126,82,'l'),(108,96,'trap'),(132,76,'rect'),
         (114,92,'l'),(124,84,'trap'),(106,98,'rect'),(136,74,'l'),
@@ -85,10 +87,7 @@ def revolutionary_selftest():
     for i,(w,h,kind) in enumerate(dims,1):
         kid=f'selftest-{i:02d}'
         raw.append({
-            'kitId':kid,
-            'figure':f'Selftest {i:02d}',
-            'priority':1,
-            'date':'2026-08-21',
+            'kitId':kid,'figure':f'Selftest {i:02d}','priority':1,'date':'2026-08-21',
             'parts':[
                 _selftest_part(kid,0,w,h,kind),
                 _selftest_part(kid,1,max(76,w-16),max(58,h-14),'rect' if kind != 'rect' else 'trap'),
@@ -97,23 +96,27 @@ def revolutionary_selftest():
     prepared=[]; rejected=[]
     for kit in raw:
         try:
-            p=ns._prep_kit(kit,1220.0,580.0)
-            p['date']=kit['date']
-            prepared.append(p)
+            p=ns._prep_kit(kit,1220.0,580.0); p['date']=kit['date']; prepared.append(p)
         except Exception as exc:
             rejected.append({'kitId':kit['kitId'],'reason':str(exc)})
     if len(prepared) < 10:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
     try:
         result=revolutionary_solve(prepared,total_seconds=75.0,max_workers=4)
-        result['benchmark']='synthetic-deterministic-v2-smoke'
-        result['candidatePool']=len(prepared)
-        result['prepared']=len(prepared)
-        result['rejected']=rejected
+        result['benchmark']='synthetic-deterministic-v2-smoke'; result['candidatePool']=len(prepared); result['prepared']=len(prepared); result['rejected']=rejected; result['productionUntouched']=True
+        return jsonify(result),(200 if result.get('ok') else 422)
+    except Exception as exc:
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',benchmark='synthetic-deterministic-v2-smoke',error=str(exc),productionUntouched=True),500
+
+
+@app.get('/revolutionary/realcase/plate06-mama')
+def revolutionary_realcase_plate06_mama():
+    try:
+        result=run_plate06_mama(seconds=105.0)
         result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2',benchmark='synthetic-deterministic-v2-smoke',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V2.1',benchmark='plate06_mama_real_geometry',error=str(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -123,42 +126,36 @@ def revolutionary_nest():
     height=max(1.0,ns._n(data.get('heightCm'),58)*10)
     if abs(width-1220.0)>1 or abs(height-580.0)>1:
         return jsonify(ok=False,error='El laboratorio está fijado a placa 1220x580 mm'),400
-
-    raw=sorted(
-        data.get('kits') or [],
-        key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')),
-    )[:96]
+    raw=sorted(data.get('kits') or [],key=lambda k:(ns._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:96]
     prepared=[];rejected=[]
     for kit in raw:
         try:
-            p=ns._prep_kit(kit,width,height)
-            p['date']=str(kit.get('date') or '')
-            prepared.append(p)
+            p=ns._prep_kit(kit,width,height); p['date']=str(kit.get('date') or ''); prepared.append(p)
         except Exception as exc:
             rejected.append({'kitId':str(kit.get('kitId') or ''),'figure':str(kit.get('figure') or ''),'reason':str(exc)})
     if len(prepared)<10:
         return jsonify(ok=False,error=f'Sólo hay {len(prepared)} kits utilizables',rejected=rejected[:12]),422
-
     try:
-        total_seconds=max(30.0,min(240.0,float(data.get('seconds') or 150.0)))
-        workers=max(1,min(4,int(data.get('workers') or 4)))
-        result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=workers)
-        result['candidatePool']=len(prepared)
-        result['rejected']=rejected[:12]
+        total_seconds=max(30.0,min(240.0,float(data.get('seconds') or 150.0))); workers=max(1,min(4,int(data.get('workers') or 4)))
+        result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=workers); result['candidatePool']=len(prepared); result['rejected']=rejected[:12]
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2'),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2.1'),500
 
 
-def _background_revolutionary_selftest():
-    """Runs once after boot and writes the benchmark JSON to Render logs."""
+def _background_benchmarks():
     try:
         time.sleep(6)
-        with app.test_client() as client:
-            response=client.get('/revolutionary/selftest')
-            payload=response.get_json(silent=True) or {'ok':False,'error':'no json','statusCode':response.status_code}
-            print('REV_BENCH_RESULT '+json.dumps(payload,separators=(',',':'),ensure_ascii=False),flush=True)
+        synthetic=revolutionary_selftest().get_json() if hasattr(revolutionary_selftest(),'get_json') else None
+    except Exception:
+        synthetic=None
+    if synthetic is not None:
+        print('REV_BENCH_RESULT '+json.dumps(synthetic,separators=(',',':'),ensure_ascii=False),flush=True)
+    try:
+        real=run_plate06_mama(seconds=105.0)
+        real['productionUntouched']=True
+        print('REV_REALCASE_RESULT '+json.dumps(real,separators=(',',':'),ensure_ascii=False),flush=True)
     except Exception as exc:
-        print('REV_BENCH_RESULT '+json.dumps({'ok':False,'error':str(exc),'background':True},separators=(',',':')),flush=True)
+        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_real_geometry','error':str(exc),'productionUntouched':True},separators=(',',':')),flush=True)
 
-threading.Thread(target=_background_revolutionary_selftest,name='revolutionary-selftest',daemon=True).start()
+threading.Thread(target=_background_benchmarks,name='revolutionary-benchmarks',daemon=True).start()
