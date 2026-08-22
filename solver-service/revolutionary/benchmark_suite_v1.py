@@ -8,7 +8,7 @@ from pathlib import Path
 from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
-from revolutionary.ensemble_v4 import revolutionary_solve
+from revolutionary.ensemble_v5 import revolutionary_solve_v5
 
 CASES_DIR = Path(__file__).resolve().parent / 'cases'
 
@@ -18,27 +18,26 @@ CASE_SPECS = {
         'kind': 'real+manual-known',
         'historicalComplete': 10,
         'manualKnownComplete': 11,
-        'seconds': 90.0,
+        'seconds': 105.0,
     },
     'plate10-rightstrip': {
         'file': 'plate10_rightstrip_real_case.gz.b64',
         'kind': 'real+derived-extra-pool',
         'historicalComplete': 10,
         'historicalFreeRightMmApprox': 212.0,
-        'seconds': 90.0,
+        'seconds': 105.0,
         'deriveExtras': 4,
     },
     'homogeneous-real-stress': {
         'file': 'homogeneous_real_stress_case.gz.b64',
         'kind': 'stress-derived-from-real-geometry',
-        'seconds': 100.0,
+        'seconds': 105.0,
     },
 }
 
 
 def _load_payload(filename):
     text = (CASES_DIR / filename).read_text(encoding='utf-8').strip()
-    # Be tolerant of transport/storage removing optional Base64 '=' padding.
     text += '=' * (-len(text) % 4)
     raw = base64.b64decode(text)
     return json.loads(gzip.decompress(raw).decode('utf-8'))
@@ -124,7 +123,7 @@ def run_case(case_id, seconds=None):
     if spec.get('deriveExtras'):
         kits = _derive_extra_pool(kits, spec['deriveExtras'])
     started = time.time()
-    result = revolutionary_solve(kits, total_seconds=float(seconds or spec['seconds']), max_workers=4)
+    result = revolutionary_solve_v5(kits, total_seconds=float(seconds or spec['seconds']), max_workers=4)
     result['benchmarkCase'] = case_id
     result['benchmarkKind'] = spec['kind']
     result['source'] = payload.get('source')
@@ -141,7 +140,8 @@ def run_case(case_id, seconds=None):
     elif case_id == 'plate10-rightstrip':
         result['passedCaseGate'] = bool(result.get('ok') and int(result.get('completeFigures') or 0) >= 10 and float(result.get('minimumGapMm') or 0) >= 3.0)
     else:
-        result['passedCaseGate'] = bool(result.get('ok') and float(result.get('minimumGapMm') or 0) >= 3.0)
+        # Homogeneous stress case is allowed to prove a true practical ceiling below 10.
+        result['passedCaseGate'] = bool(result.get('ok') and int(result.get('completeFigures') or 0) >= 4 and float(result.get('minimumGapMm') or 0) >= 3.0)
     return result
 
 
@@ -153,10 +153,12 @@ def run_suite(seconds_each=None):
             rows.append({
                 'case': case_id,
                 'ok': bool(r.get('ok')),
+                'engine': r.get('engine'),
                 'completeFigures': r.get('completeFigures'),
                 'initialCertifiedCount': r.get('initialCertifiedCount'),
                 'adaptiveFloorUsed': r.get('adaptiveFloorUsed'),
                 'probablePracticalMaximum': r.get('probablePracticalMaximum'),
+                'climbHistory': r.get('climbHistory'),
                 'density': r.get('density'),
                 'stripWidthMm': r.get('stripWidthMm'),
                 'minimumGapMm': r.get('minimumGapMm'),
@@ -169,7 +171,7 @@ def run_suite(seconds_each=None):
             rows.append({'case':case_id,'ok':False,'passedCaseGate':False,'error':repr(exc)})
     return {
         'ok': all(bool(r.get('passedCaseGate')) for r in rows),
-        'engine': 'TVT Revolutionary Ensemble V4.0',
+        'engine': 'TVT Revolutionary Ensemble V5.0',
         'suite': 'TVT fixed regression suite v1',
         'cases': rows,
         'productionUntouched': True,
@@ -177,12 +179,9 @@ def run_suite(seconds_each=None):
 
 
 def _auto_regression():
-    # Plate06 historical gate also runs on startup. Let it finish first so these
-    # fixed cases do not compete for the single Render lab CPU and create false
-    # negatives from shortened Sparrow runs.
     time.sleep(90)
     try:
-        result = run_suite(seconds_each=70.0)
+        result = run_suite(seconds_each=90.0)
         print('REV_FIXED_SUITE_RESULT '+json.dumps(result,separators=(',',':'),ensure_ascii=False), flush=True)
     except Exception as exc:
         print('REV_FIXED_SUITE_RESULT '+json.dumps({'ok':False,'error':repr(exc),'productionUntouched':True},separators=(',',':')), flush=True)
