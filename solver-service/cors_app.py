@@ -1,6 +1,6 @@
 import nest_sparrow as ns
 from nest_sparrow import app
-import sparrow_v18_runtime  # geometría base
+import sparrow_v18_runtime
 import production_safety_runtime
 import base_only_runtime
 import adaptive_base_runtime
@@ -12,16 +12,16 @@ import async_jobs
 import json, threading, time
 from flask import jsonify, request
 from flask_cors import CORS
-from revolutionary.ensemble_v4 import revolutionary_solve
+from revolutionary.ensemble_v6 import revolutionary_solve_v6 as revolutionary_solve
 from revolutionary.realcase_plate06_exact import run_plate06_mama
-from revolutionary.benchmark_suite_v1 import run_case, run_suite, CASE_SPECS
+from revolutionary.benchmark_suite_v2 import run_case, run_suite, CASE_SPECS
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 
 @app.get('/health')
 def lab_render_health():
-    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='revolutionary-lab-v4')
+    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='revolutionary-lab-v6')
 
 
 @app.get('/runtime-info')
@@ -29,8 +29,8 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolucionario-lab-v4-adaptive-lns-fixed-suite-v1',
-        runtime='sparrow+jagua adaptive beam lns lab',
+        build='motor-revolucionario-lab-v6-selection-mutation-fixed-suite-v2',
+        runtime='sparrow+jagua certified foothold + beam LNS + selection mutation',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
         revolutionaryEndpoint='/revolutionary/nest',
@@ -41,7 +41,8 @@ def runtime_info():
         targetDensity=70,
         commercialTarget=10,
         adaptiveFloor=True,
-        localNeighborhoodSizes=[0,1,2,3],
+        localNeighborhoodSizes=[0,1,2,3,4,5],
+        selectionMutationSizes=['-1 +2','-2 +3','-3 +4'],
         beamWidth=4,
         minGapMm=3.0,
         edgeMarginMm=3.0,
@@ -52,7 +53,7 @@ def runtime_info():
 def revolutionary_health():
     return jsonify(
         ok=True,
-        engine='TVT Revolutionary Ensemble V4.0',
+        engine='TVT Revolutionary Ensemble V6.0',
         mode='isolated-lab',
         minGapMm=3.0,
         commercialTarget=10,
@@ -60,7 +61,9 @@ def revolutionary_health():
         completeCountFirst=True,
         beamSearch=True,
         localNeighborhoodSearch=True,
-        neighborhoodSizes=[0,1,2,3],
+        neighborhoodSizes=[0,1,2,3,4,5],
+        selectionMutation=True,
+        selectionMutationSizes=['-1 +2','-2 +3','-3 +4'],
         ensemble=True,
         racingSelector=True,
         realHistoricalGate=True,
@@ -113,13 +116,13 @@ def revolutionary_selftest():
         except Exception as exc:
             rejected.append({'kitId':kit['kitId'],'reason':str(exc)})
     if len(prepared) < 6:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V4.0',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V6.0',error='selftest preparation failed',prepared=len(prepared),rejected=rejected),500
     try:
-        result=revolutionary_solve(prepared,total_seconds=90.0,max_workers=4)
-        result['benchmark']='synthetic-deterministic-v4-adaptive-lns'; result['candidatePool']=len(prepared); result['prepared']=len(prepared); result['rejected']=rejected; result['productionUntouched']=True
+        result=revolutionary_solve(prepared,total_seconds=120.0,max_workers=4)
+        result['benchmark']='synthetic-deterministic-v6-selection-mutation'; result['candidatePool']=len(prepared); result['prepared']=len(prepared); result['rejected']=rejected; result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V4.0',benchmark='synthetic-deterministic-v4-adaptive-lns',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Ensemble V6.0',benchmark='synthetic-deterministic-v6-selection-mutation',error=str(exc),productionUntouched=True),500
 
 
 @app.get('/revolutionary/realcase/plate06-mama')
@@ -151,7 +154,7 @@ def revolutionary_benchmark_suite():
         result=run_suite(seconds_each=seconds_each)
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,suite='TVT fixed regression suite v1',error=repr(exc),productionUntouched=True),500
+        return jsonify(ok=False,suite='TVT fixed regression suite v2',error=repr(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -171,11 +174,11 @@ def revolutionary_nest():
     if len(prepared)<6:
         return jsonify(ok=False,error=f'Sólo hay {len(prepared)} kits utilizables',rejected=rejected[:12]),422
     try:
-        total_seconds=max(30.0,min(240.0,float(data.get('seconds') or 150.0))); workers=max(1,min(4,int(data.get('workers') or 4)))
+        total_seconds=max(45.0,min(300.0,float(data.get('seconds') or 180.0))); workers=max(1,min(4,int(data.get('workers') or 4)))
         result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=workers); result['candidatePool']=len(prepared); result['rejected']=rejected[:12]
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V4.0'),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V6.0'),500
 
 
 def _background_benchmarks():
