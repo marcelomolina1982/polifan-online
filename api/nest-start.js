@@ -1,6 +1,6 @@
 export const config={maxDuration:60}
 
-const BASE='https://polifan-cnc-solver.onrender.com'
+const BASE='https://polifan-cnc-solver-lab.onrender.com'
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
 const RETRYABLE=new Set([429,502,503,504])
 
@@ -20,12 +20,12 @@ function send(res,r,text){
   res.status(r.status)
   res.setHeader('content-type',ct)
   res.setHeader('cache-control','no-store')
-  res.setHeader('x-solver-backend','prod')
+  res.setHeader('x-solver-backend','lab')
   if(r.status===202 && ct.includes('application/json')){
     try{
       const body=JSON.parse(text)
-      if(body?.jobId && !String(body.jobId).includes(':')) body.jobId='prod:'+body.jobId
-      body.backend='prod'
+      if(body?.jobId && !String(body.jobId).includes(':')) body.jobId='lab:'+body.jobId
+      body.backend='lab'
       return res.send(JSON.stringify(body))
     }catch(_e){}
   }
@@ -37,7 +37,7 @@ export default async function handler(req,res){
 
   const incoming=req.body||{}
   const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:122,heightCm:58,
-    clientEngineVersion:'Sparrow ESTABLE PRODUCCION',clientBuild:'emergency-prod-only-2026-08-22',
+    clientEngineVersion:'Sparrow V1.10 FAST ESTABLE',clientBuild:'emergency-fast-stable-2026-08-22',
     requiredGapMm:2.5,edgeMarginMm:3,maxGrowthTarget:16}
 
   const failures=[]
@@ -68,11 +68,11 @@ export default async function handler(req,res){
   }
 
   res.setHeader('cache-control','no-store')
-  res.setHeader('x-solver-backend','prod')
+  res.setHeader('x-solver-backend','lab')
   return res.status(503).json({
     ok:false,
-    backend:'prod',
-    error:'El motor estable de producción no respondió después de despertarlo. No se generó ninguna placa ni se modificó el inventario.',
+    backend:'lab',
+    error:'El motor V1.10 estable no respondió después de despertarlo. No se generó ninguna placa ni se modificó el inventario.',
     failures,
     retryable:true
   })
