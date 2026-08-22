@@ -11,7 +11,7 @@ from revolutionary.ensemble_v6 import revolutionary_solve_v6
 CASES_DIR=Path(__file__).resolve().parent/'cases'
 CASE_SPECS={
     'plate02-cactus':{'file':'plate02_cactus_real_case.gz.b64','kind':'real+manual-known','manualKnownComplete':11,'seconds':135.0},
-    'plate06-mama':{'file':'plate06_mama_case.gz.b64','kind':'real+manual-known','manualKnownComplete':11,'seconds':135.0},
+    'plate06-mama':{'file':'plate06_mama_case.gz.b64','kind':'real+manual-known','manualKnownComplete':12,'seconds':135.0},
     'homogeneous-real-stress':{'file':'homogeneous_real_stress_case.gz.b64','kind':'stress-derived-real','seconds':120.0},
 }
 
@@ -24,9 +24,6 @@ def _load_payload(filename):
 def _prepared_from_payload(payload):
     pieces=payload.get('pieces') or []
     grouped=defaultdict(list)
-    # Two payload forms exist in historical fixtures: dict rows with kitId and
-    # bare coordinate arrays (plate06). Support both so the benchmark itself is
-    # not allowed to become the failure point.
     if pieces and isinstance(pieces[0],dict):
         for row in pieces:grouped[str(row.get('kitId') or '')].append(row)
     else:
@@ -81,3 +78,7 @@ def _auto_regression():
     except Exception as exc:print('REV_V6_SUITE_RESULT '+json.dumps({'ok':False,'error':repr(exc),'productionUntouched':True},separators=(',',':')),flush=True)
 
 threading.Thread(target=_auto_regression,name='revolutionary-fixed-suite-v2',daemon=True).start()
+
+# Importing v3 starts the isolated V7 hard regression battery in its own daemon
+# thread. Production services are not referenced or modified by this benchmark.
+import revolutionary.benchmark_suite_v3  # noqa: E402,F401
