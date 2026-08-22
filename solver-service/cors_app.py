@@ -12,7 +12,7 @@ import async_jobs
 from flask import jsonify, request
 from flask_cors import CORS
 from motor_definitivo_v7 import solve_svg_text
-from revolutionary.ensemble_v1 import revolutionary_solve
+from revolutionary.ensemble_v2 import revolutionary_solve
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
@@ -22,14 +22,16 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolutionario-lab',
-        runtime='sparrow+jagua ensemble lab',
+        build='motor-revolucionario-v2-lab',
+        runtime='adaptive-count ensemble lab',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
         revolutionaryEndpoint='/revolutionary/nest',
         targetDensity=70,
         minGapMm=3.0,
         edgeMarginMm=3.0,
+        hardMinimumDisabled=True,
+        pivotTarget=12,
     )
 
 
@@ -37,10 +39,13 @@ def runtime_info():
 def revolutionary_health():
     return jsonify(
         ok=True,
-        engine='TVT Revolutionary Ensemble V1',
+        engine='TVT Revolutionary Ensemble V2',
         mode='isolated-lab',
         minGapMm=3.0,
         completeCountFirst=True,
+        adaptiveCount=True,
+        pivotTarget=12,
+        hardMinimumDisabled=True,
         ensemble=True,
         productionUntouched=True,
     )
@@ -66,18 +71,18 @@ def revolutionary_nest():
             prepared.append(p)
         except Exception as exc:
             rejected.append({'kitId':str(kit.get('kitId') or ''),'figure':str(kit.get('figure') or ''),'reason':str(exc)})
-    if len(prepared)<10:
-        return jsonify(ok=False,error=f'Sólo hay {len(prepared)} kits utilizables',rejected=rejected[:12]),422
+    if not prepared:
+        return jsonify(ok=False,error='No hay kits utilizables',rejected=rejected[:12]),422
 
     try:
-        total_seconds=max(30.0,min(240.0,float(data.get('seconds') or 150.0)))
+        total_seconds=max(30.0,min(240.0,float(data.get('seconds') or 180.0)))
         workers=max(1,min(4,int(data.get('workers') or 4)))
         result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=workers)
         result['candidatePool']=len(prepared)
         result['rejected']=rejected[:12]
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V1'),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary Ensemble V2'),500
 
 
 @app.get('/motor-definitivo/health')
