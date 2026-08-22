@@ -37,7 +37,10 @@ CASE_SPECS = {
 
 
 def _load_payload(filename):
-    raw = base64.b64decode((CASES_DIR / filename).read_text(encoding='utf-8').strip())
+    text = (CASES_DIR / filename).read_text(encoding='utf-8').strip()
+    # Be tolerant of transport/storage removing optional Base64 '=' padding.
+    text += '=' * (-len(text) % 4)
+    raw = base64.b64decode(text)
     return json.loads(gzip.decompress(raw).decode('utf-8'))
 
 
@@ -160,6 +163,7 @@ def run_suite(seconds_each=None):
                 'selectionStrategy': r.get('selectionStrategy'),
                 'passedCaseGate': r.get('passedCaseGate'),
                 'elapsedSeconds': r.get('benchmarkElapsedSeconds'),
+                'error': r.get('error'),
             })
         except Exception as exc:
             rows.append({'case':case_id,'ok':False,'passedCaseGate':False,'error':repr(exc)})
@@ -173,9 +177,12 @@ def run_suite(seconds_each=None):
 
 
 def _auto_regression():
-    time.sleep(10)
+    # Plate06 historical gate also runs on startup. Let it finish first so these
+    # fixed cases do not compete for the single Render lab CPU and create false
+    # negatives from shortened Sparrow runs.
+    time.sleep(90)
     try:
-        result = run_suite(seconds_each=55.0)
+        result = run_suite(seconds_each=70.0)
         print('REV_FIXED_SUITE_RESULT '+json.dumps(result,separators=(',',':'),ensure_ascii=False), flush=True)
     except Exception as exc:
         print('REV_FIXED_SUITE_RESULT '+json.dumps({'ok':False,'error':repr(exc),'productionUntouched':True},separators=(',',':')), flush=True)
