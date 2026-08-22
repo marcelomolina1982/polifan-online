@@ -1,3 +1,5 @@
 v25.0.22 Sparrow V1.10 Global Recompact deploy trigger
 2026-08-17
 Force production rebuild after GitHub/Vercel webhook stall. No motor logic change.
+
+Emergency production rollback 2026-08-22: restore non-blocking valid production while V5 remains isolated.
