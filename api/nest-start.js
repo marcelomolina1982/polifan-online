@@ -2,17 +2,24 @@ export const config={maxDuration:60}
 
 const BASE='https://polifan-cnc-solver-lab.onrender.com'
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-const RETRYABLE=new Set([429,502,503,504])
 
 async function fetchTimed(url,options={},timeoutMs=12000){
   const controller=new AbortController()
   const timer=setTimeout(()=>controller.abort(),timeoutMs)
-  try{return await fetch(url,{...options,signal:controller.signal})}
+  try{return await fetch(url,{...options,signal:controller.signal,cache:'no-store'})}
   finally{clearTimeout(timer)}
 }
 
-async function wake(){
-  try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'},cache:'no-store'},12000)}catch(_e){}
+async function wakeLab(){
+  // El servicio free de Render puede estar dormido. El endpoint real del solver es
+  // /nest-sparrow/health; /health no existe en esta rama y nos hacía esperar 12 s
+  // para después reintentar demasiado pronto.
+  try{
+    const r=await fetchTimed(BASE+'/nest-sparrow/health',{headers:{accept:'application/json'}},30000)
+    return {ok:r.ok,status:r.status}
+  }catch(e){
+    return {ok:false,error:e?.name==='AbortError'?'timeout':(e?.message||String(e))}
+  }
 }
 
 function send(res,r,text){
@@ -32,39 +39,43 @@ function send(res,r,text){
   return res.send(text)
 }
 
+async function startJob(payload,timeoutMs=18000){
+  return await fetchTimed(BASE+'/nest-jobs',{
+    method:'POST',
+    headers:{'content-type':'application/json','accept':'application/json'},
+    body:JSON.stringify(payload)
+  },timeoutMs)
+}
+
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({ok:false,error:'Método no permitido'})
 
   const incoming=req.body||{}
   const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:122,heightCm:58,
-    clientEngineVersion:'Sparrow V1.10 FAST ESTABLE',clientBuild:'emergency-fast-stable-2026-08-22',
+    clientEngineVersion:'Sparrow EMERGENCIA ESTABLE',clientBuild:'emergency-wake-fix-2026-08-22',
     requiredGapMm:2.5,edgeMarginMm:3,maxGrowthTarget:16}
 
   const failures=[]
 
-  try{
-    const r=await fetchTimed(BASE+'/nest-jobs',{
-      method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)
-    },12000)
-    const text=await r.text()
-    if(!RETRYABLE.has(r.status)) return send(res,r,text)
-    failures.push({phase:'direct',status:r.status,response:text.slice(0,300)})
-  }catch(e){
-    failures.push({phase:'direct',error:e?.name==='AbortError'?'timeout':(e?.message||String(e))})
-  }
+  // Despertar primero y recién después crear el trabajo. Así no gastamos el primer
+  // intento del endpoint /nest-jobs en el arranque en frío de Render.
+  const wake=await wakeLab()
+  if(!wake.ok) failures.push({phase:'wake',...wake})
+  await sleep(500)
 
-  await wake()
-  await sleep(900)
-
-  try{
-    const r=await fetchTimed(BASE+'/nest-jobs',{
-      method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)
-    },12000)
-    const text=await r.text()
-    if(!RETRYABLE.has(r.status)) return send(res,r,text)
-    failures.push({phase:'after-wake',status:r.status,response:text.slice(0,300)})
-  }catch(e){
-    failures.push({phase:'after-wake',error:e?.name==='AbortError'?'timeout':(e?.message||String(e))})
+  for(let attempt=1;attempt<=2;attempt++){
+    try{
+      const r=await startJob(payload,18000)
+      const text=await r.text()
+      if(r.status===202 || (r.status>=200 && r.status<500)) return send(res,r,text)
+      failures.push({phase:'start-'+attempt,status:r.status,response:text.slice(0,300)})
+    }catch(e){
+      failures.push({phase:'start-'+attempt,error:e?.name==='AbortError'?'timeout':(e?.message||String(e))})
+    }
+    if(attempt===1){
+      await wakeLab()
+      await sleep(700)
+    }
   }
 
   res.setHeader('cache-control','no-store')
@@ -72,7 +83,7 @@ export default async function handler(req,res){
   return res.status(503).json({
     ok:false,
     backend:'lab',
-    error:'El motor V1.10 estable no respondió después de despertarlo. No se generó ninguna placa ni se modificó el inventario.',
+    error:'El motor de emergencia no respondió al iniciar el trabajo. No se generó ninguna placa ni se modificó el inventario.',
     failures,
     retryable:true
   })
