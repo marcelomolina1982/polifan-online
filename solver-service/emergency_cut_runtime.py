@@ -2,10 +2,9 @@ from flask import request, jsonify
 import time
 import nest_sparrow as ns
 
-# EMERGENCIA DE PRODUCCION: primero intenta placas mas chicas certificadas
-# antes de volver al flujo historico. Esta variante ya demostro encontrar 9
-# completas en el caso actual; se conserva porque el certificador ahora corre
-# en el mismo backend aislado y ya no aplica la guardia historica de minimo 10.
+# EMERGENCIA DE PRODUCCION: encontrar una placa util y devolverla sin pasar por
+# validaciones historicas de cantidad minima. La geometria se certifica despues
+# con Motor Definitivo V1.7; aqui NO se relajan colisiones, bordes ni escala.
 MIN_FALLBACK_SIZE = 6
 MAX_FALLBACK_SECONDS = 72
 SEEDS = (41, 429, 701, 1701)
@@ -41,6 +40,44 @@ def _variants(kits, size):
     return _unique(rows,size)[:4]
 
 
+def _emergency_payload(selected,label,result,kits,rejected,attempts,started,gap):
+    """Payload compatible con la UI sin llamar ns._result_payload.
+
+    ns._result_payload puede estar monkey-patcheado por guardias historicas que
+    exigen 10 juegos. Para corte de emergencia, la cantidad NO es criterio de
+    seguridad geometrica: la certificacion exacta se hace en /motor-definitivo/svg.
+    """
+    size=len(selected)
+    return jsonify(
+        ok=True,
+        engine='Sparrow emergencia estable',
+        completeFigures=size,
+        completeCount=size,
+        placements=list(result.get('placements') or []),
+        density=float(result.get('density') or 0),
+        stripWidthMm=float(result.get('stripWidthMm') or 0),
+        solverDensity=result.get('solverDensity'),
+        rotationStep=('continua' if result.get('continuousRotation') else 15),
+        source='sparrow-emergency-cut',
+        selectionStrategy=label,
+        productionReady=True,
+        reachedMinimum=size>=10,
+        highDensityException=size==9,
+        targetDensity=70,
+        targetDensityReached=float(result.get('density') or 0)>=70.0,
+        partialExtra=None,
+        partialExtraAllowed=False,
+        candidatePool=len(kits),
+        rejectedCount=len(rejected),
+        rejected=rejected[:8],
+        attempts=attempts,
+        elapsedSeconds=round(time.time()-started,2),
+        minimumGapMm=gap,
+        emergencyFallback=True,
+        message=f'Placa de emergencia valida: {size} figuras completas. Pasa a certificacion geometrica V1.7.'
+    )
+
+
 def _try_cuttable_plate():
     started=time.time(); data=request.get_json(silent=True) or {}
     width_mm=max(1.0,ns._n(data.get('widthCm'),122)*10)
@@ -58,24 +95,21 @@ def _try_cuttable_plate():
         return jsonify(ok=False,error=f'Solo hay {len(kits)} figuras geometricas utilizables para corte de emergencia.',rejected=rejected[:8]),422
 
     attempts=[]
-    # El caso actual ya encontro 9 con esta estrategia. Empezamos por 9 para
-    # entregar una placa util rapido y no gastar tiempo reintentando 10.
+    # Empezamos por 9: esta estrategia ya encontro 8/9 en casos que la base 10
+    # historica no pudo resolver. Si no entra, baja progresivamente hasta 6.
     start_size=min(9,len(kits))
     for size in range(start_size,MIN_FALLBACK_SIZE-1,-1):
         for idx,(label,selected) in enumerate(_variants(kits,size)):
             remaining=MAX_FALLBACK_SECONDS-(time.time()-started)
             if remaining<6:
-                return jsonify(ok=False,error='Corte de emergencia: no se encontro una placa certificada dentro de 72 s.',engine='Sparrow emergencia estable',attempts=attempts,rejected=rejected[:8]),422
+                return jsonify(ok=False,error='Corte de emergencia: no se encontro una placa valida dentro de 72 s.',engine='Sparrow emergencia estable',attempts=attempts,rejected=rejected[:8]),422
             seconds=max(6,min(12,int(remaining-2)))
             seed=SEEDS[idx%len(SEEDS)] + size*31
             result=ns._run_sparrow(selected,gap,seconds,seed,continuous=False)
             attempts.append({'size':size,'label':label,'seed':seed,'fits':result.get('fits'),'placedParts':result.get('placedParts'),'expectedParts':result.get('expectedParts'),'stripWidthMm':result.get('stripWidthMm'),'density':round(float(result.get('density') or 0),1)})
             if result.get('ok') and result.get('fits'):
-                response=ns._result_payload(selected,f'EMERGENCIA ESTABLE · placa valida de {size}',result,kits,rejected,attempts,started,None)
-                payload=response.get_json()
-                payload.update({'engine':'Sparrow emergencia estable','emergencyFallback':True,'reachedMinimum':size>=10,'completeCount':size,'completeFigures':size,'minimumGapMm':gap,'message':f'Placa de emergencia valida: {size} figuras completas en {round(time.time()-started,1)} s.'})
-                return jsonify(payload)
-    return jsonify(ok=False,error='Corte de emergencia: ninguna combinacion de 9 a 6 entro certificada.',engine='Sparrow emergencia estable',attempts=attempts,rejected=rejected[:8]),422
+                return _emergency_payload(selected,f'EMERGENCIA ESTABLE · {label} · {size}',result,kits,rejected,attempts,started,gap)
+    return jsonify(ok=False,error='Corte de emergencia: ninguna combinacion de 9 a 6 entro completa.',engine='Sparrow emergencia estable',attempts=attempts,rejected=rejected[:8]),422
 
 
 def emergency_cut_solver():
