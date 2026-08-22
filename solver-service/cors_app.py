@@ -126,7 +126,7 @@ def revolutionary_realcase_plate06_mama():
         result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Historical Gate',benchmark='plate06_mama_exact_svg_geometry_v4_certified',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Historical Gate',benchmark='plate06_mama_exact_svg_geometry_v5_v4_engine',error=str(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -154,19 +154,14 @@ def revolutionary_nest():
 
 
 def _background_benchmarks():
+    # Real case first: this is the gate that matters and avoids spending the
+    # startup window on the synthetic benchmark before diagnosing Plate06.
     try:
         time.sleep(6)
-        response=revolutionary_selftest()
-        synthetic=response.get_json() if hasattr(response,'get_json') else None
-    except Exception:
-        synthetic=None
-    if synthetic is not None:
-        print('REV_BENCH_RESULT '+json.dumps(synthetic,separators=(',',':'),ensure_ascii=False),flush=True)
-    try:
-        real=run_plate06_mama(seconds=105.0)
+        real=run_plate06_mama(seconds=72.0)
         real['productionUntouched']=True
         print('REV_REALCASE_RESULT '+json.dumps(real,separators=(',',':'),ensure_ascii=False),flush=True)
     except Exception as exc:
-        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_exact_svg_geometry_v4_certified','error':str(exc),'productionUntouched':True},separators=(',',':')),flush=True)
+        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_exact_svg_geometry_v5_v4_engine','error':repr(exc),'productionUntouched':True},separators=(',',':')),flush=True)
 
-threading.Thread(target=_background_benchmarks,name='revolutionary-benchmarks',daemon=True).start()
+threading.Thread(target=_background_benchmarks,name='revolutionary-plate06-first',daemon=True).start()
