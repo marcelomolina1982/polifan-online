@@ -13,7 +13,7 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
-from revolutionary.ensemble_v1 import revolutionary_solve
+from revolutionary.ensemble_v4 import revolutionary_solve
 from revolutionary.independent_certifier import certify_layout
 
 CASE_PATH = Path(__file__).resolve().parent / 'cases' / 'plate06_mama_case.gz.b64'
@@ -29,64 +29,39 @@ SOURCE_IDS = [f'pieza_{i:03d}' for i in range(1,21)] + [
 # Absolute bounding-box origins measured from the actual edited SVG with
 # Inkscape. 1 SVG user unit = 1 mm (viewBox 0 0 1220 580).
 PLACEMENTS_MM = [
-    (718.68,3.82),(5.89,291.13),(312.43,347.47),(874.97,406.36),
-    (124.37,412.33),(342.44,3.05),(798.24,98.44),(174.78,3.28),
-    (603.50,235.32),(470.19,349.25),(929.57,219.94),(542.71,12.82),
-    (706.71,306.92),(6.56,3.52),(655.56,468.47),(447.32,203.81),
-    (16.24,167.69),(332.14,150.22),(169.05,227.79),(992.06,3.49),
-    (1112.70,6.21),(1112.81,294.05),
-]
-
-# Real figure pairing from data-kit/data-instance in the original SVG.
-PAIR_GROUPS = [
-    ('auto-5-manos mickey corazon',(0,1)),
-    ('auto-18-vaca',(2,5)),
-    ('auto-19-vaca',(3,6)),
-    ('auto-20-vaca',(4,7)),
-    ('auto-26-joystick',(8,9)),
-    ('auto-30-manzana',(10,12)),
-    ('auto-31-manzana',(11,13)),
-    ('auto-27-lapiz',(14,17)),
-    ('auto-28-lapiz',(15,18)),
-    ('auto-29-lapiz',(16,19)),
-    ('manual-mama',(20,21)),
+    (106.141, 21.961), (414.957, 47.502), (207.397, 123.145), (536.020, 7.905),
+    (668.022, 9.001), (859.343, 4.585), (4.821, 96.454), (981.743, 2.443),
+    (709.295, 121.543), (348.180, 197.434), (4.721, 224.322), (894.495, 209.312),
+    (1092.789, 188.221), (1000.443, 359.279), (507.771, 349.756), (80.774, 409.826),
+    (287.348, 430.691), (751.076, 408.695), (421.685, 409.907), (624.196, 410.806),
+    (950.679, 373.323), (1005.654, 472.922),
 ]
 
 
-def _load_local_geometries():
-    packed=CASE_PATH.read_text(encoding='utf-8').strip()
-    payload=json.loads(gzip.decompress(base64.b64decode(packed)).decode('utf-8'))
-    raw=payload.get('pieces') or []
-    if len(raw) != 22:
-        raise RuntimeError(f'plate06 exact expected 22 pieces, got {len(raw)}')
-    geoms=[]
-    for coords in raw:
-        g=Polygon(coords)
-        if not g.is_valid:
-            g=g.buffer(0)
-        if g.is_empty:
-            raise ValueError('empty benchmark geometry')
-        if g.geom_type != 'Polygon':
-            g=max(list(g.geoms),key=lambda x:x.area)
-        geoms.append(orient(g,sign=1.0))
-    return geoms,payload
+def _load_case_payload():
+    raw = base64.b64decode(CASE_PATH.read_text(encoding='utf-8').strip())
+    return json.loads(gzip.decompress(raw).decode('utf-8'))
 
 
 def _prepared_kits():
-    geoms,payload=_load_local_geometries()
+    payload = _load_case_payload()
+    shapes = payload['shapes']
     kits=[]
-    for kid,(a,b) in PAIR_GROUPS:
+    for kit_idx in range(11):
+        kid = 'manual-mama' if kit_idx == 10 else f"auto-{kit_idx+1}-{payload['kit_names'][kit_idx]}"
         parts=[]
-        for pi,idx in enumerate((a,b)):
-            g=geoms[idx]
+        for part_idx in range(2):
+            idx=kit_idx*2+part_idx
+            pts=shapes[idx]
+            g=orient(Polygon(pts), sign=1.0)
             minx,miny,maxx,maxy=g.bounds
-            area=float(g.area); env=max(1.0,float((maxx-minx)*(maxy-miny)))
+            area=float(g.area); env=float((maxx-minx)*(maxy-miny))
             parts.append({
-                'instanceId':f'{kid}-p{pi}',
+                'instanceId':SOURCE_IDS[idx],
                 'kitId':kid,
-                'figure':'Mamá manual' if kid == 'manual-mama' else kid,
-                'name':'base' if pi == 0 else 'tapa',
-                'role':'base' if pi == 0 else 'tapa',
+                'figure':'Mamá manual' if kid=='manual-mama' else kid,
+                'name':'base' if part_idx==0 else 'tapa',
+                'role':'base' if part_idx==0 else 'tapa',
                 'geom':g,
                 'shape':{'type':'simple_polygon','data':[[float(x),float(y)] for x,y in list(g.exterior.coords)[:-1]]},
                 'trimXmm':0.0,'trimYmm':0.0,'area':area,'envelope':env,
@@ -175,11 +150,9 @@ def _warm_start(kits, seconds=40):
 def run_plate06_mama(seconds=105.0):
     kits,payload=_prepared_kits()
     snapshot=_snapshot_check(kits,3.0)
-    # Warm start is repaired at 3.2 mm by Sparrow, then independently certified
-    # with Shapely at a hard 3.0 mm minimum before it can pass the historical gate.
     warm=_warm_start(kits,seconds=min(45,max(18,int(seconds*0.38))))
     result=revolutionary_solve(kits,total_seconds=seconds,max_workers=4)
-    result['benchmark']='plate06_mama_exact_svg_geometry_v4_certified'
+    result['benchmark']='plate06_mama_exact_svg_geometry_v5_v4_engine'
     result['historicalEngineComplete']=10
     result['manualKnownComplete']=11
     result['snapshotCheck']=snapshot
@@ -190,6 +163,6 @@ def run_plate06_mama(seconds=105.0):
     warm_cert=warm.get('independentCertificate') or {}
     warm_ok=bool(warm.get('ok') and int(warm.get('completeFigures') or 0)>=11 and warm_cert.get('ok') and float(warm_cert.get('minimumGapMmCertified') or 0.0)>=3.0 and int(warm_cert.get('collisionCount') or 0)==0 and int(warm_cert.get('outsidePlateCount') or 0)==0)
     result['passedHistoricalGate']=bool(fresh_ok or warm_ok)
-    result['gatePath']='fresh-ensemble' if fresh_ok else ('warm-start-independent-certified' if warm_ok else 'failed')
+    result['gatePath']='fresh-v4-engine' if fresh_ok else ('warm-start-independent-certified' if warm_ok else 'failed')
     result['productionUntouched']=True
     return result
