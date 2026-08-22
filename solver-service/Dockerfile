@@ -5,6 +5,14 @@ RUN git clone --depth 1 https://github.com/JeroenGar/sparrow.git /sparrow
 WORKDIR /sparrow
 RUN cargo build --release --features only_final_svg --bin sparrow
 
+# Independent metaheuristic engine for the V9 laboratory portfolio.
+# Pin the tested 0.7.2 release so upstream changes cannot silently alter results.
+FROM rust:1.91-bookworm AS unesting-build
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch v0.7.2 https://github.com/iyulab/u-nesting.git /u-nesting
+WORKDIR /u-nesting
+RUN cargo build --release -p u-nesting-ffi
+
 FROM python:3.12-slim-trixie
 
 WORKDIR /app
@@ -12,7 +20,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SPARROW_BIN=/usr/local/bin/sparrow
-ENV MOTOR_RUNTIME_BUILD=tvt-revolutionary-lab-v1
+ENV UNESTING_LIB=/usr/local/lib/libu_nesting.so
+ENV MOTOR_RUNTIME_BUILD=tvt-revolutionary-lab-v9-hybrid
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
@@ -27,6 +36,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
+COPY --from=unesting-build /u-nesting/target/release/libu_nesting.so /usr/local/lib/libu_nesting.so
+RUN ldconfig
 COPY *.py .
 COPY revolutionary ./revolutionary
 
