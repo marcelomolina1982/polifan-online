@@ -19,15 +19,11 @@ from revolutionary.independent_certifier import certify_layout
 CASE_PATH = Path(__file__).resolve().parent / 'cases' / 'plate06_mama_case.gz.b64'
 SPARROW_BIN = os.environ.get('SPARROW_BIN','/usr/local/bin/sparrow')
 
-# XML order of the 20 original paths followed by the two paths manually added
-# in Pedido-2026-08-21-Placa-06prueba(1).svg.
 SOURCE_IDS = [f'pieza_{i:03d}' for i in range(1,21)] + [
     'path4-2-1-0-9-08-0-1',
     'path4-3-0-0-5-3-3-3',
 ]
 
-# Absolute bounding-box origins measured from the actual edited SVG with
-# Inkscape. 1 SVG user unit = 1 mm (viewBox 0 0 1220 580).
 PLACEMENTS_MM = [
     (106.141, 21.961), (414.957, 47.502), (207.397, 123.145), (536.020, 7.905),
     (668.022, 9.001), (859.343, 4.585), (4.821, 96.454), (981.743, 2.443),
@@ -40,7 +36,12 @@ PLACEMENTS_MM = [
 
 def _load_case_payload():
     raw = base64.b64decode(CASE_PATH.read_text(encoding='utf-8').strip())
-    return json.loads(gzip.decompress(raw).decode('utf-8'))
+    payload = json.loads(gzip.decompress(raw).decode('utf-8'))
+    if 'shapes' not in payload:
+        raise KeyError('shapes missing; payload keys=' + ','.join(sorted(str(k) for k in payload.keys())))
+    if 'kit_names' not in payload:
+        raise KeyError('kit_names missing; payload keys=' + ','.join(sorted(str(k) for k in payload.keys())))
+    return payload
 
 
 def _prepared_kits():
@@ -148,10 +149,24 @@ def _warm_start(kits, seconds=40):
 
 
 def run_plate06_mama(seconds=105.0):
-    kits,payload=_prepared_kits()
-    snapshot=_snapshot_check(kits,3.0)
-    warm=_warm_start(kits,seconds=min(45,max(18,int(seconds*0.38))))
-    result=revolutionary_solve(kits,total_seconds=seconds,max_workers=4)
+    stage='prepare'
+    try:
+        kits,payload=_prepared_kits()
+        stage='snapshot'
+        snapshot=_snapshot_check(kits,3.0)
+        stage='warm-start'
+        warm=_warm_start(kits,seconds=min(45,max(18,int(seconds*0.38))))
+        stage='v4-solve'
+        result=revolutionary_solve(kits,total_seconds=seconds,max_workers=4)
+    except Exception as exc:
+        return {
+            'ok':False,
+            'engine':'TVT Revolutionary Ensemble V4.0',
+            'benchmark':'plate06_mama_exact_svg_geometry_v5_v4_engine',
+            'failureStage':stage,
+            'error':repr(exc),
+            'productionUntouched':True,
+        }
     result['benchmark']='plate06_mama_exact_svg_geometry_v5_v4_engine'
     result['historicalEngineComplete']=10
     result['manualKnownComplete']=11
