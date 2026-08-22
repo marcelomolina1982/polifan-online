@@ -14,6 +14,7 @@ from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v4 import revolutionary_solve
 from revolutionary.realcase_plate06_exact import run_plate06_mama
+from revolutionary.benchmark_suite_v1 import run_case, run_suite, CASE_SPECS
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
@@ -28,13 +29,15 @@ def runtime_info():
     view=app.view_functions.get('nest_sparrow')
     return jsonify(
         ok=True,
-        build='motor-revolucionario-lab-v4-adaptive-lns',
+        build='motor-revolucionario-lab-v4-adaptive-lns-fixed-suite-v1',
         runtime='sparrow+jagua adaptive beam lns lab',
         solverFunction=getattr(view,'__name__','-'),
         productionUntouched=True,
         revolutionaryEndpoint='/revolutionary/nest',
         selftestEndpoint='/revolutionary/selftest',
         realCaseEndpoint='/revolutionary/realcase/plate06-mama',
+        benchmarkSuiteEndpoint='/revolutionary/benchmarks-v1',
+        benchmarkCases=list(CASE_SPECS.keys()),
         targetDensity=70,
         commercialTarget=10,
         adaptiveFloor=True,
@@ -61,7 +64,7 @@ def revolutionary_health():
         ensemble=True,
         racingSelector=True,
         realHistoricalGate=True,
-        exactSvgSnapshot=True,
+        fixedRegressionSuite=True,
         productionUntouched=True,
     )
 
@@ -126,7 +129,29 @@ def revolutionary_realcase_plate06_mama():
         result['productionUntouched']=True
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,engine='TVT Revolutionary Historical Gate',benchmark='plate06_mama_exact_svg_geometry_v5_v4_engine',error=str(exc),productionUntouched=True),500
+        return jsonify(ok=False,engine='TVT Revolutionary Historical Gate',benchmark='plate06_mama_exact_svg_geometry_v6_pieces_adapter',error=str(exc),productionUntouched=True),500
+
+
+@app.get('/revolutionary/benchmark/<case_id>')
+def revolutionary_benchmark_case(case_id):
+    if case_id not in CASE_SPECS:
+        return jsonify(ok=False,error='Caso desconocido',available=list(CASE_SPECS.keys())),404
+    try:
+        result=run_case(case_id)
+        return jsonify(result),(200 if result.get('ok') else 422)
+    except Exception as exc:
+        return jsonify(ok=False,case=case_id,error=repr(exc),productionUntouched=True),500
+
+
+@app.get('/revolutionary/benchmarks-v1')
+def revolutionary_benchmark_suite():
+    try:
+        seconds=request.args.get('seconds')
+        seconds_each=float(seconds) if seconds else None
+        result=run_suite(seconds_each=seconds_each)
+        return jsonify(result),(200 if result.get('ok') else 422)
+    except Exception as exc:
+        return jsonify(ok=False,suite='TVT fixed regression suite v1',error=repr(exc),productionUntouched=True),500
 
 
 @app.post('/revolutionary/nest')
@@ -154,14 +179,12 @@ def revolutionary_nest():
 
 
 def _background_benchmarks():
-    # Real case first: this is the gate that matters and avoids spending the
-    # startup window on the synthetic benchmark before diagnosing Plate06.
     try:
         time.sleep(6)
         real=run_plate06_mama(seconds=72.0)
         real['productionUntouched']=True
         print('REV_REALCASE_RESULT '+json.dumps(real,separators=(',',':'),ensure_ascii=False),flush=True)
     except Exception as exc:
-        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_exact_svg_geometry_v5_v4_engine','error':repr(exc),'productionUntouched':True},separators=(',',':')),flush=True)
+        print('REV_REALCASE_RESULT '+json.dumps({'ok':False,'benchmark':'plate06_mama_exact_svg_geometry_v6_pieces_adapter','error':repr(exc),'productionUntouched':True},separators=(',',':')),flush=True)
 
 threading.Thread(target=_background_benchmarks,name='revolutionary-plate06-first',daemon=True).start()
