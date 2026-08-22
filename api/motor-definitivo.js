@@ -1,12 +1,10 @@
 export default async function handler(req,res){
   // EMERGENCIA DE CORTE 2026-08-22:
-  // La generación productiva temporal usa polifan-cnc-solver-lab. El certificador
-  // debe validar la MISMA placa allí; el servicio productivo viejo conserva una
-  // guardia histórica que rechaza cualquier resultado con menos de 10 juegos aun
-  // cuando la geometría sea válida. No se relajan colisiones ni bordes.
-  const emergencyLabBase='https://polifan-cnc-solver-lab.onrender.com'
-  const envBase=String(process.env.MOTOR_DEFINITIVO_API_URL||'').replace(/\/$/,'')
-  const base=envBase||emergencyLabBase
+  // Forzamos el MISMO backend aislado que genera la placa. No usar la variable
+  // MOTOR_DEFINITIVO_API_URL durante esta emergencia porque en Produccion todavia
+  // apunta al certificador historico que exige 10 juegos y rechaza el fallback de 9.
+  // La validacion geometrica (conflictos/borde/gap) sigue intacta en el laboratorio.
+  const base='https://polifan-cnc-solver-lab.onrender.com'
 
   if(!['GET','POST'].includes(req.method)){
     return res.status(405).json({ok:false,error:'Método no permitido'})
@@ -27,7 +25,7 @@ export default async function handler(req,res){
     res.status(r.status)
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
     res.setHeader('cache-control','no-store')
-    res.setHeader('x-certifier-backend','lab-emergency')
+    res.setHeader('x-certifier-backend','lab-emergency-forced')
     return res.send(text)
   }catch(e){
     return res.status(502).json({
