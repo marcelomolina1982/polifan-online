@@ -1,25 +1,37 @@
 {
-  "version": 1,
+  "version": 2,
   "plateMm": [1220, 580],
   "requiredGapMm": 3.0,
+  "notes": "Human-demonstrated counts are acceptance references, not hard runtime minimums.",
   "cases": [
     {
       "id": "mama",
-      "description": "Placa real donde una figura Mamá completa entró manualmente sin mover la solución base.",
-      "productionBaselineComplete": 10,
-      "humanDemonstratedComplete": 11,
-      "passRule": "complete>=11 && gap>=3 && conflicts==0 && border==0"
+      "description": "Palabra Mamá: referencia manual confirmada por taller.",
+      "humanDemonstratedComplete": 12,
+      "passRule": "complete>=12 && gap>=3 && conflicts==0 && border==0"
+    },
+    {
+      "id": "pelota-rosa",
+      "description": "Mezcla manual difícil: 5 pelotas + 5 rosas completas.",
+      "humanDemonstratedComplete": 10,
+      "requiredMix": {"pelota": 5, "rosa": 5},
+      "passRule": "pelota>=5 && rosa>=5 && complete>=10 && gap>=3 && conflicts==0 && border==0"
     },
     {
       "id": "cactus",
-      "description": "Placa real donde un cactus completo entró manualmente en espacio residual.",
-      "productionBaselineComplete": 10,
-      "humanDemonstratedComplete": 11,
+      "description": "Caso de optimización difícil; el automático ya alcanzó 10 y debe intentar superarlo.",
+      "automaticBaselineComplete": 10,
+      "targetComplete": 11,
       "passRule": "complete>=11 && gap>=3 && conflicts==0 && border==0"
     },
     {
+      "id": "figuras-grandes",
+      "description": "Control adaptativo: una placa físicamente limitada no debe ser rechazada por quedar debajo de 10.",
+      "passRule": "complete>=1 && gap>=3 && conflicts==0 && border==0 && noHardMinimum"
+    },
+    {
       "id": "franja-derecha",
-      "description": "Caso real con aproximadamente 200+ mm libres a la derecha y 10 completas.",
+      "description": "Caso real con franja residual grande: debe mejorar cantidad o compactación.",
       "productionBaselineComplete": 10,
       "productionBaselineDensityPct": 58.0,
       "passRule": "(complete>10 || density>=65) && gap>=3 && conflicts==0 && border==0"
