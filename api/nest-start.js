@@ -1,25 +1,18 @@
 export const config={maxDuration:60}
 
-const BASE='https://polifan-cnc-solver-test.onrender.com'
+const BASE='https://polifan-cnc-solver.onrender.com'
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+const RETRYABLE=new Set([429,502,503,504])
 
-async function fetchTimed(url,options={},timeoutMs=10000){
+async function fetchTimed(url,options={},timeoutMs=12000){
   const controller=new AbortController()
   const timer=setTimeout(()=>controller.abort(),timeoutMs)
   try{return await fetch(url,{...options,signal:controller.signal})}
   finally{clearTimeout(timer)}
 }
 
-async function startJob(payload,timeoutMs){
-  return fetchTimed(BASE+'/nest-jobs',{
-    method:'POST',
-    headers:{'content-type':'application/json','accept':'application/json'},
-    body:JSON.stringify(payload)
-  },timeoutMs)
-}
-
-async function wakeTest(){
-  try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'},cache:'no-store'},18000)}catch(_e){}
+async function wake(){
+  try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'},cache:'no-store'},12000)}catch(_e){}
 }
 
 function send(res,r,text){
@@ -27,12 +20,12 @@ function send(res,r,text){
   res.status(r.status)
   res.setHeader('content-type',ct)
   res.setHeader('cache-control','no-store')
-  res.setHeader('x-solver-backend','test')
+  res.setHeader('x-solver-backend','prod')
   if(r.status===202 && ct.includes('application/json')){
     try{
       const body=JSON.parse(text)
-      if(body?.jobId && !String(body.jobId).includes(':')) body.jobId='test:'+body.jobId
-      body.backend='test'
+      if(body?.jobId && !String(body.jobId).includes(':')) body.jobId='prod:'+body.jobId
+      body.backend='prod'
       return res.send(JSON.stringify(body))
     }catch(_e){}
   }
@@ -44,41 +37,42 @@ export default async function handler(req,res){
 
   const incoming=req.body||{}
   const payload={...incoming,gapCm:.25,targetDensity:70,widthCm:122,heightCm:58,
-    clientEngineVersion:'Sparrow motor definitivo TEST',clientBuild:'test-connection-v2',
+    clientEngineVersion:'Sparrow ESTABLE PRODUCCION',clientBuild:'emergency-prod-only-2026-08-22',
     requiredGapMm:2.5,edgeMarginMm:3,maxGrowthTarget:16}
 
   const failures=[]
 
-  // Intento rápido. Si el servicio está despierto, la placa empieza sin demora.
   try{
-    const r=await startJob(payload,8000)
+    const r=await fetchTimed(BASE+'/nest-jobs',{
+      method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)
+    },12000)
     const text=await r.text()
-    if(![429,502,503,504].includes(r.status)) return send(res,r,text)
-    failures.push({phase:'direct',status:r.status,response:text.slice(0,240)})
+    if(!RETRYABLE.has(r.status)) return send(res,r,text)
+    failures.push({phase:'direct',status:r.status,response:text.slice(0,300)})
   }catch(e){
     failures.push({phase:'direct',error:e?.name==='AbortError'?'timeout':(e?.message||String(e))})
   }
 
-  // Render Free puede estar dormido. Una sola secuencia de wake + retry mantiene
-  // toda la función por debajo del límite de Vercel y evita el antiguo bucle TEST/LAB/PROD.
-  await wakeTest()
-  await sleep(1200)
+  await wake()
+  await sleep(900)
 
   try{
-    const r=await startJob(payload,10000)
+    const r=await fetchTimed(BASE+'/nest-jobs',{
+      method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)
+    },12000)
     const text=await r.text()
-    if(![429,502,503,504].includes(r.status)) return send(res,r,text)
-    failures.push({phase:'after-wake',status:r.status,response:text.slice(0,240)})
+    if(!RETRYABLE.has(r.status)) return send(res,r,text)
+    failures.push({phase:'after-wake',status:r.status,response:text.slice(0,300)})
   }catch(e){
     failures.push({phase:'after-wake',error:e?.name==='AbortError'?'timeout':(e?.message||String(e))})
   }
 
   res.setHeader('cache-control','no-store')
-  res.setHeader('x-solver-backend','test')
+  res.setHeader('x-solver-backend','prod')
   return res.status(503).json({
     ok:false,
-    backend:'test',
-    error:'El motor TEST no respondió después de despertarlo. No se generó ninguna placa ni se modificó el inventario.',
+    backend:'prod',
+    error:'El motor estable de producción no respondió después de despertarlo. No se generó ninguna placa ni se modificó el inventario.',
     failures,
     retryable:true
   })
