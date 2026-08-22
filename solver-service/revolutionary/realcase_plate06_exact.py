@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 
-from shapely.affinity import translate
+from shapely.affinity import scale as shp_scale, translate
 from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
@@ -18,6 +18,7 @@ from revolutionary.independent_certifier import certify_layout
 
 CASE_PATH = Path(__file__).resolve().parent / 'cases' / 'plate06_mama_case.gz.b64'
 SPARROW_BIN = os.environ.get('SPARROW_BIN','/usr/local/bin/sparrow')
+PLATE_AREA = 1220.0 * 580.0
 
 SOURCE_IDS = [f'pieza_{i:03d}' for i in range(1,21)] + [
     'path4-2-1-0-9-08-0-1',
@@ -37,30 +38,137 @@ PLACEMENTS_MM = [
 def _load_case_payload():
     raw = base64.b64decode(CASE_PATH.read_text(encoding='utf-8').strip())
     payload = json.loads(gzip.decompress(raw).decode('utf-8'))
-    if 'shapes' not in payload:
-        raise KeyError('shapes missing; payload keys=' + ','.join(sorted(str(k) for k in payload.keys())))
-    if 'kit_names' not in payload:
-        raise KeyError('kit_names missing; payload keys=' + ','.join(sorted(str(k) for k in payload.keys())))
+    if not isinstance(payload, dict):
+        raise TypeError('snapshot payload is not an object')
+    if 'pieces' not in payload and 'shapes' not in payload:
+        raise KeyError('no pieces/shapes; payload keys=' + ','.join(sorted(str(k) for k in payload.keys())))
     return payload
+
+
+def _numeric_pair(v):
+    return isinstance(v, (list, tuple)) and len(v) >= 2 and isinstance(v[0], (int, float)) and isinstance(v[1], (int, float))
+
+
+def _points_from_piece(value, depth=0):
+    """Accept old shapes and the newer pieces/pieceMeta snapshot variants."""
+    if depth > 8 or value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 3 and all(_numeric_pair(p) for p in value):
+            return [[float(p[0]), float(p[1])] for p in value]
+        if len(value) >= 6 and all(isinstance(x, (int, float)) for x in value) and len(value) % 2 == 0:
+            return [[float(value[i]), float(value[i+1])] for i in range(0, len(value), 2)]
+        for child in value:
+            pts = _points_from_piece(child, depth + 1)
+            if pts and len(pts) >= 3:
+                return pts
+        return None
+    if isinstance(value, dict):
+        # Known/common geometry containers first.
+        for key in ('points','polygon','coords','coordinates','data','outer','exterior','shape','geometry','vertices','contour'):
+            if key in value:
+                pts = _points_from_piece(value.get(key), depth + 1)
+                if pts and len(pts) >= 3:
+                    return pts
+        # Last resort: recursively inspect values, ignoring metadata scalars.
+        for child in value.values():
+            if isinstance(child, (dict, list, tuple)):
+                pts = _points_from_piece(child, depth + 1)
+                if pts and len(pts) >= 3:
+                    return pts
+    return None
+
+
+def _meta_for(payload, idx):
+    meta = payload.get('pieceMeta') or []
+    if isinstance(meta, list):
+        return meta[idx] if idx < len(meta) and isinstance(meta[idx], dict) else {}
+    if isinstance(meta, dict):
+        for key in (str(idx), SOURCE_IDS[idx] if idx < len(SOURCE_IDS) else ''):
+            if key and isinstance(meta.get(key), dict):
+                return meta[key]
+    return {}
+
+
+def _piece_name(payload, idx, kit_idx):
+    meta = _meta_for(payload, idx)
+    for key in ('figure','kitName','figureName','name','label','sourceName'):
+        v = meta.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return f'Plate06 kit {kit_idx + 1:02d}'
+
+
+def _raw_polygons(payload):
+    source = payload.get('shapes') if isinstance(payload.get('shapes'), list) else payload.get('pieces')
+    if not isinstance(source, list) or len(source) < 22:
+        raise ValueError(f'expected >=22 pieces; got {len(source) if isinstance(source,list) else type(source).__name__}')
+    geoms = []
+    for idx, piece in enumerate(source[:22]):
+        pts = _points_from_piece(piece)
+        if not pts or len(pts) < 3:
+            meta = _meta_for(payload, idx)
+            raise ValueError(f'cannot decode piece {idx}; pieceType={type(piece).__name__}; metaKeys={sorted(meta.keys())[:12]}')
+        g = Polygon(pts)
+        if not g.is_valid:
+            g = g.buffer(0)
+        if g.is_empty:
+            raise ValueError(f'empty piece geometry at {idx}')
+        # In this benchmark every source path is one polygon; use largest polygon if buffer(0) split it.
+        if g.geom_type == 'MultiPolygon':
+            g = max(g.geoms, key=lambda x: x.area)
+        geoms.append(orient(g, sign=1.0))
+    return geoms
+
+
+def _choose_coordinate_scale(payload, geoms):
+    """The current snapshot stores raster/grid coordinates plus resolutionMm.
+
+    Old snapshots stored millimetres directly. Evaluate both interpretations and
+    choose the physically plausible one using the known 1220x580 Plate06 case.
+    """
+    resolution = float(payload.get('resolutionMm') or 1.0)
+    candidates = [1.0]
+    if 0.01 < resolution < 10.0 and abs(resolution - 1.0) > 1e-9:
+        candidates.append(resolution)
+    best = None
+    for factor in candidates:
+        total_area = sum(float(g.area) * factor * factor for g in geoms)
+        density = total_area / PLATE_AREA
+        max_w = max((g.bounds[2]-g.bounds[0]) * factor for g in geoms)
+        max_h = max((g.bounds[3]-g.bounds[1]) * factor for g in geoms)
+        # Historical 11-piece edited Plate06 is about 68-70% area. Penalize impossible sizes heavily.
+        penalty = abs(density - 0.69)
+        if density <= 0.15 or density >= 1.10:
+            penalty += 10.0
+        if max_w > 1220.0 or max_h > 580.0:
+            penalty += 10.0
+        row = (penalty, factor, density, max_w, max_h)
+        if best is None or row[0] < best[0]:
+            best = row
+    return float(best[1]), {'factor':best[1], 'density':best[2], 'maxPieceWidthMm':best[3], 'maxPieceHeightMm':best[4], 'resolutionMm':resolution}
 
 
 def _prepared_kits():
     payload = _load_case_payload()
-    shapes = payload['shapes']
+    raw_geoms = _raw_polygons(payload)
+    factor, scale_info = _choose_coordinate_scale(payload, raw_geoms)
+    geoms = [shp_scale(g, xfact=factor, yfact=factor, origin=(0,0)) if abs(factor-1.0)>1e-12 else g for g in raw_geoms]
     kits=[]
     for kit_idx in range(11):
-        kid = 'manual-mama' if kit_idx == 10 else f"auto-{kit_idx+1}-{payload['kit_names'][kit_idx]}"
+        idx0 = kit_idx * 2
+        display_name = 'Mamá manual' if kit_idx == 10 else _piece_name(payload, idx0, kit_idx)
+        kid = 'manual-mama' if kit_idx == 10 else f'auto-{kit_idx+1}-{display_name}'
         parts=[]
         for part_idx in range(2):
             idx=kit_idx*2+part_idx
-            pts=shapes[idx]
-            g=orient(Polygon(pts), sign=1.0)
+            g=geoms[idx]
             minx,miny,maxx,maxy=g.bounds
             area=float(g.area); env=float((maxx-minx)*(maxy-miny))
             parts.append({
                 'instanceId':SOURCE_IDS[idx],
                 'kitId':kid,
-                'figure':'Mamá manual' if kid=='manual-mama' else kid,
+                'figure':display_name,
                 'name':'base' if part_idx==0 else 'tapa',
                 'role':'base' if part_idx==0 else 'tapa',
                 'geom':g,
@@ -70,7 +178,8 @@ def _prepared_kits():
                 'sourceId':SOURCE_IDS[idx],
             })
         area=sum(p['area'] for p in parts); env=sum(p['envelope'] for p in parts)
-        kits.append({'kitId':kid,'figure':'Mamá manual' if kid=='manual-mama' else kid,'priority':1.0,'date':'2026-08-21','parts':parts,'area':area,'envelope':env,'solidity':area/max(1.0,env)})
+        kits.append({'kitId':kid,'figure':display_name,'priority':1.0,'date':'2026-08-21','parts':parts,'area':area,'envelope':env,'solidity':area/max(1.0,env)})
+    payload['_decodedScaleInfo'] = scale_info
     return kits,payload
 
 
@@ -104,13 +213,12 @@ def _snapshot_check(kits, required_gap=3.0):
 
 
 def _warm_start(kits, seconds=40):
-    items=[]; placed=[]; idmap={}; total_area=0.0; maxx=0.0; item_id=0
+    items=[]; placed=[]; total_area=0.0; maxx=0.0; item_id=0
     for k in kits:
         for p in k['parts']:
             tx,ty=p['snapshotTranslationMm']
             items.append({'id':item_id,'demand':1,'shape':p['shape']})
             placed.append({'item_id':item_id,'transformation':{'rotation':0.0,'translation':[float(tx),float(ty)]}})
-            idmap[item_id]=p
             total_area += float(p['area'])
             maxx=max(maxx,float(tx+p['geom'].bounds[2]))
             item_id += 1
@@ -162,12 +270,14 @@ def run_plate06_mama(seconds=105.0):
         return {
             'ok':False,
             'engine':'TVT Revolutionary Ensemble V4.0',
-            'benchmark':'plate06_mama_exact_svg_geometry_v5_v4_engine',
+            'benchmark':'plate06_mama_exact_svg_geometry_v6_pieces_adapter',
             'failureStage':stage,
             'error':repr(exc),
             'productionUntouched':True,
         }
-    result['benchmark']='plate06_mama_exact_svg_geometry_v5_v4_engine'
+    result['benchmark']='plate06_mama_exact_svg_geometry_v6_pieces_adapter'
+    result['snapshotFormat']='pieces/pieceMeta' if 'pieces' in payload else 'legacy-shapes'
+    result['decodedScaleInfo']=payload.get('_decodedScaleInfo')
     result['historicalEngineComplete']=10
     result['manualKnownComplete']=11
     result['snapshotCheck']=snapshot
