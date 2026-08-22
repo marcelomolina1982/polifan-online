@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64, gzip, json, time
+import base64, gzip, json, time, threading
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
@@ -170,3 +170,14 @@ def run_suite(seconds_each=None):
         'cases': rows,
         'productionUntouched': True,
     }
+
+
+def _auto_regression():
+    time.sleep(10)
+    try:
+        result = run_suite(seconds_each=55.0)
+        print('REV_FIXED_SUITE_RESULT '+json.dumps(result,separators=(',',':'),ensure_ascii=False), flush=True)
+    except Exception as exc:
+        print('REV_FIXED_SUITE_RESULT '+json.dumps({'ok':False,'error':repr(exc),'productionUntouched':True},separators=(',',':')), flush=True)
+
+threading.Thread(target=_auto_regression,name='revolutionary-fixed-suite-v1',daemon=True).start()
