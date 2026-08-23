@@ -3,32 +3,34 @@ export default function sparrowLabRoutePlugin(){
     name:'sparrow-lab-route',
     enforce:'pre',
     transform(code,id){
-      if(!id.endsWith('/src/pages/SheetPlanner.jsx'))return null
+      if(!id.endsWith('/src/pages/MotorDefinitivo.jsx'))return null
       let out=code
+
       if(!out.includes("from '../lib/sparrowLab'")){
         out=out.replace(
-          "import React, { useEffect, useMemo, useRef, useState } from 'react'",
-          "import React, { useEffect, useMemo, useRef, useState } from 'react'\nimport { solveWithSparrowLab } from '../lib/sparrowLab'"
+          "import React,{useEffect,useMemo,useState} from 'react'",
+          "import React,{useEffect,useMemo,useState} from 'react'\nimport {solveWithSparrowLab} from '../lib/sparrowLab'"
         )
       }
-      const start='      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo.'
-      const end='      const ls=local.sheets[0],validation=local.validation||{}'
-      const a=out.indexOf(start)
-      const b=out.indexOf(end,a)
-      if(a<0||b<0)throw new Error('sparrowLabRoutePlugin: no encontré el bloque del solver local')
-      const replacement=`      // LAB: usar exactamente el mismo payload real, pero resolverlo con Sparrow limpio en Render.\n      const sparrow=await solveWithSparrowLab(payload,{\n        onStage:stage=>setCalcProgress(v=>({...v,stage,elapsed:(Date.now()-started)/1000,eta:null}))\n      })\n      const remoteParts=new Map()\n      kits.forEach(k=>k.parts.forEach(part=>remoteParts.set(part.instanceId,part)))\n      const remotePlaced=(sparrow.placements||[]).map(pl=>{\n        const part=remoteParts.get(pl.instanceId)\n        if(!part)return null\n        return {...part,x:num(pl.xCm),y:num(pl.yCm),angle:num(pl.angle),rotated:Math.abs(num(pl.angle)%360)>.001,\n          industrial:true,localFallback:false,localStable:false,sparrowClean:true,\n          trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}\n      }).filter(Boolean)\n      if(!remotePlaced.length)throw new Error('Sparrow limpio terminó sin componentes colocados.')\n      const local={\n        sheets:[{number:1,placed:remotePlaced,used:num(sparrow.raw?.materialAreaMm2)/100,efficiency:num(sparrow.geometricOccupancyPct)}],\n        validation:{ok:true,usage:num(sparrow.geometricOccupancyPct),materialArea:num(sparrow.raw?.materialAreaMm2)/100},\n        completeFigures:num(sparrow.completeFigures),attempts:sparrow.attempts||[],\n        engine:sparrow.engine,stripWidthMm:num(sparrow.stripWidthMm),\n        stripWidthUsagePct:num(sparrow.stripWidthUsagePct),materialInsideUsedStripPct:num(sparrow.materialInsideUsedStripPct)\n      }\n`
-      out=out.slice(0,a)+replacement+out.slice(b)
-      out=out.replace("engine:'Motor Polifan v23 · local estable · silueta real',","engine:local.engine||'Sparrow clean TRUE area-first',")
-      out=out.replace("localStable:true,engine:","localStable:false,sparrowClean:true,engine:")
-      out=out.replace("minimumTarget:Math.min(10,kits.length),reachedMinimum:Number(local.completeFigures||0)>=Math.min(10,kits.length),","minimumTarget:null,reachedMinimum:true,")
-      out=out.replace("const reachedMinimum=completeFigures>=Number(data.minimumTarget||10)","const reachedMinimum=true")
-      // Las posiciones de Sparrow están expresadas sobre la geometría recortada. Deben
-      // renderizarse como industriales para aplicar trimXCm/trimYCm; de lo contrario la
-      // vista previa no coincide con la placa que resolvió Sparrow.
-      out=out.replace("industrial:false,localFallback:false,localStable:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm)","industrial:true,localFallback:false,localStable:false,sparrowClean:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm)")
-      // No recalcular el ancho con cajas sin rotar: usar directamente el strip certificado
-      // por Sparrow y su densidad dentro del strip.
-      out=out.replace("compactness,usedWidthMm:usedW*10,usedHeightMm:usedH*10,","compactness:num(local.materialInsideUsedStripPct||compactness),usedWidthMm:num(local.stripWidthMm||usedW*10),usedHeightMm:usedH*10,")
+
+      // Ignore any old async job saved by the V1.12/test backend.
+      out=out.replace(
+        "const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v1'",
+        "const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v2-clean'"
+      )
+
+      const rx=/  async function runPayload\(payload,multiplier\)\{[\s\S]*?\n  \}\n  async function finishResult/
+      if(!rx.test(out))throw new Error('sparrowLabRoutePlugin: no encontré runPayload en MotorDefinitivo')
+
+      const replacement=`  async function runPayload(payload,multiplier){\n    clearActiveJob()\n    setProgress('Sparrow limpio · enviando geometrías reales…')\n    const clean=await solveWithSparrowLab(payload,{\n      onStage:stage=>setProgress(stage)\n    })\n    const raw=clean.raw||{}\n    return {\n      ...raw,\n      ok:true,\n      engine:clean.engine,\n      placements:clean.placements,\n      completeFigures:clean.completeFigures,\n      density:clean.geometricOccupancyPct,\n      geometricOccupancyPct:clean.geometricOccupancyPct,\n      stripWidthMm:clean.stripWidthMm,\n      stripWidthUsagePct:clean.stripWidthUsagePct,\n      materialInsideUsedStripPct:clean.materialInsideUsedStripPct,\n      rotationStep:raw.rotation==='continua'?'continua':(raw.rotation||'-'),\n      reachedMinimum:true,\n      noArtificialMinimum:true,\n      candidatePool:Number(raw.candidatePoolTested||0),\n      selectionStrategy:clean.selectionStrategy||clean.engine,\n      elapsedSeconds:Number(raw.elapsedSeconds||0)\n    }\n  }\n  async function finishResult`
+      out=out.replace(rx,replacement)
+
+      // Make it visually unmistakable that this preview is not using V1.12.
+      out=out.replaceAll('Motor Sparrow + Certificador V1.7','Sparrow CLEAN Area-First + Certificador')
+      out=out.replaceAll('10 base · crecer mientras entre','AREA-FIRST real · sin mínimo artificial')
+      out=out.replaceAll('Sparrow asíncrono · V1.7 certifica','Sparrow CLEAN directo · Area-First')
+      out=out.replaceAll('Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1220 × 580 mm.','Prueba aislada: usa Sparrow CLEAN directamente y prioriza área real ocupada, sin pasar por V1.12.')
+
       return {code:out,map:null}
     }
   }
