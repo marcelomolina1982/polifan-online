@@ -18,20 +18,77 @@ def _area(selected):
     return sum(float(k.get('area') or 0) for k in selected)
 
 
+def _unique(rows):
+    seen = set()
+    out = []
+    for k in rows:
+        kid = str(k.get('kitId') or '')
+        if not kid or kid in seen:
+            continue
+        seen.add(kid)
+        out.append(k)
+    return out
+
+
 def _candidate_pool(kits):
-    """Bounded pool across different quantities, ranked by real material area."""
+    """Bounded, diverse pool across quantities, ranked by true material area.
+
+    We intentionally do not rely only on the historical candidate generator because
+    it always preserves a fixed urgent head. Area-first also needs candidates made
+    from the largest real geometries, the most compact geometries, and mixed urgent
+    + area sets. Priority remains represented, but it is not allowed to become an
+    artificial figure-count gate.
+    """
     max_target = min(14, len(kits))
     pool, seen = [], set()
+    window = kits[:min(32, len(kits))]
+
+    def add(label, rows, target):
+        selected = _unique(rows)[:target]
+        if len(selected) != target:
+            return
+        key = tuple(sorted(str(k.get('kitId') or '') for k in selected))
+        if not key or key in seen:
+            return
+        seen.add(key)
+        material_area = float(_area(selected))
+        # Mathematical impossibility: more real material than the whole plate.
+        # Skip it before calling Sparrow and save tens of seconds of CPU.
+        if material_area > base.PLATE_AREA_MM2 + 1e-6:
+            return
+        pool.append((material_area, len(selected), label, selected))
+
+    by_area = sorted(window, key=lambda k: (-float(k.get('area') or 0), -float(k.get('solidity') or 0), core._priority(k)))
+    by_compact = sorted(window, key=lambda k: (-float(k.get('solidity') or 0), float(k.get('envelope') or 1e18), -float(k.get('area') or 0), core._priority(k)))
+
     for target in range(1, max_target + 1):
-        for label, selected in core._candidate_selections(kits, target)[:3]:
-            key = tuple(sorted(str(k.get('kitId') or '') for k in selected))
-            if not key or key in seen:
+        # Existing production-aware variants.
+        for label, selected in core._candidate_selections(kits, target):
+            add(label, selected, target)
+
+        # Pure area: exact expression of the user's primary objective.
+        add('área real pura', by_area, target)
+
+        # Pure compactness can rescue irregular combinations that area-greedy cannot fit.
+        add('compactación pura', by_compact, target)
+
+        # Mixed variants retain some urgency without forcing five urgent kits into every set.
+        for urgent_count in (1, 2, 3, 4):
+            if urgent_count >= target:
                 continue
-            seen.add(key)
-            pool.append((float(_area(selected)), len(selected), label, selected))
-    # Real occupied material first. Count only breaks equal-area ties.
+            urgent = kits[:urgent_count]
+            used = {str(k.get('kitId') or '') for k in urgent}
+            tail_area = [k for k in by_area if str(k.get('kitId') or '') not in used]
+            tail_compact = [k for k in by_compact if str(k.get('kitId') or '') not in used]
+            add(f'{urgent_count} urgentes + área', urgent + tail_area, target)
+            add(f'{urgent_count} urgentes + compactas', urgent + tail_compact, target)
+
+    # True plate occupancy first. Count only breaks equal-area ties.
     pool.sort(key=lambda row: (-row[0], -row[1], row[2]))
-    return pool[:18]
+
+    # More diversity than v8, but still bounded for the free Render worker.
+    # Because the list is area-sorted, this keeps the most valuable material sets.
+    return pool[:28]
 
 
 def solve_area_first():
@@ -95,8 +152,9 @@ def solve_area_first():
             _, result, seed, continuous = candidate_best
             feasible.append((material_area, count, label, selected, result, seed, continuous))
 
-        # Once we already have a valid solution, candidates with materially less area
-        # cannot beat it. Allow a tiny 0.05% tolerance for equal-area alternatives.
+        # Once a valid set exists, anything with genuinely less real material cannot
+        # beat it under the requested area-first objective. Keep a 0.05% band only
+        # for effectively equal-area alternatives so strip compaction can decide.
         if feasible and rank + 1 < len(pool):
             best_area = max(row[0] for row in feasible)
             next_area = pool[rank + 1][0]
@@ -107,7 +165,7 @@ def solve_area_first():
         return jsonify(
             ok=False,
             error='Sparrow limpio no encontró una placa válida en este conjunto',
-            build=base.BUILD,
+            build='clean-lab-v9-area-first-diverse-2026-08-23',
             traceId=trace_id,
             attempts=attempts,
             rejected=rejected[:10],
@@ -136,9 +194,9 @@ def solve_area_first():
     metrics = base._metrics(selected, best_result)
     return jsonify(
         ok=True,
-        build='clean-lab-v8-true-area-first-2026-08-23',
+        build='clean-lab-v9-area-first-diverse-2026-08-23',
         traceId=trace_id,
-        engine='Sparrow clean TRUE area-first',
+        engine='Sparrow clean TRUE area-first v9',
         historicalRuntimesLoaded=False,
         completeFigures=len(selected),
         placements=best_result.get('placements') or [],
@@ -154,6 +212,7 @@ def solve_area_first():
         seed=best_seed,
         rotation='continua' if best_continuous else '15°',
         scoring='REAL MATERIAL AREA FIRST; figure count second; strip width third',
+        candidatePoolTested=len(pool),
         noArtificialMinimum=True,
         attempts=attempts,
         rejected=rejected[:10],
