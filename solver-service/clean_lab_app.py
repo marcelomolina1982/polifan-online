@@ -8,7 +8,7 @@ import time, uuid
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-BUILD = "clean-lab-v6-browser-upload-2026-08-23"
+BUILD = "clean-lab-v7-benchmark-strategy-2026-08-23"
 PLATE_WIDTH_MM = 1220.0
 PLATE_HEIGHT_MM = 580.0
 PLATE_AREA_MM2 = PLATE_WIDTH_MM * PLATE_HEIGHT_MM
@@ -47,7 +47,6 @@ def _exact_piece_kits_from_plate_svg(svg_text):
         piece = deepcopy(g)
         piece.attrib.pop('transform', None)
         wrapper = ET.Element('svg', {
-            'xmlns': SVG_NS,
             'width': '1220mm',
             'height': '580mm',
             'viewBox': '0 0 1220 580',
@@ -105,9 +104,9 @@ def runtime_info():
     return jsonify(ok=True, build=BUILD, mode='clean-sparrow-area-first', solver=_identity(),
                    historicalRuntimesLoaded=False, widthCm=122, heightCm=58, gapMm=3.0,
                    minimumCompleteFigures=None,
-                   scoring='geometric-occupancy-first; quantity-second; strip-width-third',
-                   exactSvgBenchmark=True,
-                   browserUpload=True,
+                   scoring='maximum material first; then compact same set by strip width',
+                   exactSvgBenchmark=True, browserUpload=True,
+                   strategy='descending quantity -> quick feasibility -> multi-seed continuous refinement',
                    metrics=['geometricOccupancyPct','stripWidthUsagePct','materialInsideUsedStripPct','sparrowReportedDensityPct'])
 
 
@@ -185,6 +184,18 @@ def upload_benchmark():
         return benchmark_plate_svg()
 
 
+def _attempt_row(target, label, result, seed, continuous, phase):
+    metrics = _metrics([], result) if False else None
+    return {
+        'target': target, 'label': label, 'phase': phase,
+        'fits': bool(result.get('fits')), 'seed': seed,
+        'rotation': 'continua' if continuous else '15°',
+        'stripWidthMm': result.get('stripWidthMm'),
+        'solverDensity': result.get('solverDensity'),
+        'error': result.get('error')
+    }
+
+
 @app.post('/solve')
 def solve():
     data = request.get_json(silent=True) or {}
@@ -209,49 +220,79 @@ def solve():
         return jsonify(ok=False, error='No hay kits geométricos utilizables', rejected=rejected[:10], traceId=trace_id), 422
 
     attempts = []
-    best = None
-    max_target = min(12, len(kits))
+    chosen = None
+    max_target = min(14, len(kits))
     min_target = max(1, min(6, max_target))
-    targets = list(range(max_target, min_target - 1, -1))
 
-    for target in targets:
-        variants = core._candidate_selections(kits, target)
-        for vidx, (label, selected) in enumerate(variants[:2]):
-            seconds = 16 if vidx == 0 else 12
-            seed = 1009 + target * 97 + vidx * 211
-            result = core._run_sparrow(selected, gap_mm, seconds, seed, continuous=(vidx == 1))
-            metrics = _metrics(selected, result) if result.get('ok') else None
-            attempts.append({
-                'target': target, 'label': label, 'fits': bool(result.get('fits')),
-                'geometricOccupancyPct': metrics.get('geometricOccupancyPct') if metrics else None,
-                'stripWidthUsagePct': metrics.get('stripWidthUsagePct') if metrics else None,
-                'sparrowReportedDensityPct': metrics.get('sparrowReportedDensityPct') if metrics else None,
-                'stripWidthMm': result.get('stripWidthMm'), 'seed': seed,
-                'rotation': 'continua' if vidx == 1 else '15°', 'error': result.get('error')
-            })
-            if result.get('ok') and result.get('fits'):
-                sc = _score(result, selected)
-                if best is None or sc > best[0]:
-                    best = (sc, selected, label, result, seed)
+    # 1) Buscar la MAYOR cantidad que realmente entra. No existe puerta artificial de 10.
+    # Dos selecciones por cantidad y dos búsquedas cortas por selección.
+    for target in range(max_target, min_target - 1, -1):
+        variants = core._candidate_selections(kits, target)[:2]
+        feasible = []
+        for vidx, (label, selected) in enumerate(variants):
+            quick_runs = [
+                (2201 + target*73 + vidx*311, False, 11),
+                (3301 + target*97 + vidx*421, True, 15),
+            ]
+            for seed, continuous, seconds in quick_runs:
+                result = core._run_sparrow(selected, gap_mm, seconds, seed, continuous=continuous)
+                m = _metrics(selected, result) if result.get('ok') else None
+                attempts.append({
+                    'target': target, 'label': label, 'phase': 'feasibility',
+                    'fits': bool(result.get('fits')), 'seed': seed,
+                    'rotation': 'continua' if continuous else '15°',
+                    'geometricOccupancyPct': m.get('geometricOccupancyPct') if m else None,
+                    'stripWidthMm': m.get('stripWidthMm') if m else result.get('stripWidthMm'),
+                    'materialInsideUsedStripPct': m.get('materialInsideUsedStripPct') if m else None,
+                    'error': result.get('error')
+                })
+                if result.get('ok') and result.get('fits'):
+                    feasible.append((selected, label, result, seed, continuous))
+        if feasible:
+            # Primera cantidad que entra = máxima cantidad posible bajo estas selecciones.
+            # Elegimos el mejor arranque rápido por menor strip y lo refinamos.
+            feasible.sort(key=lambda x: (float(x[2].get('stripWidthMm') or 1e18), -float(x[2].get('solverDensity') or 0)))
+            chosen = feasible[0]
+            break
 
-    if best is None:
+    if chosen is None:
         return jsonify(ok=False, error='Sparrow limpio no encontró una placa válida en este conjunto',
                        build=BUILD, traceId=trace_id, attempts=attempts, rejected=rejected[:10],
                        elapsedSeconds=round(time.time()-started, 2)), 422
 
-    _, selected, label, result, seed = best
-    metrics = _metrics(selected, result)
+    selected, label, best_result, best_seed, best_continuous = chosen
+
+    # 2) Mismo conjunto exacto: aplicar lo aprendido del benchmark real.
+    # Varias semillas + rotación continua. Como el material ya es fijo, gana menor strip.
+    refine_seeds = [1777, 3911, 5119]
+    for seed in refine_seeds:
+        result = core._run_sparrow(selected, gap_mm, 22, seed, continuous=True)
+        m = _metrics(selected, result) if result.get('ok') else None
+        attempts.append({
+            'target': len(selected), 'label': label, 'phase': 'continuous-refine',
+            'fits': bool(result.get('fits')), 'seed': seed, 'rotation': 'continua',
+            'geometricOccupancyPct': m.get('geometricOccupancyPct') if m else None,
+            'stripWidthMm': m.get('stripWidthMm') if m else result.get('stripWidthMm'),
+            'materialInsideUsedStripPct': m.get('materialInsideUsedStripPct') if m else None,
+            'error': result.get('error')
+        })
+        if result.get('ok') and result.get('fits'):
+            if float(result.get('stripWidthMm') or 1e18) < float(best_result.get('stripWidthMm') or 1e18):
+                best_result, best_seed, best_continuous = result, seed, True
+
+    metrics = _metrics(selected, best_result)
     return jsonify(
-        ok=True, build=BUILD, traceId=trace_id, engine='Sparrow clean area-first',
-        historicalRuntimesLoaded=False, completeFigures=len(selected), placements=result.get('placements') or [],
+        ok=True, build=BUILD, traceId=trace_id, engine='Sparrow clean benchmark-promoted',
+        historicalRuntimesLoaded=False, completeFigures=len(selected), placements=best_result.get('placements') or [],
         geometricOccupancyPct=metrics['geometricOccupancyPct'],
         stripWidthUsagePct=metrics['stripWidthUsagePct'],
         materialInsideUsedStripPct=metrics['materialInsideUsedStripPct'],
         sparrowReportedDensityPct=metrics['sparrowReportedDensityPct'],
         materialAreaMm2=metrics['materialAreaMm2'], plateAreaMm2=metrics['plateAreaMm2'],
         stripWidthMm=metrics['stripWidthMm'], gapMm=3.0, widthCm=122, heightCm=58,
-        selectionStrategy=label, seed=seed,
-        scoring='geometric-occupancy-first; quantity-second; strip-width-third',
+        selectionStrategy=label, seed=best_seed,
+        rotation='continua' if best_continuous else '15°',
+        scoring='max quantity feasible; then minimum strip for same material',
         noArtificialMinimum=True, attempts=attempts, rejected=rejected[:10],
         elapsedSeconds=round(time.time()-started, 2)
     )
