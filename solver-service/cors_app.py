@@ -6,6 +6,7 @@ import adaptive_base_runtime
 import intelligent_selector_runtime
 import hybrid_strategy_runtime
 import final_runtime_v20  # runtime final v25.0.22: V1.10 Global Recompact
+import emergency_cut_runtime  # PRODUCCION: fallback certificado 9 -> 6 antes de bloquear
 
 import async_jobs
 from flask import jsonify, request
@@ -17,7 +18,7 @@ CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], m
 @app.get('/runtime-info')
 def runtime_info():
     view=app.view_functions.get('nest_sparrow')
-    return jsonify(ok=True,build='v25.0.22-global-recompact',runtime='sparrow-v1.10-global-recompact',solverFunction=getattr(view,'__name__','-'),growthTargets=[11,12,13,14,15,16],globalRecompact=True,targetDensity=70,minGapMm=2.5,edgeMarginMm=3)
+    return jsonify(ok=True,build='v25.0.22-emergency-fallback-live',runtime='sparrow-emergency-certified-fallback',solverFunction=getattr(view,'__name__','-'),growthTargets=[11,12,13,14,15,16],globalRecompact=True,emergencyFallback=True,fallbackRange=[9,8,7,6],targetDensity=70,minGapMm=3.0,edgeMarginMm=3)
 
 
 @app.get('/motor-definitivo/health')
