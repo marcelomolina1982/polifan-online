@@ -1,4 +1,4 @@
-"""TVT Revolutionary V10.9 — free-tier, single-lane, long-run Sparrow.
+"""TVT Revolutionary V10.10 — free-tier, single-lane, long-run Sparrow.
 
 Designed for Render Free (very small CPU quota):
 - no internal parallelism
@@ -6,6 +6,7 @@ Designed for Render Free (very small CPU quota):
 - preserve every certified incumbent
 - grow N->N+1 by warm-starting Sparrow from the incumbent solution
 - independent >=3.0 mm production certification remains mandatory
+- every rejected attempt exposes its production-certificate reason
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from revolutionary import ensemble_v4 as v4
 from revolutionary.selector_v2 import portfolios as select_portfolios
 from revolutionary.topology_v8 import workshop_seeds
 
-ENGINE = 'TVT Revolutionary V10.9 lowcpu-longrun-warmstart'
+ENGINE = 'TVT Revolutionary V10.10 clean-certified-lowcpu'
 SEEDS = (41, 1701, 31337, 104729, 429, 65537)
 
 
@@ -77,6 +78,24 @@ def _topology_best(prepared_kits):
     return winner, rows
 
 
+def _attempt_record(phase, label, seed, target, seconds, row):
+    rr = row.get('result') or {}
+    cert = row.get('certificate') or {}
+    return {
+        'phase': phase, 'label': label, 'seed': seed, 'target': target,
+        'seconds': round(seconds, 1), 'certified': bool(row.get('certified')),
+        'gapMm': cert.get('minimumGapMmCertified') if cert else None,
+        'certificateReason': cert.get('reason') if cert else None,
+        'certificatePair': cert.get('pair') if cert else None,
+        'certificateBounds': cert.get('bounds') if cert else None,
+        'certificateGapMm': cert.get('gapMm') if cert else None,
+        'density': rr.get('density'), 'stripWidthMm': rr.get('stripWidthMm'),
+        'fits': rr.get('fits'), 'placedParts': rr.get('placedParts'),
+        'expectedParts': rr.get('expectedParts'),
+        'error': str(rr.get('error') or '')[:220],
+    }
+
+
 def _fresh_long(kits, target, deadline, attempt_log, max_candidates=5):
     candidates = select_portfolios(kits, target, limit=max_candidates)
     if not candidates:
@@ -90,16 +109,9 @@ def _fresh_long(kits, target, deadline, attempt_log, max_candidates=5):
         seconds = max(20.0, min(48.0, remaining / max(1.0, min(2, left))))
         seed = SEEDS[idx % len(SEEDS)]
         row = v4._run_fresh(candidate, seconds, seed)
-        rr = row.get('result') or {}; cert = row.get('certificate') or {}
-        attempt_log.append({
-            'phase': f'long-fresh-{target}', 'label': candidate.label, 'seed': seed,
-            'target': target, 'seconds': round(seconds,1), 'certified': bool(row.get('certified')),
-            'gapMm': cert.get('minimumGapMmCertified'), 'density': rr.get('density'),
-            'stripWidthMm': rr.get('stripWidthMm'), 'error': str(rr.get('error') or '')[:220],
-        })
+        attempt_log.append(_attempt_record(f'long-fresh-{target}',candidate.label,seed,target,seconds,row))
         if _valid(row):
             successes.append(row)
-            # Preserve enough budget to warm-grow. One certified foothold is enough.
             if target >= 10:
                 break
     return _best(successes)
@@ -109,7 +121,6 @@ def _grow_once(incumbent, all_kits, deadline, attempt_log):
     used = {str(k.get('kitId') or '') for k in incumbent['candidate'].kits}
     extras = sorted([k for k in all_kits if str(k.get('kitId') or '') not in used], key=v4._extra_rank)[:4]
     plans = v4._blocker_plans(incumbent)
-    # Prefer meaningful rebuilds over direct tiny-hole insertion on slow CPU.
     selected_plans = [p for p in plans if p[1] in ('mixed-2','right-2','large-2','mixed-3','right-3','large-3')]
     if not selected_plans:
         selected_plans = plans[:4]
@@ -123,14 +134,7 @@ def _grow_once(incumbent, all_kits, deadline, attempt_log):
             seconds = max(20.0, min(42.0, remaining / 2.0))
             seed = SEEDS[(job + 2) % len(SEEDS)]; job += 1
             row = v4._lns_one(incumbent, extra, disturbed, label, seconds, seed)
-            rr = row.get('result') or {}; cert = row.get('certificate') or {}
-            attempt_log.append({
-                'phase': 'long-warm-grow', 'label': label, 'seed': seed,
-                'target': len(incumbent['candidate'].kits) + 1, 'seconds': round(seconds,1),
-                'certified': bool(row.get('certified')), 'gapMm': cert.get('minimumGapMmCertified'),
-                'density': rr.get('density'), 'stripWidthMm': rr.get('stripWidthMm'),
-                'error': str(rr.get('error') or '')[:220],
-            })
+            attempt_log.append(_attempt_record('long-warm-grow',label,seed,len(incumbent['candidate'].kits)+1,seconds,row))
             if _valid(row) and (best is None or _score(row) > _score(best)):
                 best = row
                 return best
@@ -145,15 +149,12 @@ def revolutionary_solve(prepared_kits, total_seconds=240.0, max_workers=1):
 
     topo_best, topo_rows = _topology_best(prepared_kits)
     if topo_best and len(topo_best['candidate'].kits) >= 10:
-        # Known workshop topology can be dramatically faster than a fresh stochastic run.
         return _row_payload(topo_best, started, attempts, len(topo_rows))
 
     ceiling = min(16, len(prepared_kits))
     desired = min(10, ceiling)
     incumbent = None
 
-    # Search commercial target first with long runs. If genuinely unavailable,
-    # keep a certified lower incumbent rather than returning nothing.
     for target in range(desired, max(5, desired-2) - 1, -1):
         incumbent = _fresh_long(prepared_kits, target, deadline, attempts, max_candidates=5 if target >= 10 else 3)
         if incumbent:
@@ -170,7 +171,6 @@ def revolutionary_solve(prepared_kits, total_seconds=240.0, max_workers=1):
         }
 
     best = incumbent
-    # Warm-start growth. Each accepted larger plate becomes the next incumbent.
     while len(best['candidate'].kits) < ceiling and deadline - time.time() >= 24:
         grown = _grow_once(best, prepared_kits, deadline, attempts)
         if not grown:
