@@ -1,9 +1,10 @@
-"""TVT Revolutionary Ensemble V10.2 — certified portfolio, laboratory only.
+"""TVT Revolutionary Ensemble V10.3 — certified portfolio, laboratory only.
 
-U-Nesting is isolated in a killable child process. It can never consume the whole
-case budget again. Sparrow/V6 keeps the proven V8.1 budget; U-Nesting only gets a
-short direct/full-pool probe and a bounded N+1 rescue. Every proposal must still
-pass the normal TVT certificate: >=3 mm, zero collisions, zero border violations.
+U-Nesting is isolated in a killable child process in normal service execution. In
+an already-daemonic benchmark worker, Python forbids nested multiprocessing, so
+U-Nesting is skipped safely and the proven Sparrow/V6 path keeps running. Every
+accepted layout still passes the TVT certificate: >=3 mm, zero collisions and
+zero border violations.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from revolutionary.topology_v8 import workshop_seeds
 from revolutionary.deep_lns_v9 import deep_grow_beam
 from revolutionary import unesting_v9
 
-ENGINE='TVT Revolutionary Ensemble V10.2-hard-timeout'
+ENGINE='TVT Revolutionary Ensemble V10.3-daemon-safe'
 MAX_COMPLETE=18
 
 
@@ -45,7 +46,9 @@ def _unesting_worker(selected,strategy,milliseconds,q):
 
 
 def _bounded_unesting(selected,strategy,milliseconds,wall_seconds):
-    """Run native U-Nesting out-of-process so a slow native call is killable."""
+    """Run native U-Nesting killably; skip safely inside daemonized test workers."""
+    if mp.current_process().daemon:
+        return {'ok':False,'engine':'u-nesting','error':'skipped inside daemon benchmark worker','daemonSkipped':True}
     ctx=mp.get_context('fork')
     q=ctx.Queue(maxsize=1)
     p=ctx.Process(target=_unesting_worker,args=(selected,strategy,milliseconds,q),daemon=True)
@@ -70,8 +73,9 @@ def _unesting_row(selected,strategy,milliseconds,phase='u-nesting-rescue',wall_s
     candidate=type('V10UNestingCandidate',(),{'label':f'u-nesting-{strategy}-{len(selected)}','kits':selected})()
     row={'candidate':candidate,'seed':None,'result':result,'certified':ok,'certificate':cert}
     attempt={'phase':phase,'strategy':strategy,'target':len(selected),'certified':bool(ok),'proposalOk':bool(proposal.get('ok')),
-             'hardTimedOut':bool(proposal.get('hardTimedOut')),'placedParts':len(placements),'expectedParts':expected,
-             'gapMm':cert.get('minimumGapMmCertified'),'collisionCount':cert.get('collisionCount'),'outsidePlateCount':cert.get('outsidePlateCount'),
+             'hardTimedOut':bool(proposal.get('hardTimedOut')),'daemonSkipped':bool(proposal.get('daemonSkipped')),
+             'placedParts':len(placements),'expectedParts':expected,'gapMm':cert.get('minimumGapMmCertified'),
+             'collisionCount':cert.get('collisionCount'),'outsidePlateCount':cert.get('outsidePlateCount'),
              'elapsedSeconds':result['elapsedSeconds'],'error':str(proposal.get('error') or '')[:300]}
     return row,attempt
 
@@ -79,13 +83,13 @@ def _unesting_row(selected,strategy,milliseconds,phase='u-nesting-rescue',wall_s
 def _full_pool_unesting(prepared_kits,deadline):
     attempts=[]
     if not unesting_v9.available() or len(prepared_kits)<6 or len(prepared_kits)>14:return None,attempts
-    # Maximum ~8 seconds total; never steal Sparrow's proven search budget.
     for strategy in ('alns','gdrr'):
         remain=deadline-time.time()
         if remain<2:break
         wall=min(4.0,max(1.5,remain-0.5))
         row,attempt=_unesting_row(list(prepared_kits),strategy,int(wall*850),phase='u-nesting-full-pool',wall_seconds=wall)
         attempts.append(attempt)
+        if attempt.get('daemonSkipped'):break
         if row and row.get('certified'):return row,attempts
     return None,attempts
 
@@ -93,7 +97,6 @@ def _full_pool_unesting(prepared_kits,deadline):
 def _unesting_rescue(beam,prepared_kits,target,deadline):
     if not unesting_v9.available() or deadline-time.time()<3:return [],[]
     rows=[];attempts=[]
-    # One strongest incumbent, two best extras, one strategy each: strict rescue cap.
     for base in beam[:1]:
         current=list(base['candidate'].kits);current_ids={str(k.get('kitId') or '') for k in current}
         extras=sorted([k for k in prepared_kits if str(k.get('kitId') or '') not in current_ids],key=v4._extra_rank)[:2]
@@ -105,6 +108,7 @@ def _unesting_rescue(beam,prepared_kits,target,deadline):
             wall=min(4.0,max(1.5,remain-1.0))
             row,attempt=_unesting_row(selected,'alns',int(wall*850),wall_seconds=wall)
             attempts.append(attempt)
+            if attempt.get('daemonSkipped'):return [],attempts
             if row and row.get('certified'):
                 rows.append(row);break
     return v4._unique_beam(rows,width=2),attempts
@@ -138,7 +142,6 @@ def revolutionary_solve_v8(prepared_kits,total_seconds=180.0,max_workers=4):
         if early and len(early['candidate'].kits)==len(prepared_kits):return _finish(early,topo,[len(prepared_kits)],attempts,started)
 
     topo_count=len(topo_best['candidate'].kits) if topo_best else 0
-    # Proven V8.1 allocation that reached Cactus 10 and homogeneous 10.
     if topo_count>=12:base_budget=max(42.0,min(64.0,budget*0.34))
     else:base_budget=max(48.0,min(78.0,budget*0.48))
     base=v6.revolutionary_solve_v6(prepared_kits,total_seconds=base_budget,max_workers=max_workers)
@@ -163,7 +166,7 @@ def revolutionary_solve_v8(prepared_kits,total_seconds=180.0,max_workers=4):
         if not grown and deadline-time.time()>5:
             grown,urows=_unesting_rescue(beam,prepared_kits,count+1,deadline);attempts.extend(urows)
         if not grown:
-            attempts.append({'phase':'v10.2-practical-maximum','target':count+1,'certified':False,'reason':'bounded search families exhausted; incumbent preserved'});break
+            attempts.append({'phase':'v10.3-practical-maximum','target':count+1,'certified':False,'reason':'bounded search families exhausted; incumbent preserved'});break
         candidate=grown[0]
         if v4._score(candidate)>v4._score(best):best=candidate
         beam=v4._unique_beam(grown+beam,width=4);count=len(best['candidate'].kits)
