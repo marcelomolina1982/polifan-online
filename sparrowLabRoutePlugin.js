@@ -1,3 +1,4 @@
+// LAB CLEAN V2: this preview must never execute the historical V1.12 nesting path.
 export default function sparrowLabRoutePlugin(){
   return {
     name:'sparrow-lab-route',
