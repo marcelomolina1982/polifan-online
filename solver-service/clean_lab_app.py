@@ -8,7 +8,7 @@ import time, uuid
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-BUILD = "clean-lab-v4-exact-svg-benchmark-2026-08-23"
+BUILD = "clean-lab-v6-browser-upload-2026-08-23"
 PLATE_WIDTH_MM = 1220.0
 PLATE_HEIGHT_MM = 580.0
 PLATE_AREA_MM2 = PLATE_WIDTH_MM * PLATE_HEIGHT_MM
@@ -40,9 +40,6 @@ def _metrics(selected, result):
 def _exact_piece_kits_from_plate_svg(svg_text):
     root = ET.fromstring(svg_text)
     pieces = []
-    # Tomamos exactamente cada grupo exportado como pieza física y quitamos SOLO
-    # la traslación global de la placa. Las transformaciones internas de la pieza
-    # se conservan, por lo que forma y tamaño permanecen 1:1.
     for g in root.iter():
         gid = str(g.attrib.get('id') or '')
         if not gid.startswith('pieza_') or g.attrib.get('data-polifan-piece') != '1':
@@ -110,6 +107,7 @@ def runtime_info():
                    minimumCompleteFigures=None,
                    scoring='geometric-occupancy-first; quantity-second; strip-width-third',
                    exactSvgBenchmark=True,
+                   browserUpload=True,
                    metrics=['geometricOccupancyPct','stripWidthUsagePct','materialInsideUsedStripPct','sparrowReportedDensityPct'])
 
 
@@ -133,8 +131,6 @@ def benchmark_plate_svg():
     if not selected:
         return jsonify(ok=False, error='No se detectaron piezas exportadas', traceId=trace_id), 422
 
-    # Mismas piezas, varios arranques. Como el área es idéntica, gana la solución
-    # que necesite menor strip; materialInsideUsedStripPct resume la compactación.
     attempts = []
     best = None
     seeds = [101, 907, 1777, 3911]
@@ -169,6 +165,24 @@ def benchmark_plate_svg():
                    seed=seed, rotation='continua' if continuous else '15°',
                    placements=result.get('placements') or [], attempts=attempts,
                    **metrics, elapsedSeconds=round(time.time()-started, 2))
+
+
+@app.route('/upload-benchmark', methods=['GET', 'POST'])
+def upload_benchmark():
+    if request.method == 'GET':
+        return '''<!doctype html><html><head><meta charset="utf-8"><title>Benchmark Polifan</title>
+        <style>body{font-family:Arial,sans-serif;max-width:720px;margin:50px auto;padding:24px}button{padding:12px 18px;font-size:16px}input{margin:20px 0}</style></head>
+        <body><h2>Benchmark exacto de placa SVG</h2><p>Seleccioná el SVG exportado. Sparrow probará exactamente esas piezas con 3 mm.</p>
+        <form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><br><button type="submit">Ejecutar benchmark</button></form></body></html>'''
+    uploaded = request.files.get('file')
+    if not uploaded:
+        return jsonify(ok=False, error='Falta archivo SVG'), 400
+    try:
+        svg_text = uploaded.read().decode('utf-8-sig')
+    except Exception as exc:
+        return jsonify(ok=False, error=f'No se pudo leer el SVG: {exc}'), 400
+    with app.test_request_context('/benchmark-plate-svg', method='POST', json={'svgText': svg_text}):
+        return benchmark_plate_svg()
 
 
 @app.post('/solve')
