@@ -1,4 +1,5 @@
 // LAB CLEAN V2: this preview must never execute the historical V1.12 nesting path.
+// BUILD MARKER 2026-08-23T20:00-03:00: force exactly one preview after clean-route fix.
 export default function sparrowLabRoutePlugin(){
   return {
     name:'sparrow-lab-route',
