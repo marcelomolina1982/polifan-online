@@ -1,44 +1,49 @@
 from flask import jsonify
 import nest_sparrow as ns
 
-# PRODUCCION V1.16 — SPARROW REAL, AREA-FIRST, SIN MINIMO ARTIFICIAL
-# Se mantiene Sparrow/jagua-rs como unico nesting. Este adaptador elimina la
-# compuerta historica de "10 completas o error" sin volver al shelf-packing.
+# PRODUCCION V1.17 — SPARROW REAL, CANTIDAD FLEXIBLE DE VERDAD
+# El bug anterior: aunque agregabamos candidatos 9/8/7, nest_sparrow solo prueba
+# base_variants[:3] y luego [:6]. Como primero entraban TODAS las variantes de
+# 10, los tamaños menores nunca llegaban a ejecutarse. Este adaptador intercala
+# cantidades para que Sparrow pruebe 10, 9, 8 y 7 dentro del presupuesto real.
 
 _original_candidate_selections = ns._candidate_selections
-_original_production_ready = ns._production_ready
 _original_solver = ns.nest_sparrow
 
-# Una solucion fisicamente valida puede tener 8, 9, 10... kits. La cantidad no
-# decide validez: manda que Sparrow logre colocar todo dentro de 1220x580.
+
 def _area_first_candidate_selections(kits, _requested_target):
-    variants=[]
-    seen=set()
-    # Primero 10/9 por productividad; 8 y 7 son rescate valido cuando la mezcla
-    # real de formas no permite mas. Cada cantidad conserva las estrategias de
-    # seleccion existentes del motor.
-    for target in (10, 9, 8, 7):
+    by_target={}
+    for target in (10,9,8,7):
         if len(kits) < target:
             continue
-        for label, rows in _original_candidate_selections(kits, target):
+        rows=_original_candidate_selections(kits,target)
+        if rows:
+            by_target[target]=rows
+
+    out=[]; seen=set()
+    # IMPORTANTE: primero una estrategia de cada cantidad. Así los slices
+    # históricos [:3]/[:6] ya no bloquean 9/8/7 detrás de seis intentos de 10.
+    max_variants=max((len(v) for v in by_target.values()),default=0)
+    for variant_idx in range(max_variants):
+        for target in (10,9,8,7):
+            variants=by_target.get(target) or []
+            if variant_idx>=len(variants): continue
+            label,rows=variants[variant_idx]
             sig=tuple(k.get('kitId') for k in rows)
-            if sig in seen:
-                continue
+            if sig in seen: continue
             seen.add(sig)
-            variants.append((f'{target} kits · {label}', rows))
-    return variants
+            out.append((f'{target} kits · {label}',rows))
+    return out
 
 
-def _area_first_production_ready(target, result):
-    return bool(result.get('ok')) and bool(result.get('fits')) and target >= 1
+def _area_first_production_ready(target,result):
+    return bool(result.get('ok')) and bool(result.get('fits')) and target>=1
 
-# El score ya existente prioriza densidad real y luego cantidad/ancho. Al quitar
-# la barrera de 10, compara solamente soluciones que Sparrow pudo encajar.
-ns._candidate_selections = _area_first_candidate_selections
-ns._production_ready = _area_first_production_ready
-ns.MIN_COMPLETE = 1
-ns.HIGH_DENSITY_COMPLETE = 0
-ns.HIGH_DENSITY_MIN = 0.0
+ns._candidate_selections=_area_first_candidate_selections
+ns._production_ready=_area_first_production_ready
+ns.MIN_COMPLETE=1
+ns.HIGH_DENSITY_COMPLETE=0
+ns.HIGH_DENSITY_MIN=0.0
 
 
 def emergency_cut_solver():
@@ -54,11 +59,12 @@ def emergency_cut_solver():
             'areaFirst':True,
             'noArtificialMinimum':True,
             'shelfPackingDisabled':True,
+            'flexibleCandidateOrder':True,
             'optimizationPriority':'sparrow-real-nesting-area-first',
-            'motorPolicy':'mejor placa certificada; cantidad flexible',
+            'motorPolicy':'probar 10/9/8/7 realmente; elegir mejor placa Sparrow válida',
         })
         if payload.get('ok'):
-            payload['message']='Placa generada por Sparrow real; sin mínimo artificial de 10.'
+            payload['message']='Placa generada por Sparrow real con cantidad flexible.'
         return jsonify(payload),status
     return obj,status
 
