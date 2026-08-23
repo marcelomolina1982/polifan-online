@@ -6,10 +6,15 @@ WORKDIR /sparrow
 RUN cargo build --release --features only_final_svg --bin sparrow
 
 # Independent metaheuristic engine for the V9 laboratory portfolio.
-# U-Nesting does not publish a v0.7.2 git tag, so pin the exact 0.7.2 commit.
+# U-Nesting 0.7.2 uses sibling path dependencies from the U-Engine monorepo layout,
+# so reproduce that layout explicitly inside the build image.
 FROM rust:1.91-bookworm AS unesting-build
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN git clone https://github.com/iyulab/u-nesting.git /u-nesting \
+RUN mkdir -p /algorithms /foundation \
+    && git clone --depth 1 https://github.com/iyulab/u-geometry.git /algorithms/u-geometry \
+    && git clone --depth 1 https://github.com/iyulab/u-metaheur.git /algorithms/u-metaheur \
+    && git clone --depth 1 https://github.com/iyulab/u-numflow.git /foundation/u-numflow \
+    && git clone https://github.com/iyulab/u-nesting.git /u-nesting \
     && cd /u-nesting \
     && git checkout ca6b49a12192e664e296f1632dd0fe91ecfb2ac2
 WORKDIR /u-nesting
