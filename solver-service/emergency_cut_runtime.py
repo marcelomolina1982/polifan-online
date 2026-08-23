@@ -3,16 +3,14 @@ import time
 import nest_sparrow as ns
 
 # EMERGENCIA DE PRODUCCION
-# Objetivo: devolver YA una placa cortable y segura aunque Sparrow no encuentre
-# una solucion. Antes de llamar al solver historico intentamos un acomodo
-# determinista por cajas envolventes reales de la geometria. Es conservador:
-# si las cajas no se pisan, las siluetas tampoco. Mantiene 3 mm entre piezas
-# y 3 mm de borde. No modifica inventario ni medidas de los SVG.
+# Devuelve una placa cortable y segura aunque Sparrow no alcance su objetivo.
+# IMPORTANTE: en modo DOBLE x2 no imponemos un minimo artificial de 10 kits:
+# buscamos la mayor cantidad de kits COMPLETOS que realmente entre en la placa.
 _original_solver = ns.nest_sparrow
 EDGE_MM = 3.0
 MIN_DIRECT_SIZE = 1
-MAX_DIRECT_SIZE = 9
-MAX_VARIANTS_PER_SIZE = 8
+MAX_DIRECT_SIZE = 16
+MAX_VARIANTS_PER_SIZE = 12
 
 
 def _direct_shelf_pack(selected, gap_mm, width_mm, height_mm, order_mode='area'):
@@ -50,22 +48,16 @@ def _direct_shelf_pack(selected, gap_mm, width_mm, height_mm, order_mode='area')
     max_bottom = top
 
     for _, _, kit, part, w0, h0 in parts:
-        candidates = []
-        # 0 grados
-        candidates.append((0.0, w0, h0))
-        # 90 grados. Sparrow permite rotacion y el frontend compone alrededor
-        # del origen; compensamos X para que la caja rotada empiece en desired_x.
+        candidates = [(0.0, w0, h0)]
         if abs(w0 - h0) > 0.01:
             candidates.append((90.0, h0, w0))
 
         chosen = None
-        # primero intentamos seguir en la fila actual
         for angle, w, h in sorted(candidates, key=lambda q: (q[2], q[1])):
             if x + w <= right + 1e-6 and y + h <= bottom + 1e-6:
                 chosen = (angle, w, h, x, y)
                 break
 
-        # si no entra, abrimos una nueva fila y volvemos a probar ambas rotaciones
         if chosen is None:
             x = left
             y = y + row_h + gap
@@ -79,9 +71,6 @@ def _direct_shelf_pack(selected, gap_mm, width_mm, height_mm, order_mode='area')
             return {'ok': True, 'fits': False, 'placedParts': len(placements), 'expectedParts': len(parts)}
 
         angle, w, h, px, py = chosen
-        # composeIndustrialSvg hace translate(x,y) rotate(angle) translate(-trim).
-        # Para 90 grados, la geometria normalizada ocupa X=[-h0,0], por eso
-        # trasladamos h0 mm adicionales en X.
         tx = px if angle == 0 else px + h0
         ty = py
         placements.append({
@@ -133,8 +122,10 @@ def _candidate_variants(kits, size):
         out.append((label, selected))
         if len(out) >= MAX_VARIANTS_PER_SIZE:
             break
-    # Agrega ventanas consecutivas para no depender de la heuristica de seleccion.
-    for off in range(0, min(8, max(1, len(kits)-size+1))):
+
+    # Ventanas de prioridad: especialmente importante para DOBLE x2, porque evita
+    # que una unica seleccion heuristica invalide toda la placa.
+    for off in range(0, min(12, max(1, len(kits)-size+1))):
         selected = kits[off:off+size]
         if len(selected) != size:
             continue
@@ -153,7 +144,7 @@ def _try_direct_safe_plate():
     width_mm = max(1.0, ns._n(data.get('widthCm'), 122) * 10)
     height_mm = max(1.0, ns._n(data.get('heightCm'), 58) * 10)
     gap = max(3.0, ns._n(data.get('gapCm'), .3) * 10)
-    raw = sorted(data.get('kits') or [], key=lambda k:(ns._priority(k), str(k.get('date') or ''), str(k.get('figure') or '')))[:40]
+    raw = sorted(data.get('kits') or [], key=lambda k:(ns._priority(k), str(k.get('date') or ''), str(k.get('figure') or '')))[:48]
 
     kits = []
     rejected = []
@@ -167,6 +158,9 @@ def _try_direct_safe_plate():
         return None
 
     attempts = []
+    # Antes estaba clavado en 9. Ahora buscamos de 16 hacia abajo y aceptamos la
+    # mejor cantidad FISICAMENTE posible. Esto permite DOBLE x2 de figuras grandes
+    # sin bloquear produccion por no alcanzar 10.
     top = min(MAX_DIRECT_SIZE, len(kits))
     for size in range(top, MIN_DIRECT_SIZE - 1, -1):
         for label, selected in _candidate_variants(kits, size):
@@ -185,7 +179,7 @@ def _try_direct_safe_plate():
                     response = ns._result_payload(selected, f'EMERGENCIA DIRECTA SEGURA · {size} completas', result, kits, rejected, attempts, started, None)
                     payload = response.get_json()
                     payload.update({
-                        'engine': 'Emergencia directa segura · cajas reales',
+                        'engine': 'Emergencia directa segura · DOBLE compatible',
                         'emergencyFallback': True,
                         'directSafeFallback': True,
                         'reachedMinimum': size >= 10,
@@ -199,12 +193,9 @@ def _try_direct_safe_plate():
 
 
 def emergency_cut_solver():
-    # 1) salida determinista, rapida y conservadora; no depende de Sparrow.
     direct = _try_direct_safe_plate()
     if direct is not None:
         return direct
-    # 2) si incluso el acomodo conservador no entra, dejamos al motor historico
-    # intentar una configuracion mas eficiente con geometria real.
     return _original_solver()
 
 
