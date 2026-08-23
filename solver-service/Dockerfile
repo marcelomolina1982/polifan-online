@@ -30,4 +30,6 @@ COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
 COPY *.py .
 
 EXPOSE 10000
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "1", "--threads", "4", "--timeout", "300", "cors_app:app"]
+# Render asigna PORT en runtime. Usarlo explícitamente evita que el port scanner
+# marque la instancia como sin puerto y la termine durante un trabajo largo.
+CMD ["sh", "-c", "exec gunicorn -b 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 600 --graceful-timeout 30 --keep-alive 5 cors_app:app"]
