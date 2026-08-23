@@ -21,7 +21,6 @@ def runtime_info():
     return jsonify(ok=True,build='v25.0.22-emergency-fallback-live',runtime='sparrow-emergency-certified-fallback',solverFunction=getattr(view,'__name__','-'),growthTargets=[11,12,13,14,15,16],globalRecompact=True,emergencyFallback=True,fallbackRange=[9,8,7,6],targetDensity=70,minGapMm=3.0,edgeMarginMm=3)
 
 
-@app.get('/motor-definitivo/health')
 def motor_definitivo_health():
     return jsonify(
         ok=True,
@@ -33,7 +32,6 @@ def motor_definitivo_health():
     )
 
 
-@app.post('/motor-definitivo/svg')
 def motor_definitivo_svg():
     data=request.get_json(silent=True) or {}
     svg_text=data.get('svgText') or ''
@@ -51,3 +49,10 @@ def motor_definitivo_svg():
         return jsonify(ok=certified,engine='Motor Polifan Definitivo V1.7',**result),(200 if certified else 422)
     except Exception as exc:
         return jsonify(ok=False,error=str(exc),engine='Motor Polifan Definitivo V1.7'),500
+
+# Algunos runtimes ya registran estas rutas sobre la misma app Flask.
+# No volver a registrarlas: Flask aborta el arranque si se repite el endpoint.
+if 'motor_definitivo_health' not in app.view_functions:
+    app.add_url_rule('/motor-definitivo/health', endpoint='motor_definitivo_health', view_func=motor_definitivo_health, methods=['GET'])
+if 'motor_definitivo_svg' not in app.view_functions:
+    app.add_url_rule('/motor-definitivo/svg', endpoint='motor_definitivo_svg', view_func=motor_definitivo_svg, methods=['POST'])
