@@ -9,11 +9,11 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SPARROW_BIN=/usr/local/bin/sparrow
-ENV MOTOR_RUNTIME_BUILD=clean-lab-v5-selftest
+ENV MOTOR_RUNTIME_BUILD=clean-lab-v6-browser-upload
 RUN apt-get update && apt-get install -y --no-install-recommends liblapack3 libblas3 libgomp1 libcairo2 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
 COPY *.py .
 EXPOSE 10000
-CMD ["sh", "-c", "exec gunicorn -b 0.0.0.0:${PORT:-10000} --workers 1 --threads 2 --timeout 600 --graceful-timeout 30 selftest_hook:app"]
+CMD ["sh", "-c", "exec gunicorn -b 0.0.0.0:${PORT:-10000} --workers 1 --threads 2 --timeout 600 --graceful-timeout 30 clean_lab_app:app"]
