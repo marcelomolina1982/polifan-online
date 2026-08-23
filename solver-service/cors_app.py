@@ -13,20 +13,24 @@ from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v8 import revolutionary_solve_v8 as revolutionary_solve
 from revolutionary.benchmark_suite_v9 import topology_probe, run_pure_mama
+# Replacement exam: importing this suite starts the isolated real-geometry
+# cactus / historical Mama / homogeneous stress regression on every lab deploy.
+# Production remains untouched.
+import revolutionary.benchmark_suite_v8 as replacement_exam
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 @app.get('/health')
 def lab_render_health():
-    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='revolutionary-v9-truth-lab')
+    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='revolutionary-v9-replacement-exam')
 
 @app.get('/runtime-info')
 def runtime_info():
-    return jsonify(ok=True,build='motor-revolucionario-v9-truth-benchmark',runtime='V8 solver + corrected pure-Mama truth fixture',productionUntouched=True,revolutionaryEndpoint='/revolutionary/nest',pureMamaProbe='/revolutionary/benchmark/pure-mama-probe',pureMamaRun='/revolutionary/benchmark/pure-mama',targetDensity=70,minGapMm=3.0,manualMamaGate=12)
+    return jsonify(ok=True,build='motor-revolucionario-v9-replacement-exam',runtime='V8 solver + V9 pure-Mama truth fixture + full real-geometry regression',productionUntouched=True,revolutionaryEndpoint='/revolutionary/nest',pureMamaProbe='/revolutionary/benchmark/pure-mama-probe',pureMamaRun='/revolutionary/benchmark/pure-mama',replacementExam='/revolutionary/benchmark/replacement-exam',targetDensity=70,minGapMm=3.0,manualMamaGate=12)
 
 @app.get('/revolutionary/health')
 def revolutionary_health():
-    return jsonify(ok=True,engine='TVT Revolutionary V9 truth lab',solver='TVT Revolutionary Ensemble V8.0',mode='isolated-lab',minGapMm=3.0,workshopTopologyLearning=True,manualMamaGate=12,productionUntouched=True)
+    return jsonify(ok=True,engine='TVT Revolutionary V9 replacement exam',solver='TVT Revolutionary Ensemble V8.0',mode='isolated-lab',minGapMm=3.0,workshopTopologyLearning=True,manualMamaGate=12,productionUntouched=True)
 
 @app.get('/revolutionary/benchmark/pure-mama-probe')
 def revolutionary_pure_mama_probe():
@@ -38,6 +42,15 @@ def revolutionary_pure_mama():
     try:
         seconds=float(request.args.get('seconds') or 95.0)
         result=run_pure_mama(seconds=max(60.0,min(240.0,seconds)))
+        return jsonify(result),(200 if result.get('ok') else 422)
+    except Exception as exc:return jsonify(ok=False,error=repr(exc),productionUntouched=True),500
+
+@app.get('/revolutionary/benchmark/replacement-exam')
+def revolutionary_replacement_exam():
+    try:
+        seconds=request.args.get('seconds')
+        seconds_each=None if seconds is None else max(60.0,min(240.0,float(seconds)))
+        result=replacement_exam.run_suite(seconds_each=seconds_each)
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:return jsonify(ok=False,error=repr(exc),productionUntouched=True),500
 
