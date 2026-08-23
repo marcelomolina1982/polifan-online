@@ -1,4 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "agent/motor-definitivo-prueba": false
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!assets/).*)",
