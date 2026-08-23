@@ -1,28 +1,25 @@
 import nest_sparrow as ns
 from nest_sparrow import app
-# Safety runtime is side-effect free apart from installing the production
-# >=3 mm certifier and Sparrow safety-gap wrapper. It does NOT start benchmarks.
 import production_safety_runtime  # noqa: F401
 from flask import jsonify, request
 from flask_cors import CORS
 from revolutionary.ensemble_v10_9 import revolutionary_solve
 from revolutionary.runtime_gate import solver_lane
-# The ONLY auto benchmark. It has no imports that start legacy suites.
 import revolutionary.benchmark_suite_v8 as replacement_exam
 
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 @app.get('/health')
 def lab_render_health():
-    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='v10.10-clean-certified-lowcpu',productionUntouched=True)
+    return jsonify(ok=True,service='polifan-cnc-solver-test',mode='v10.12-fast-certified',productionUntouched=True)
 
 @app.get('/runtime-info')
 def runtime_info():
-    return jsonify(ok=True,build='motor-v10.10-clean-certified-lowcpu',runtime='Sparrow single lane + production certifier; few long runs; warm-start growth; no legacy auto suites',productionUntouched=True,revolutionaryEndpoint='/revolutionary/nest',replacementExam='/revolutionary/benchmark/replacement-exam',minGapMm=3.0,solverGapMm=3.2,workers=1)
+    return jsonify(ok=True,build='motor-v10.12-fast-certified',runtime='Sparrow single lane + certifier + immediate commercial exit at 10; deep optimization remains benchmark-only',productionUntouched=True,revolutionaryEndpoint='/revolutionary/nest',replacementExam='/revolutionary/benchmark/replacement-exam',minGapMm=3.0,solverGapMm=3.2,workers=1)
 
 @app.get('/revolutionary/health')
 def revolutionary_health():
-    return jsonify(ok=True,engine='TVT Revolutionary V10.10 clean-certified',mode='single-lane-free-tier',minGapMm=3.0,solverGapMm=3.2,certifierAvailable=hasattr(ns,'_validate_final_geometry'),workers=1,productionUntouched=True)
+    return jsonify(ok=True,engine='TVT Revolutionary V10.12 clean-certified-fast',mode='single-lane-free-tier',minGapMm=3.0,solverGapMm=3.2,certifierAvailable=hasattr(ns,'_validate_final_geometry'),workers=1,productionFastExitAt=10,productionUntouched=True)
 
 @app.get('/revolutionary/benchmark/replacement-exam')
 def revolutionary_replacement_exam():
@@ -51,12 +48,12 @@ def revolutionary_nest():
     if not prepared:
         return jsonify(ok=False,error='No hay kits geométricos utilizables',rejected=rejected[:12]),422
     try:
-        total_seconds=max(120.0,min(360.0,float(data.get('seconds') or 300.0)))
+        total_seconds=max(120.0,min(360.0,float(data.get('seconds') or 180.0)))
         with solver_lane():
-            result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=1)
+            result=revolutionary_solve(prepared,total_seconds=total_seconds,max_workers=1,stop_at_commercial=True)
         result['candidatePool']=len(prepared);result['rejected']=rejected[:12]
         result['productionUntouched']=True;result['runtimeWorkers']=1
         result['certifierAvailable']=hasattr(ns,'_validate_final_geometry')
         return jsonify(result),(200 if result.get('ok') else 422)
     except Exception as exc:
-        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary V10.10 clean-certified',productionUntouched=True),500
+        return jsonify(ok=False,error=str(exc),engine='TVT Revolutionary V10.12 clean-certified-fast',productionUntouched=True),500
