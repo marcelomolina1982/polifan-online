@@ -44,3 +44,26 @@ rep("notes:`Sparrow V1.12 Area First · ${plan.units.length} unidades atendidas 
 
 fs.writeFileSync(file,text)
 console.log('v25.0.25: Sparrow V1.13 Residual Fill UI preparada')
+
+// LAB FINAL: parche directo del archivo que realmente usa "Generar placas".
+// Esto evita depender del plugin de Vite y elimina el solver local V1.12/V23 del preview.
+const sheetFile='src/pages/SheetPlanner.jsx'
+let sheet=fs.readFileSync(sheetFile,'utf8')
+if(!sheet.includes("from '../lib/sparrowLab'")){
+  sheet=sheet.replace(
+    "import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'",
+    "import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'\nimport { solveWithSparrowLab } from '../lib/sparrowLab'"
+  )
+}
+const start='      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo.'
+const end='      const response={ok:true,status:200}'
+const a=sheet.indexOf(start)
+const b=sheet.indexOf(end,a)
+if(a<0||b<0) throw new Error('LAB FINAL: no se encontró el bloque local de SheetPlanner')
+const cleanBlock=`      // LAB FINAL: única ruta de cálculo = Sparrow CLEAN en Render.\n      const clean=await solveWithSparrowLab(payload,{\n        onStage:stage=>setCalcProgress(v=>({...v,stage,elapsed:(Date.now()-started)/1000}))\n      })\n      const raw=clean.raw||{}\n      const data={\n        ...raw,\n        ok:true,\n        localStable:false,\n        engine:clean.engine||'Sparrow CLEAN Area-First',\n        completeFigures:Number(clean.completeFigures||raw.completeFigures||0),\n        placements:clean.placements||[],\n        density:Number(clean.geometricOccupancyPct||raw.geometricOccupancyPct||0),\n        compactness:Number(clean.materialInsideUsedStripPct||raw.materialInsideUsedStripPct||clean.geometricOccupancyPct||0),\n        usedWidthMm:Number(clean.stripWidthMm||raw.stripWidthMm||0),\n        usedHeightMm:num(sheetH,58)*10,\n        attempts:clean.attempts||[],\n        minimumTarget:1,\n        reachedMinimum:true,\n        reachedDensity:Number(clean.geometricOccupancyPct||0)>=Math.min(90,Math.max(70,num(minFill,70))),\n        selectionStrategy:clean.selectionStrategy||raw.selectionStrategy||'area-first'\n      }\n      const response={ok:true,status:200}`
+sheet=sheet.slice(0,a)+cleanBlock+sheet.slice(b+end.length)
+sheet=sheet.replace("industrial:false,localFallback:false,localStable:true","industrial:true,localFallback:false,localStable:false")
+sheet=sheet.replace("'El motor local terminó sin componentes colocados.'","'Sparrow CLEAN terminó sin componentes colocados.'")
+sheet=sheet.replace("bestStrategy:'Motor Polifan v23 · subconjuntos completos'","bestStrategy:data.selectionStrategy||'Sparrow CLEAN · Area-First'")
+fs.writeFileSync(sheetFile,sheet)
+console.log('LAB FINAL: SheetPlanner usa Sparrow CLEAN directo')
