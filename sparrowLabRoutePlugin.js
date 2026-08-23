@@ -3,6 +3,30 @@ export default function sparrowLabRoutePlugin(){
     name:'sparrow-lab-route',
     enforce:'pre',
     transform(code,id){
+      if(id.endsWith('/src/pages/SheetPlanner.jsx')){
+        let out=code
+        if(!out.includes("from '../lib/sparrowLab'")){
+          out=out.replace(
+            "import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'",
+            "import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'\nimport { solveWithSparrowLab } from '../lib/sparrowLab'"
+          )
+        }
+
+        const start="      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo."
+        const end="      const response={ok:true,status:200}"
+        const a=out.indexOf(start)
+        const b=out.indexOf(end,a)
+        if(a<0||b<0)throw new Error('sparrowLabRoutePlugin: no encontré el bloque local de generateAutomatic en SheetPlanner')
+        const replacement=`      // LAB CLEAN: única ruta permitida en este preview. El solver local V1.12/V23 queda fuera.\n      const clean=await solveWithSparrowLab(payload,{\n        onStage:stage=>setCalcProgress(v=>({...v,stage,elapsed:(Date.now()-started)/1000}))\n      })\n      const raw=clean.raw||{}\n      const data={\n        ...raw,\n        ok:true,\n        localStable:false,\n        engine:clean.engine||'Sparrow CLEAN Area-First',\n        completeFigures:Number(clean.completeFigures||raw.completeFigures||0),\n        placements:clean.placements||[],\n        density:Number(clean.geometricOccupancyPct||raw.geometricOccupancyPct||0),\n        compactness:Number(clean.materialInsideUsedStripPct||raw.materialInsideUsedStripPct||clean.geometricOccupancyPct||0),\n        usedWidthMm:Number(clean.stripWidthMm||raw.stripWidthMm||0),\n        usedHeightMm:num(sheetH,58)*10,\n        attempts:clean.attempts||[],\n        minimumTarget:1,\n        reachedMinimum:true,\n        reachedDensity:Number(clean.geometricOccupancyPct||0)>=Math.min(90,Math.max(70,num(minFill,70))),\n        selectionStrategy:clean.selectionStrategy||raw.selectionStrategy||'area-first'\n      }\n      const response={ok:true,status:200}`
+        out=out.slice(0,a)+replacement+out.slice(b+end.length)
+        out=out.replace("industrial:false,localFallback:false,localStable:true","industrial:true,localFallback:false,localStable:false")
+        out=out.replace("'El motor local terminó sin componentes colocados.'","'Sparrow CLEAN terminó sin componentes colocados.'")
+        out=out.replace("bestStrategy:'Motor Polifan v23 · subconjuntos completos'","bestStrategy:data.selectionStrategy||'Sparrow CLEAN · Area-First'")
+        out=out.replaceAll('10 base · crecer mientras entre','AREA-FIRST real · Sparrow CLEAN')
+        out=out.replaceAll('mínimo 10 completas · objetivo ≥70%','sin mínimo artificial · objetivo: máxima ocupación real')
+        return {code:out,map:null}
+      }
+
       if(!id.endsWith('/src/pages/MotorDefinitivo.jsx'))return null
       let out=code
 
