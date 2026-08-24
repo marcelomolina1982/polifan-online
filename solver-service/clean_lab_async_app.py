@@ -1,5 +1,5 @@
 from clean_lab_app import app
-from clean_lab_v3 import solve_v3 as solve
+from clean_lab_v4 import solve_v4 as solve
 from flask import jsonify, request
 import json, threading, time, uuid
 
@@ -13,7 +13,7 @@ _lock = threading.Lock()
 def _run_job(job_id, payload):
     started = time.time()
     try:
-        with app.test_request_context('/solve-v3', method='POST', json=payload):
+        with app.test_request_context('/solve-v4', method='POST', json=payload):
             response = solve()
             status = 200
             body = response
@@ -65,7 +65,7 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v3-full-queue', directSvgBenchmark=True, maxCandidatePool=120)
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, maxCandidatePool=120)
 
 
 def _smoke_kits():
@@ -82,8 +82,6 @@ def _smoke_kits():
         '0,0 145,0 145,110 85,110 85,60 0,60',
     ]
     kits = []
-    # 24 candidatos: el test deja de validar sólo el ancla y comprueba que v3
-    # siga agregando piezas de la cola después de asegurar las urgentes.
     for i in range(24):
         pts = shapes[i % len(shapes)]
         svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="20cm" height="20cm" viewBox="0 0 200 200"><polygon points="{pts}" fill="none" stroke="black"/></svg>'
@@ -96,8 +94,8 @@ def _startup_selftest():
     started = time.time()
     try:
         kits = _smoke_kits()
-        payload = {'kits': kits, 'budgetSeconds': 105, 'urgentAnchorCount': 4}
-        with app.test_request_context('/solve-v3', method='POST', json=payload):
+        payload = {'kits': kits, 'budgetSeconds': 120, 'urgentAnchorCount': 4}
+        with app.test_request_context('/solve-v4', method='POST', json=payload):
             response = solve()
         status = 200
         body = response
@@ -112,7 +110,8 @@ def _startup_selftest():
             'candidatePool': data.get('candidatePool') if isinstance(data, dict) else None,
             'urgentAnchorsKept': data.get('urgentAnchorsKept') if isinstance(data, dict) else None,
             'completeFigures': data.get('completeFigures') if isinstance(data, dict) else None,
-            'fillRounds': data.get('fillRounds') if isinstance(data, dict) else None,
+            'batchAccepts': data.get('batchAccepts') if isinstance(data, dict) else None,
+            'batchAdded': data.get('batchAdded') if isinstance(data, dict) else None,
             'rescueRounds': data.get('rescueRounds') if isinstance(data, dict) else None,
             'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
             'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
