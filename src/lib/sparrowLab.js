@@ -4,11 +4,11 @@ const num=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const clone=v=>JSON.parse(JSON.stringify(v))
 
-// V10: 3.8 mm resultó demasiado restrictivo y dejó la corrida sin placa base.
-// Usamos escalones adaptativos: intentamos primero 3.4 mm y, si no hay base,
-// 3.2 mm. La seguridad productiva NO se relaja: el certificador final sigue
-// exigiendo >= 3.000 mm reales, 0 conflictos y 0 bordes.
-const GAP_LEVELS_MM=[3.4,3.2]
+// V11: el problema no era sólo el gap. La cola cambió y exigir 6 urgentes como
+// anclas puede volver imposible cualquier placa base. Bajamos anclas de forma
+// adaptativa sin perder prioridad, y mantenemos certificación final >=3.000 mm.
+const GAP_LEVELS_MM=[3.2,3.1]
+const ANCHOR_LEVELS=[6,4,2,1]
 const FINAL_REQUIRED_GAP_MM=3
 
 const areaOfKit=k=>(k?.parts||[]).reduce((acc,p)=>{
@@ -40,21 +40,34 @@ const hardenGap=(payload,gapMm)=>{
   p.finalRequiredGapMm=FINAL_REQUIRED_GAP_MM
   return p
 }
-const makeVariant=(payload,ordered,urgent,name,budgetSeconds,gapMm)=>{
+
+const makeVariant=(payload,ordered,anchorCount,name,budgetSeconds,gapMm)=>{
+  const raw=orderedRawKits(payload)
+  const anchors=raw.slice(0,anchorCount)
+  const anchorIds=new Set(anchors.map(k=>String(k?.kitId)))
+  const restOrdered=ordered.filter(k=>!anchorIds.has(String(k?.kitId)))
   const p=hardenGap(payload,gapMm)
-  p.kits=[...urgent.map((k,i)=>({...clone(k),priority:i+1})),...ordered.map((k,i)=>({...clone(k),priority:100+i}))]
-  p.budgetSeconds=budgetSeconds;p.urgentAnchorCount=Math.min(6,urgent.length||1);p._clientStrategy=name;return p
-}
-const buildBaseVariants=(payload,budgetSeconds,gapMm)=>{
-  const raw=orderedRawKits(payload),urgent=raw.slice(0,6),rest=raw.slice(6)
-  const small=rest.slice().sort((a,b)=>areaOfKit(a)-areaOfKit(b)),big=rest.slice().sort((a,b)=>areaOfKit(b)-areaOfKit(a)),zig=[]
-  for(let i=0,j=big.length-1;i<=j;i++,j--){if(i<=j)zig.push(big[i]);if(j>i)zig.push(big[j])}
-  return [makeVariant(payload,rest,urgent,'prioridad',budgetSeconds,gapMm),makeVariant(payload,small,urgent,'chicas',budgetSeconds,gapMm),makeVariant(payload,zig,urgent,'mezcla-grande-chica',budgetSeconds,gapMm)]
+  p.kits=[...anchors.map((k,i)=>({...clone(k),priority:i+1})),...restOrdered.map((k,i)=>({...clone(k),priority:100+i}))]
+  p.budgetSeconds=budgetSeconds
+  p.urgentAnchorCount=Math.max(1,Math.min(anchorCount,anchors.length||1))
+  p._clientStrategy=name
+  return p
 }
 
-async function runJob(base,payload,{signal,onStage,label,maxMs=5*60*1000}={}){
-  const requested=num(payload?.requiredGapMm,3.2)
-  onStage?.(`${label||'Sparrow'} · GAP interno ${requested.toFixed(1)} mm · iniciando…`)
+const buildOrders=(payload)=>{
+  const raw=orderedRawKits(payload)
+  const byPriority=raw.slice()
+  const bySmall=raw.slice().sort((a,b)=>areaOfKit(a)-areaOfKit(b))
+  const byBig=raw.slice().sort((a,b)=>areaOfKit(b)-areaOfKit(a))
+  const zig=[]
+  for(let i=0,j=byBig.length-1;i<=j;i++,j--){if(i<=j)zig.push(byBig[i]);if(j>i)zig.push(byBig[j])}
+  return {byPriority,bySmall,zig}
+}
+
+async function runJob(base,payload,{signal,onStage,label,maxMs=4*60*1000}={}){
+  const requested=num(payload?.requiredGapMm,3.1)
+  const anchors=num(payload?.urgentAnchorCount,1)
+  onStage?.(`${label||'Sparrow'} · GAP ${requested.toFixed(1)} mm · anclas urgentes ${anchors} · iniciando…`)
   const startResponse=await fetch(`${base}/solve-start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal})
   let start=null;try{start=await startResponse.json()}catch{}
   if(!startResponse.ok||!start?.jobId)throw new Error(`${label||'Sparrow'} no pudo iniciar: ${start?.error||`HTTP ${startResponse.status}`}`)
@@ -65,49 +78,57 @@ async function runJob(base,payload,{signal,onStage,label,maxMs=5*60*1000}={}){
     let job=null;try{job=await statusResponse.json()}catch{}
     if(!statusResponse.ok)throw new Error(`${label||'Sparrow'} no pudo consultar: ${job?.error||`HTTP ${statusResponse.status}`}`)
     const elapsed=num(job?.elapsedSeconds,(Date.now()-startedAt)/1000)
-    if(job?.status==='running'){onStage?.(`${label||'Sparrow'} · ${Math.round(elapsed)} s · GAP interno ${requested.toFixed(1)} mm`);if(Date.now()-startedAt>maxMs)throw new Error(`${label||'Sparrow'} superó el tiempo máximo.`);continue}
+    if(job?.status==='running'){onStage?.(`${label||'Sparrow'} · ${Math.round(elapsed)} s · GAP ${requested.toFixed(1)} mm · anclas ${anchors}`);if(Date.now()-startedAt>maxMs)throw new Error(`${label||'Sparrow'} superó el tiempo máximo.`);continue}
     if(job?.status==='error')throw new Error(`${label||'Sparrow'} terminó con error: ${job?.result?.error||job?.error||'sin detalle'}`)
     const data=job?.result||job
     if(job?.status!=='done'||!data?.ok)throw new Error(`${label||'Sparrow'} terminó sin placa válida: ${data?.error||'respuesta inválida'}`)
-    data.requestedGapMm=requested;return data
+    data.requestedGapMm=requested;data.usedUrgentAnchors=anchors;return data
   }
 }
 
-const chooseDropCandidates=(best,all,urgentIds)=>{const selected=selectedIdsFromResult(best);return all.filter(k=>selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(b)-areaOfKit(a)).slice(0,4)}
-const chooseOutside=(best,all,urgentIds)=>{const selected=selectedIdsFromResult(best);return all.filter(k=>!selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(a)-areaOfKit(b)).slice(0,14)}
+const chooseDropCandidates=(best,all,protectedIds)=>{const selected=selectedIdsFromResult(best);return all.filter(k=>selected.has(String(k?.kitId))&&!protectedIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(b)-areaOfKit(a)).slice(0,4)}
+const chooseOutside=(best,all,protectedIds)=>{const selected=selectedIdsFromResult(best);return all.filter(k=>!selected.has(String(k?.kitId))&&!protectedIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(a)-areaOfKit(b)).slice(0,14)}
 const pairCandidates=(outside,drop)=>{const target=areaOfKit(drop),pairs=[];for(let i=0;i<outside.length;i++)for(let j=i+1;j<outside.length;j++){const a=outside[i],b=outside[j],sum=areaOfKit(a)+areaOfKit(b),ratio=target>0?sum/target:1;if(ratio<.45||ratio>1.9)continue;pairs.push({a,b,delta:Math.abs(sum-target),sum})}return pairs.sort((x,y)=>x.delta-y.delta||y.sum-x.sum).slice(0,4)}
-const makeSwapPayload=(payload,best,drop,pair,budgetSeconds,gapMm)=>{
-  const all=orderedRawKits(payload),urgent=all.slice(0,6),urgentIds=new Set(urgent.map(k=>String(k?.kitId))),selectedIds=selectedIdsFromResult(best)
-  const selectedOthers=all.filter(k=>selectedIds.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))&&String(k?.kitId)!==String(drop?.kitId)),pairIds=new Set([String(pair.a?.kitId),String(pair.b?.kitId)])
-  const rest=all.filter(k=>!urgentIds.has(String(k?.kitId))&&!selectedIds.has(String(k?.kitId))&&!pairIds.has(String(k?.kitId))&&String(k?.kitId)!==String(drop?.kitId))
-  const p=hardenGap(payload,gapMm);p.kits=[...urgent.map((k,i)=>({...clone(k),priority:i+1})),...selectedOthers.map((k,i)=>({...clone(k),priority:100+i})),{...clone(pair.a),priority:500},{...clone(pair.b),priority:501},...rest.map((k,i)=>({...clone(k),priority:600+i})),{...clone(drop),priority:99999}];p.budgetSeconds=budgetSeconds;p.urgentAnchorCount=Math.min(6,urgent.length||1);p._clientStrategy=`swap:${drop?.kitId}->${pair.a?.kitId}+${pair.b?.kitId}`;return p
+
+const makeSwapPayload=(payload,best,drop,pair,budgetSeconds,gapMm,anchorCount)=>{
+  const all=orderedRawKits(payload),anchors=all.slice(0,anchorCount),protectedIds=new Set(anchors.map(k=>String(k?.kitId))),selectedIds=selectedIdsFromResult(best)
+  const selectedOthers=all.filter(k=>selectedIds.has(String(k?.kitId))&&!protectedIds.has(String(k?.kitId))&&String(k?.kitId)!==String(drop?.kitId))
+  const pairIds=new Set([String(pair.a?.kitId),String(pair.b?.kitId)])
+  const rest=all.filter(k=>!protectedIds.has(String(k?.kitId))&&!selectedIds.has(String(k?.kitId))&&!pairIds.has(String(k?.kitId))&&String(k?.kitId)!==String(drop?.kitId))
+  const p=hardenGap(payload,gapMm)
+  p.kits=[...anchors.map((k,i)=>({...clone(k),priority:i+1})),...selectedOthers.map((k,i)=>({...clone(k),priority:100+i})),{...clone(pair.a),priority:500},{...clone(pair.b),priority:501},...rest.map((k,i)=>({...clone(k),priority:600+i})),{...clone(drop),priority:99999}]
+  p.budgetSeconds=budgetSeconds;p.urgentAnchorCount=Math.max(1,anchorCount);p._clientStrategy=`swap:${drop?.kitId}->${pair.a?.kitId}+${pair.b?.kitId}`;return p
 }
 
 export async function solveWithSparrowLab(payload,{signal,onStage}={}){
   const base=(import.meta.env.VITE_SPARROW_LAB_URL||DEFAULT_LAB_URL).replace(/\/$/,'')
-  const baseBudget=Math.max(90,Math.min(150,num(payload?.budgetSeconds,120))),swapBudget=Math.min(100,baseBudget),attempts=[]
-  let best=null,usedGapMm=null
+  const baseBudget=Math.max(75,Math.min(120,num(payload?.budgetSeconds,100))),swapBudget=Math.min(90,baseBudget),attempts=[]
+  const orders=buildOrders(payload)
+  let best=null,usedGapMm=null,usedAnchors=null
 
-  // No repetimos 3 estrategias en un gap imposible durante 40 minutos: por cada
-  // escalón probamos prioridad primero; sólo si entra, profundizamos las otras dos.
-  for(const gapMm of GAP_LEVELS_MM){
-    const variants=buildBaseVariants(payload,baseBudget,gapMm)
-    try{
-      const r=await runJob(base,variants[0],{signal,onStage,label:`V10 base · prueba GAP ${gapMm.toFixed(1)} mm`,maxMs:4*60*1000})
-      r.clientStrategy=variants[0]._clientStrategy;attempts.push({phase:'base-probe',gapMm,ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct)});best=r;usedGapMm=gapMm
-      for(let i=1;i<variants.length;i++){
-        try{const x=await runJob(base,variants[i],{signal,onStage,label:`V10 base ${i+1}/3 · GAP ${gapMm.toFixed(1)} mm`,maxMs:4*60*1000});x.clientStrategy=variants[i]._clientStrategy;attempts.push({phase:'base',gapMm,strategy:variants[i]._clientStrategy,ok:true,completeFigures:completeCount(x),occupancy:num(x.geometricOccupancyPct)});best=better(best,x)}catch(e){attempts.push({phase:'base',gapMm,strategy:variants[i]._clientStrategy,ok:false,error:String(e?.message||e)})}
-      }
-      break
-    }catch(e){attempts.push({phase:'base-probe',gapMm,ok:false,error:String(e?.message||e)});onStage?.(`V10 · ${gapMm.toFixed(1)} mm no encontró base; probando siguiente margen…`)}
+  // Primero buscamos UNA base válida. Si 6 urgentes no entran juntas, no abortamos:
+  // bajamos a 4, 2 y 1, manteniendo siempre la prioridad cronológica.
+  outer: for(const gapMm of GAP_LEVELS_MM){
+    for(const anchorCount of ANCHOR_LEVELS){
+      const probe=makeVariant(payload,orders.byPriority,anchorCount,'prioridad',baseBudget,gapMm)
+      try{
+        const r=await runJob(base,probe,{signal,onStage,label:`V11 base · GAP ${gapMm.toFixed(1)} · anclas ${anchorCount}`,maxMs:3*60*1000})
+        r.clientStrategy='prioridad';attempts.push({phase:'base-probe',gapMm,anchorCount,ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct)});best=r;usedGapMm=gapMm;usedAnchors=anchorCount;break outer
+      }catch(e){attempts.push({phase:'base-probe',gapMm,anchorCount,ok:false,error:String(e?.message||e)})}
+    }
   }
-  if(!best)throw new Error('Sparrow V10 no consiguió base ni con 3.4 ni con 3.2 mm. No se generó una placa insegura.')
+  if(!best)throw new Error('Sparrow V11 no consiguió una base válida ni reduciendo las anclas urgentes. No se generó una placa insegura.')
 
-  const all=orderedRawKits(payload),urgentIds=new Set(all.slice(0,6).map(k=>String(k?.kitId))),drops=chooseDropCandidates(best,all,urgentIds),outside=chooseOutside(best,all,urgentIds)
+  // Con una base ya encontrada, probamos sólo dos ordenamientos extra y luego swaps 1→2.
+  for(const [name,order] of [['chicas',orders.bySmall],['mezcla',orders.zig]]){
+    try{const p=makeVariant(payload,order,usedAnchors,name,baseBudget,usedGapMm),r=await runJob(base,p,{signal,onStage,label:`V11 base extra · ${name}`,maxMs:3*60*1000});r.clientStrategy=name;attempts.push({phase:'base-extra',gapMm:usedGapMm,anchorCount:usedAnchors,strategy:name,ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct)});best=better(best,r)}catch(e){attempts.push({phase:'base-extra',strategy:name,ok:false,error:String(e?.message||e)})}
+  }
+
+  const all=orderedRawKits(payload),protectedIds=new Set(all.slice(0,usedAnchors).map(k=>String(k?.kitId))),drops=chooseDropCandidates(best,all,protectedIds),outside=chooseOutside(best,all,protectedIds)
   let tested=0
-  for(const drop of drops){for(const pair of pairCandidates(outside,drop)){if(tested>=4)break;tested++;const p=makeSwapPayload(payload,best,drop,pair,swapBudget,usedGapMm);try{const r=await runJob(base,p,{signal,onStage,label:`V10 swap 1→2 · ${tested}/4 · GAP ${usedGapMm.toFixed(1)} mm`,maxMs:4*60*1000});r.clientStrategy=p._clientStrategy;attempts.push({phase:'swap-1x2',gapMm:usedGapMm,ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct)});best=better(best,r)}catch(e){attempts.push({phase:'swap-1x2',gapMm:usedGapMm,ok:false,error:String(e?.message||e)})}}if(tested>=4)break}
+  for(const drop of drops){for(const pair of pairCandidates(outside,drop)){if(tested>=4)break;tested++;const p=makeSwapPayload(payload,best,drop,pair,swapBudget,usedGapMm,usedAnchors);try{const r=await runJob(base,p,{signal,onStage,label:`V11 swap 1→2 · ${tested}/4`,maxMs:3*60*1000});r.clientStrategy=p._clientStrategy;attempts.push({phase:'swap-1x2',ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct)});best=better(best,r)}catch(e){attempts.push({phase:'swap-1x2',ok:false,error:String(e?.message||e)})}}if(tested>=4)break}
 
-  onStage?.(`Sparrow V10 · mejor placa: ${completeCount(best)} figuras · ${num(best.geometricOccupancyPct).toFixed(1)}% · GAP interno ${usedGapMm.toFixed(1)} mm · certificación final >=3.0 mm`)
-  best.clientOrchestratorAttempts=attempts;best.engine='Sparrow V10 adaptive-gap 1x2';best.build='client-v10-adaptive-gap-2026-08-24';best.requestedGapMm=usedGapMm
-  return {raw:best,engine:best.engine,completeFigures:completeCount(best),placements:Array.isArray(best.placements)?best.placements:[],geometricOccupancyPct:num(best.geometricOccupancyPct),stripWidthUsagePct:num(best.stripWidthUsagePct),materialInsideUsedStripPct:num(best.materialInsideUsedStripPct),sparrowReportedDensityPct:num(best.sparrowReportedDensityPct),stripWidthMm:num(best.stripWidthMm),gapMm:num(best.gapMm,usedGapMm),requestedGapMm:usedGapMm,attempts,noArtificialMinimum:best.noArtificialMinimum===true,selectionStrategy:`V10: gap adaptativo ${usedGapMm.toFixed(1)} mm + urgentes + swap 1→2 + certificación final >=3.0 mm`}
+  onStage?.(`Sparrow V11 · mejor placa: ${completeCount(best)} figuras · ${num(best.geometricOccupancyPct).toFixed(1)}% · GAP interno ${usedGapMm.toFixed(1)} mm · anclas urgentes ${usedAnchors} · certificación final >=3.0 mm`)
+  best.clientOrchestratorAttempts=attempts;best.engine='Sparrow V11 adaptive anchors + safe gap';best.build='client-v11-adaptive-anchors-2026-08-24';best.requestedGapMm=usedGapMm;best.usedUrgentAnchors=usedAnchors
+  return {raw:best,engine:best.engine,completeFigures:completeCount(best),placements:Array.isArray(best.placements)?best.placements:[],geometricOccupancyPct:num(best.geometricOccupancyPct),stripWidthUsagePct:num(best.stripWidthUsagePct),materialInsideUsedStripPct:num(best.materialInsideUsedStripPct),sparrowReportedDensityPct:num(best.sparrowReportedDensityPct),stripWidthMm:num(best.stripWidthMm),gapMm:num(best.gapMm,usedGapMm),requestedGapMm:usedGapMm,usedUrgentAnchors:usedAnchors,attempts,noArtificialMinimum:best.noArtificialMinimum===true,selectionStrategy:`V11: gap ${usedGapMm.toFixed(1)} mm + anclas urgentes adaptativas ${usedAnchors} + swap 1→2 + certificación final >=3.0 mm`}
 }
