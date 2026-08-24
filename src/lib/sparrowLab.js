@@ -131,9 +131,9 @@ const chooseDropCandidates=(best,all,urgentIds)=>{
   return all.filter(k=>selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(b)-areaOfKit(a)).slice(0,6)
 }
 
-const chooseOutside=(best,all,urgentIds)=>{
+const chooseOutside=(best,all,urgentIds,limit=18)=>{
   const selected=selectedIdsFromResult(best)
-  return all.filter(k=>!selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(a)-areaOfKit(b)).slice(0,18)
+  return all.filter(k=>!selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(a)-areaOfKit(b)).slice(0,limit)
 }
 
 const pairCandidates=(outside,drop)=>{
@@ -156,18 +156,57 @@ const makeSwapPayload=(payload,best,drop,pair,budgetSeconds)=>{
   return p
 }
 
+const dropPairCandidates=(best,all,urgentIds)=>{
+  const selected=selectedIdsFromResult(best)
+  const rows=all.filter(k=>selected.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))).sort((a,b)=>areaOfKit(b)-areaOfKit(a)).slice(0,7)
+  const pairs=[]
+  for(let i=0;i<rows.length;i++)for(let j=i+1;j<rows.length;j++)pairs.push({a:rows[i],b:rows[j],area:areaOfKit(rows[i])+areaOfKit(rows[j])})
+  return pairs.sort((x,y)=>y.area-x.area).slice(0,6)
+}
+
+const tripleCandidates=(outside,dropPair)=>{
+  const target=num(dropPair?.area),triples=[]
+  for(let i=0;i<outside.length;i++)for(let j=i+1;j<outside.length;j++)for(let k=j+1;k<outside.length;k++){
+    const a=outside[i],b=outside[j],c=outside[k]
+    const sum=areaOfKit(a)+areaOfKit(b)+areaOfKit(c)
+    const ratio=target>0?sum/target:1
+    if(ratio<.55||ratio>1.75)continue
+    triples.push({a,b,c,sum,delta:Math.abs(sum-target)})
+  }
+  return triples.sort((x,y)=>x.delta-y.delta||y.sum-x.sum).slice(0,6)
+}
+
+const makeSwap2x3Payload=(payload,best,dropPair,triple,budgetSeconds)=>{
+  const all=orderedRawKits(payload)
+  const urgent=all.slice(0,6)
+  const urgentIds=new Set(urgent.map(k=>String(k?.kitId)))
+  const selectedIds=selectedIdsFromResult(best)
+  const dropIds=new Set([String(dropPair.a?.kitId),String(dropPair.b?.kitId)])
+  const addIds=new Set([String(triple.a?.kitId),String(triple.b?.kitId),String(triple.c?.kitId)])
+  const selectedOthers=all.filter(k=>selectedIds.has(String(k?.kitId))&&!urgentIds.has(String(k?.kitId))&&!dropIds.has(String(k?.kitId)))
+  const rest=all.filter(k=>!urgentIds.has(String(k?.kitId))&&!selectedIds.has(String(k?.kitId))&&!addIds.has(String(k?.kitId))&&!dropIds.has(String(k?.kitId)))
+  const ordered=[...selectedOthers,triple.a,triple.b,triple.c,...rest,dropPair.a,dropPair.b]
+  const p=hardenGap(payload)
+  p.kits=[...urgent.map((k,i)=>({...clone(k),priority:i+1})),...ordered.map((k,i)=>({...clone(k),priority:100+i}))]
+  p.budgetSeconds=budgetSeconds
+  p.urgentAnchorCount=Math.min(6,urgent.length||1)
+  p._clientStrategy=`swap2x3:${dropPair.a?.kitId}+${dropPair.b?.kitId}->${triple.a?.kitId}+${triple.b?.kitId}+${triple.c?.kitId}`
+  return p
+}
+
 export async function solveWithSparrowLab(payload,{signal,onStage}={}){
   const safeRoot=hardenGap(payload)
   const base=(import.meta.env.VITE_SPARROW_LAB_URL||DEFAULT_LAB_URL).replace(/\/$/,'')
   const baseBudget=Math.max(90,Math.min(240,num(safeRoot?.budgetSeconds,180)))
   const strategyBudget=Math.min(180,baseBudget)
   const swapBudget=Math.min(150,baseBudget)
+  const swap2x3Budget=Math.min(120,baseBudget)
   const attempts=[]
   let best=null
 
   const variants=buildBaseVariants(safeRoot,strategyBudget)
   for(let i=0;i<variants.length;i++){
-    const v=variants[i],label=`V7 base ${i+1}/${variants.length} · ${v._clientStrategy}`
+    const v=variants[i],label=`V8 base ${i+1}/${variants.length} · ${v._clientStrategy}`
     try{
       const r=await runJob(base,v,{signal,onStage,label,maxMs:7*60*1000})
       r.clientStrategy=v._clientStrategy
@@ -175,19 +214,19 @@ export async function solveWithSparrowLab(payload,{signal,onStage}={}){
       best=better(best,r)
     }catch(e){attempts.push({phase:'base',strategy:v._clientStrategy,ok:false,error:String(e?.message||e),requestedGapMm:SAFETY_GAP_MM})}
   }
-  if(!best)throw new Error('Sparrow V7 no consiguió ninguna placa base válida.')
+  if(!best)throw new Error('Sparrow V8 no consiguió ninguna placa base válida.')
 
   const all=orderedRawKits(safeRoot),urgentIds=new Set(all.slice(0,6).map(k=>String(k?.kitId)))
   let improved=true,round=0
   while(improved&&round<2){
     improved=false;round++
-    const drops=chooseDropCandidates(best,all,urgentIds),outside=chooseOutside(best,all,urgentIds)
+    const drops=chooseDropCandidates(best,all,urgentIds),outside=chooseOutside(best,all,urgentIds,18)
     let tested=0
     for(const drop of drops){
       for(const pair of pairCandidates(outside,drop)){
         if(tested>=10)break
         tested++
-        const before=best,p=makeSwapPayload(safeRoot,best,drop,pair,swapBudget),label=`V7 swap ${round} · ${tested}/10`
+        const before=best,p=makeSwapPayload(safeRoot,best,drop,pair,swapBudget),label=`V8 swap 1→2 · ronda ${round} · ${tested}/10`
         try{
           const r=await runJob(base,p,{signal,onStage,label,maxMs:6*60*1000})
           r.clientStrategy=p._clientStrategy
@@ -201,11 +240,33 @@ export async function solveWithSparrowLab(payload,{signal,onStage}={}){
     }
   }
 
-  onStage?.(`Sparrow V7 · mejor placa: ${completeCount(best)} figuras · ${num(best.geometricOccupancyPct).toFixed(1)}% · GAP solicitado ${SAFETY_GAP_MM.toFixed(1)} mm`)
+  // V8: una búsqueda más profunda, pero acotada. Sólo 6 intentos máximos de 2→3.
+  // Busca ganar una figura completa adicional sin tocar los 6 urgentes protegidos.
+  const outside23=chooseOutside(best,all,urgentIds,16)
+  let tested23=0,improved23=false
+  for(const dropPair of dropPairCandidates(best,all,urgentIds)){
+    for(const triple of tripleCandidates(outside23,dropPair)){
+      if(tested23>=6||improved23)break
+      tested23++
+      const p=makeSwap2x3Payload(safeRoot,best,dropPair,triple,swap2x3Budget)
+      const label=`V8 swap 2→3 · ${tested23}/6`
+      try{
+        const beforeCount=completeCount(best)
+        const r=await runJob(base,p,{signal,onStage,label,maxMs:5*60*1000})
+        r.clientStrategy=p._clientStrategy
+        attempts.push({phase:'swap-2x3',drop:[dropPair.a?.kitId,dropPair.b?.kitId],add:[triple.a?.kitId,triple.b?.kitId,triple.c?.kitId],ok:true,completeFigures:completeCount(r),occupancy:num(r.geometricOccupancyPct),stripWidthMm:num(r.stripWidthMm),requestedGapMm:SAFETY_GAP_MM})
+        const chosen=better(best,r)
+        if(chosen!==best&&completeCount(chosen)>=beforeCount){best=chosen;improved23=true}
+      }catch(e){attempts.push({phase:'swap-2x3',drop:[dropPair.a?.kitId,dropPair.b?.kitId],add:[triple.a?.kitId,triple.b?.kitId,triple.c?.kitId],ok:false,error:String(e?.message||e),requestedGapMm:SAFETY_GAP_MM})}
+    }
+    if(tested23>=6||improved23)break
+  }
+
+  onStage?.(`Sparrow V8 · mejor placa: ${completeCount(best)} figuras · ${num(best.geometricOccupancyPct).toFixed(1)}% · GAP solicitado ${SAFETY_GAP_MM.toFixed(1)} mm`)
   best.clientOrchestratorAttempts=attempts
-  best.engine='Sparrow V7 client local-search 1x2'
-  best.build='client-v7-gap31-swap-fixed-2026-08-24'
+  best.engine='Sparrow V8 client local-search 1x2 + 2x3'
+  best.build='client-v8-gap31-swap12-swap23-2026-08-24'
   best.requestedGapMm=SAFETY_GAP_MM
 
-  return {raw:best,engine:best.engine,completeFigures:completeCount(best),placements:Array.isArray(best.placements)?best.placements:[],geometricOccupancyPct:num(best.geometricOccupancyPct),stripWidthUsagePct:num(best.stripWidthUsagePct),materialInsideUsedStripPct:num(best.materialInsideUsedStripPct),sparrowReportedDensityPct:num(best.sparrowReportedDensityPct),stripWidthMm:num(best.stripWidthMm),gapMm:num(best.gapMm,SAFETY_GAP_MM),requestedGapMm:SAFETY_GAP_MM,attempts,noArtificialMinimum:best.noArtificialMinimum===true,selectionStrategy:'V7 cliente: prioridad + 4 estrategias + swap 1→2 + GAP 3.1 mm'}
+  return {raw:best,engine:best.engine,completeFigures:completeCount(best),placements:Array.isArray(best.placements)?best.placements:[],geometricOccupancyPct:num(best.geometricOccupancyPct),stripWidthUsagePct:num(best.stripWidthUsagePct),materialInsideUsedStripPct:num(best.materialInsideUsedStripPct),sparrowReportedDensityPct:num(best.sparrowReportedDensityPct),stripWidthMm:num(best.stripWidthMm),gapMm:num(best.gapMm,SAFETY_GAP_MM),requestedGapMm:SAFETY_GAP_MM,attempts,noArtificialMinimum:best.noArtificialMinimum===true,selectionStrategy:'V8: prioridad + 4 estrategias + swap 1→2 + swap 2→3 + GAP 3.1 mm'}
 }
