@@ -1,7 +1,7 @@
 from clean_lab_app import app, solve
-from clean_lab_selftest import register_selftest
+from clean_lab_selftest import register_selftest, _fixture_to_kits
 from flask import jsonify, request
-import threading, time, uuid
+import json, threading, time, uuid
 
 _jobs = {}
 _lock = threading.Lock()
@@ -66,3 +66,38 @@ def async_health():
 
 
 register_selftest(app, solve)
+
+
+def _startup_selftest():
+    time.sleep(3)
+    started = time.time()
+    try:
+        kits = _fixture_to_kits()
+        payload = {'kits': kits, 'budgetSeconds': 75, 'urgentAnchorCount': min(6, len(kits))}
+        with app.test_request_context('/solve', method='POST', json=payload):
+            response = solve()
+        status = 200
+        body = response
+        if isinstance(response, tuple):
+            body, status = response[0], int(response[1])
+        data = body.get_json(silent=True) if hasattr(body, 'get_json') else body
+        summary = {
+            'marker': 'POLIFAN_SELFTEST_RESULT',
+            'httpStatus': status,
+            'ok': bool(isinstance(data, dict) and data.get('ok')),
+            'fixtureKits': len(kits),
+            'completeFigures': data.get('completeFigures') if isinstance(data, dict) else None,
+            'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
+            'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
+            'urgentAnchorsKept': data.get('urgentAnchorsKept') if isinstance(data, dict) else None,
+            'placements': len(data.get('placements') or []) if isinstance(data, dict) else 0,
+            'attemptCount': len(data.get('attempts') or []) if isinstance(data, dict) else 0,
+            'error': data.get('error') if isinstance(data, dict) else 'invalid response',
+            'elapsedSeconds': round(time.time() - started, 2),
+        }
+        print(json.dumps(summary, ensure_ascii=False), flush=True)
+    except Exception as exc:
+        print(json.dumps({'marker':'POLIFAN_SELFTEST_RESULT','ok':False,'error':str(exc),'elapsedSeconds':round(time.time()-started,2)}, ensure_ascii=False), flush=True)
+
+
+threading.Thread(target=_startup_selftest, daemon=True).start()
