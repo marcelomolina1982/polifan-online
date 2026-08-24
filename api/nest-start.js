@@ -13,7 +13,9 @@ export default async function handler(req,res){
   if(req.method!=='POST')return res.status(405).json({ok:false,error:'Método no permitido'})
   const incoming=req.body||{}
   // Vercel sólo inicia el trabajo. Todo el cálculo pesado queda en Render.
-  const payload={...incoming,widthCm:122,heightCm:58,gapCm:.3,requiredGapMm:3}
+  // Buscamos con 3,1 mm internos para que el resultado final conserve >=3,0 mm
+  // reales aun después de rotaciones, simplificación y redondeos geométricos.
+  const payload={...incoming,widthCm:122,heightCm:58,gapCm:.31,requiredGapMm:3.1,finalRequiredGapMm:3}
   delete payload.targetDensity
   try{
     const r=await fetchTimed(BASE+'/solve-start',{
@@ -23,17 +25,19 @@ export default async function handler(req,res){
     res.status(r.status)
     res.setHeader('content-type',r.headers.get('content-type')||'application/json')
     res.setHeader('cache-control','no-store')
-    res.setHeader('x-solver-backend','clean-v4')
+    res.setHeader('x-solver-backend','clean-v4-gap31')
     if(r.ok){
       try{
         const body=JSON.parse(text)
         if(body?.jobId&&!String(body.jobId).includes(':'))body.jobId='clean:'+body.jobId
-        body.backend='clean-v4'
+        body.backend='clean-v4-gap31'
+        body.requestedGapMm=3.1
+        body.finalRequiredGapMm=3
         return res.send(JSON.stringify(body))
       }catch{}
     }
     return res.send(text)
   }catch(e){
-    return res.status(503).json({ok:false,backend:'clean-v4',retryable:true,error:'Render no respondió al iniciar el cálculo: '+(e?.name==='AbortError'?'timeout':(e?.message||String(e)))})
+    return res.status(503).json({ok:false,backend:'clean-v4-gap31',retryable:true,error:'Render no respondió al iniciar el cálculo: '+(e?.name==='AbortError'?'timeout':(e?.message||String(e)))})
   }
 }
