@@ -1,4 +1,5 @@
 from clean_lab_app import app, solve
+from clean_lab_selftest import register_selftest
 from flask import jsonify, request
 import threading, time, uuid
 
@@ -62,3 +63,6 @@ def solve_status():
 @app.get('/async-health')
 def async_health():
     return jsonify(ok=True, asyncSolve=True)
+
+
+register_selftest(app, solve)
