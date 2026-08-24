@@ -65,7 +65,7 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v3-full-queue', directSvgBenchmark=True)
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v3-full-queue', directSvgBenchmark=True, maxCandidatePool=120)
 
 
 def _smoke_kits():
@@ -82,9 +82,12 @@ def _smoke_kits():
         '0,0 145,0 145,110 85,110 85,60 0,60',
     ]
     kits = []
-    for i, pts in enumerate(shapes):
+    # 24 candidatos: el test deja de validar sólo el ancla y comprueba que v3
+    # siga agregando piezas de la cola después de asegurar las urgentes.
+    for i in range(24):
+        pts = shapes[i % len(shapes)]
         svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="20cm" height="20cm" viewBox="0 0 200 200"><polygon points="{pts}" fill="none" stroke="black"/></svg>'
-        kits.append({'kitId':f'smoke-{i+1}','figure':f'smoke-{i+1}','priority':i+1,'parts':[{'instanceId':f'smoke-{i+1}','name':f'smoke-{i+1}','role':'simple','sourceWidthCm':20,'sourceHeightCm':20,'svgText':svg}]})
+        kits.append({'kitId':f'smoke-{i+1}','figure':f'smoke-{i+1}','date':'2026-08-24' if i < 4 else '2026-08-25','priority':i+1,'parts':[{'instanceId':f'smoke-{i+1}','name':f'smoke-{i+1}','role':'simple','sourceWidthCm':20,'sourceHeightCm':20,'svgText':svg}]})
     return kits
 
 
@@ -93,7 +96,7 @@ def _startup_selftest():
     started = time.time()
     try:
         kits = _smoke_kits()
-        payload = {'kits': kits, 'budgetSeconds': 55, 'urgentAnchorCount': 4}
+        payload = {'kits': kits, 'budgetSeconds': 105, 'urgentAnchorCount': 4}
         with app.test_request_context('/solve-v3', method='POST', json=payload):
             response = solve()
         status = 200
@@ -106,7 +109,11 @@ def _startup_selftest():
             'httpStatus': status,
             'ok': bool(isinstance(data, dict) and data.get('ok')),
             'build': data.get('build') if isinstance(data, dict) else None,
+            'candidatePool': data.get('candidatePool') if isinstance(data, dict) else None,
+            'urgentAnchorsKept': data.get('urgentAnchorsKept') if isinstance(data, dict) else None,
             'completeFigures': data.get('completeFigures') if isinstance(data, dict) else None,
+            'fillRounds': data.get('fillRounds') if isinstance(data, dict) else None,
+            'rescueRounds': data.get('rescueRounds') if isinstance(data, dict) else None,
             'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
             'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
             'placements': len(data.get('placements') or []) if isinstance(data, dict) else 0,
