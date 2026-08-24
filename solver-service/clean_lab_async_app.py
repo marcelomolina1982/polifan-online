@@ -1,5 +1,5 @@
 from clean_lab_app import app
-from clean_lab_v2 import solve_v2 as solve
+from clean_lab_v3 import solve_v3 as solve
 from flask import jsonify, request
 import json, threading, time, uuid
 
@@ -13,7 +13,7 @@ _lock = threading.Lock()
 def _run_job(job_id, payload):
     started = time.time()
     try:
-        with app.test_request_context('/solve-v2', method='POST', json=payload):
+        with app.test_request_context('/solve-v3', method='POST', json=payload):
             response = solve()
             status = 200
             body = response
@@ -65,7 +65,7 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v2', directSvgBenchmark=True)
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v3-full-queue', directSvgBenchmark=True)
 
 
 def _smoke_kits():
@@ -93,8 +93,8 @@ def _startup_selftest():
     started = time.time()
     try:
         kits = _smoke_kits()
-        payload = {'kits': kits, 'budgetSeconds': 45, 'urgentAnchorCount': 4}
-        with app.test_request_context('/solve-v2', method='POST', json=payload):
+        payload = {'kits': kits, 'budgetSeconds': 55, 'urgentAnchorCount': 4}
+        with app.test_request_context('/solve-v3', method='POST', json=payload):
             response = solve()
         status = 200
         body = response
