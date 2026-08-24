@@ -1,298 +1,345 @@
-"""Laboratorio limpio Sparrow: prioridad por ocupación real, sin mínimo artificial."""
+"""Motor de laboratorio Polifan: multi-pass best-effort con Sparrow.
+
+Objetivos:
+- placa fija 1220 x 580 mm
+- GAP duro de 3 mm
+- preservar primero los pedidos urgentes
+- rellenar con pedidos futuros mientras sigan entrando
+- nunca exigir 70% ni una cantidad minima de figuras
+- devolver siempre la mejor placa valida encontrada dentro del presupuesto de tiempo
+"""
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import time
+import uuid
+
 import nest_sparrow as core
-from xml.etree import ElementTree as ET
-from copy import deepcopy
-import time, uuid
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-BUILD = "clean-lab-v7-benchmark-strategy-2026-08-23"
+
+BUILD = "best-effort-multipass-v1-2026-08-23"
 PLATE_WIDTH_MM = 1220.0
 PLATE_HEIGHT_MM = 580.0
 PLATE_AREA_MM2 = PLATE_WIDTH_MM * PLATE_HEIGHT_MM
-SVG_NS = 'http://www.w3.org/2000/svg'
+GAP_MM = 3.0
+MAX_POOL = 40
+DEFAULT_ANCHORS = 6
+DEFAULT_BUDGET_SECONDS = 90
+QUICK_SECONDS = 5
+REFINE_SECONDS = 14
 
 
 def _identity():
-    return {"module": core.__name__, "name": "area_first_clean_solver"}
-
-
-def _metrics(selected, result):
-    material_area = sum(float(k.get('area') or 0) for k in selected)
-    geometric_occupancy = 100.0 * material_area / PLATE_AREA_MM2
-    strip_width = float(result.get('stripWidthMm') or 0)
-    strip_width_usage = 100.0 * strip_width / PLATE_WIDTH_MM if strip_width > 0 else 0.0
-    strip_bbox_area = strip_width * PLATE_HEIGHT_MM if strip_width > 0 else 0.0
-    material_inside_used_strip = 100.0 * material_area / strip_bbox_area if strip_bbox_area > 0 else 0.0
     return {
-        'materialAreaMm2': round(material_area, 2),
-        'plateAreaMm2': round(PLATE_AREA_MM2, 2),
-        'geometricOccupancyPct': round(geometric_occupancy, 3),
-        'stripWidthMm': round(strip_width, 3),
-        'stripWidthUsagePct': round(strip_width_usage, 3),
-        'materialInsideUsedStripPct': round(material_inside_used_strip, 3),
-        'sparrowReportedDensityPct': round(float(result.get('solverDensity') or 0), 3),
+        "name": "polifan_best_effort_multipass",
+        "placer": "sparrow",
+        "geometry": "real SVG polygons",
     }
 
 
-def _exact_piece_kits_from_plate_svg(svg_text):
-    root = ET.fromstring(svg_text)
-    pieces = []
-    for g in root.iter():
-        gid = str(g.attrib.get('id') or '')
-        if not gid.startswith('pieza_') or g.attrib.get('data-polifan-piece') != '1':
-            continue
-        piece = deepcopy(g)
-        piece.attrib.pop('transform', None)
-        wrapper = ET.Element('svg', {
-            'width': '1220mm',
-            'height': '580mm',
-            'viewBox': '0 0 1220 580',
-        })
-        wrapper.append(piece)
-        piece_svg = ET.tostring(wrapper, encoding='unicode')
-        geom, trimx, trimy = core.svg_to_geometry(piece_svg, 122, 58, solver_tolerance_mm=.18, max_vertices=360)
-        if geom.is_empty or geom.area <= 0:
-            continue
-        industrial = None
-        for child in piece.iter():
-            if child.attrib.get('data-industrial-piece') is not None:
-                industrial = child
-                break
-        name = gid
-        kit_name = ''
-        instance = gid
-        role = 'simple'
-        if industrial is not None:
-            kit_name = str(industrial.attrib.get('data-kit') or '')
-            instance = str(industrial.attrib.get('data-instance') or gid)
-        part = {
-            'instanceId': instance,
-            'kitId': gid,
-            'figure': kit_name or gid,
-            'name': name,
-            'role': role,
-            'geom': geom,
-            'shape': core._shape(geom),
-            'trimXmm': float(trimx),
-            'trimYmm': float(trimy),
-            'area': float(geom.area or 0),
-            'envelope': max(1.0, (geom.bounds[2]-geom.bounds[0])*(geom.bounds[3]-geom.bounds[1])),
-        }
-        pieces.append({
-            'kitId': gid,
-            'figure': kit_name or gid,
-            'priority': len(pieces) + 1,
-            'parts': [part],
-            'area': part['area'],
-            'envelope': part['envelope'],
-            'solidity': part['area'] / max(1.0, part['envelope']),
-        })
-    return pieces
+def _material_area(rows):
+    return sum(float(k.get("area") or 0) for k in rows)
 
 
-@app.get('/health')
+def _occupancy(rows):
+    return 100.0 * _material_area(rows) / PLATE_AREA_MM2 if rows else 0.0
+
+
+def _metrics(rows, result):
+    area = _material_area(rows)
+    strip = float(result.get("stripWidthMm") or 0)
+    strip_area = strip * PLATE_HEIGHT_MM if strip > 0 else 0
+    return {
+        "materialAreaMm2": round(area, 2),
+        "plateAreaMm2": round(PLATE_AREA_MM2, 2),
+        "geometricOccupancyPct": round(100.0 * area / PLATE_AREA_MM2, 3),
+        "stripWidthMm": round(strip, 3),
+        "stripWidthUsagePct": round(100.0 * strip / PLATE_WIDTH_MM, 3) if strip else 0.0,
+        "materialInsideUsedStripPct": round(100.0 * area / strip_area, 3) if strip_area else 0.0,
+        "sparrowReportedDensityPct": round(float(result.get("solverDensity") or 0), 3),
+    }
+
+
+def _attempt(attempts, phase, label, rows, result, seed, continuous):
+    m = _metrics(rows, result) if result.get("ok") else {}
+    attempts.append({
+        "phase": phase,
+        "label": label,
+        "count": len(rows),
+        "seed": seed,
+        "rotation": "continua" if continuous else "15deg",
+        "fits": bool(result.get("fits")),
+        "geometricOccupancyPct": m.get("geometricOccupancyPct"),
+        "stripWidthMm": m.get("stripWidthMm", result.get("stripWidthMm")),
+        "solverDensityPct": m.get("sparrowReportedDensityPct"),
+        "error": result.get("error"),
+    })
+
+
+def _unique_candidates(rows):
+    seen = set()
+    out = []
+    for row in rows:
+        kid = row.get("kitId")
+        if kid in seen:
+            continue
+        seen.add(kid)
+        out.append(row)
+    return out
+
+
+def _extension_candidates(selected, all_kits, limit=4):
+    """Candidatos diversos: urgencia + area + pieza compacta + pieza chica.
+
+    No usamos una unica heuristica de mayor a menor: eso suele dejar huecos inutiles.
+    """
+    used = {k.get("kitId") for k in selected}
+    remain = [k for k in all_kits if k.get("kitId") not in used]
+    if not remain:
+        return []
+
+    urgent = sorted(remain, key=lambda k: (k.get("priority", 999999), -k.get("area", 0)))
+    by_area = sorted(remain, key=lambda k: (-k.get("area", 0), k.get("priority", 999999)))
+    compact = sorted(remain, key=lambda k: (k.get("envelope", 1e18), -k.get("solidity", 0), k.get("priority", 999999)))
+    dense = sorted(remain, key=lambda k: (-k.get("solidity", 0), k.get("envelope", 1e18), k.get("priority", 999999)))
+
+    picks = []
+    picks.extend(urgent[:2])
+    picks.extend(by_area[:2])
+    picks.extend(compact[:2])
+    picks.extend(dense[:2])
+    return _unique_candidates(picks)[:limit]
+
+
+def _candidate_score(base, candidate, result):
+    """Despues de asegurar urgentes, gana el mejor uso real de material.
+
+    El desempate favorece prioridad y luego menor ancho de strip.
+    """
+    rows = base + [candidate]
+    return (
+        _material_area(rows),
+        -float(candidate.get("priority") or 999999),
+        -float(result.get("stripWidthMm") or 1e18),
+    )
+
+
+def _best_same_set(current_result, challenger):
+    if not challenger.get("ok") or not challenger.get("fits"):
+        return current_result
+    if not current_result or not current_result.get("fits"):
+        return challenger
+    a = float(current_result.get("stripWidthMm") or 1e18)
+    b = float(challenger.get("stripWidthMm") or 1e18)
+    if b < a - 0.25:
+        return challenger
+    if abs(b - a) <= 0.25 and float(challenger.get("solverDensity") or 0) > float(current_result.get("solverDensity") or 0):
+        return challenger
+    return current_result
+
+
+@app.get("/health")
 def health():
-    return jsonify(ok=True, build=BUILD, mode='clean-sparrow-area-first', solver=_identity(),
-                   historicalRuntimesLoaded=False)
+    return jsonify(
+        ok=True,
+        build=BUILD,
+        mode="best-effort-multipass",
+        solver=_identity(),
+        widthCm=122,
+        heightCm=58,
+        gapMm=GAP_MM,
+        minimumCompleteFigures=None,
+        minimumDensity=None,
+    )
 
 
-@app.get('/runtime-info')
+@app.get("/runtime-info")
 def runtime_info():
-    return jsonify(ok=True, build=BUILD, mode='clean-sparrow-area-first', solver=_identity(),
-                   historicalRuntimesLoaded=False, widthCm=122, heightCm=58, gapMm=3.0,
-                   minimumCompleteFigures=None,
-                   scoring='maximum material first; then compact same set by strip width',
-                   exactSvgBenchmark=True, browserUpload=True,
-                   strategy='descending quantity -> quick feasibility -> multi-seed continuous refinement',
-                   metrics=['geometricOccupancyPct','stripWidthUsagePct','materialInsideUsedStripPct','sparrowReportedDensityPct'])
+    return jsonify(
+        ok=True,
+        build=BUILD,
+        mode="best-effort-multipass",
+        solver=_identity(),
+        strategy=[
+            "anclar pedidos urgentes",
+            "rellenar iterativamente con futuros",
+            "probar candidatos por urgencia/area/compacidad",
+            "refinar con rotacion continua",
+            "devolver mejor resultado valido al vencer el tiempo",
+        ],
+        widthCm=122,
+        heightCm=58,
+        gapMm=GAP_MM,
+        minimumCompleteFigures=None,
+        minimumDensity=None,
+        defaultBudgetSeconds=DEFAULT_BUDGET_SECONDS,
+    )
 
 
-def _score(result, selected):
-    m = _metrics(selected, result)
-    return (m['geometricOccupancyPct'], len(selected), -float(result.get('stripWidthMm') or 1e18))
-
-
-@app.post('/benchmark-plate-svg')
-def benchmark_plate_svg():
-    data = request.get_json(silent=True) or {}
-    svg_text = str(data.get('svgText') or '')
-    if not svg_text.strip():
-        return jsonify(ok=False, error='Falta svgText'), 400
-    trace_id = uuid.uuid4().hex[:12]
-    started = time.time()
-    try:
-        selected = _exact_piece_kits_from_plate_svg(svg_text)
-    except Exception as exc:
-        return jsonify(ok=False, error=f'No se pudo leer la placa SVG: {exc}', traceId=trace_id), 422
-    if not selected:
-        return jsonify(ok=False, error='No se detectaron piezas exportadas', traceId=trace_id), 422
-
-    attempts = []
-    best = None
-    seeds = [101, 907, 1777, 3911]
-    for idx, seed in enumerate(seeds):
-        continuous = idx >= 2
-        seconds = 20 if idx < 2 else 26
-        result = core._run_sparrow(selected, 3.0, seconds, seed, continuous=continuous)
-        metrics = _metrics(selected, result) if result.get('ok') else None
-        attempts.append({
-            'seed': seed, 'rotation': 'continua' if continuous else '15°',
-            'fits': bool(result.get('fits')), 'error': result.get('error'),
-            'stripWidthMm': metrics.get('stripWidthMm') if metrics else None,
-            'stripWidthUsagePct': metrics.get('stripWidthUsagePct') if metrics else None,
-            'geometricOccupancyPct': metrics.get('geometricOccupancyPct') if metrics else None,
-            'materialInsideUsedStripPct': metrics.get('materialInsideUsedStripPct') if metrics else None,
-            'sparrowReportedDensityPct': metrics.get('sparrowReportedDensityPct') if metrics else None,
-        })
-        if result.get('ok') and result.get('fits'):
-            score = (-float(result.get('stripWidthMm') or 1e18), float(result.get('solverDensity') or 0))
-            if best is None or score > best[0]:
-                best = (score, result, seed, continuous)
-
-    if best is None:
-        return jsonify(ok=False, error='Sparrow no logró reubicar todas las piezas exactas',
-                       build=BUILD, traceId=trace_id, pieceCount=len(selected), attempts=attempts,
-                       elapsedSeconds=round(time.time()-started, 2)), 422
-
-    _, result, seed, continuous = best
-    metrics = _metrics(selected, result)
-    return jsonify(ok=True, build=BUILD, traceId=trace_id, engine='Sparrow exact exported-SVG benchmark',
-                   pieceCount=len(selected), gapMm=3.0, widthCm=122, heightCm=58,
-                   seed=seed, rotation='continua' if continuous else '15°',
-                   placements=result.get('placements') or [], attempts=attempts,
-                   **metrics, elapsedSeconds=round(time.time()-started, 2))
-
-
-@app.route('/upload-benchmark', methods=['GET', 'POST'])
-def upload_benchmark():
-    if request.method == 'GET':
-        return '''<!doctype html><html><head><meta charset="utf-8"><title>Benchmark Polifan</title>
-        <style>body{font-family:Arial,sans-serif;max-width:720px;margin:50px auto;padding:24px}button{padding:12px 18px;font-size:16px}input{margin:20px 0}</style></head>
-        <body><h2>Benchmark exacto de placa SVG</h2><p>Seleccioná el SVG exportado. Sparrow probará exactamente esas piezas con 3 mm.</p>
-        <form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><br><button type="submit">Ejecutar benchmark</button></form></body></html>'''
-    uploaded = request.files.get('file')
-    if not uploaded:
-        return jsonify(ok=False, error='Falta archivo SVG'), 400
-    try:
-        svg_text = uploaded.read().decode('utf-8-sig')
-    except Exception as exc:
-        return jsonify(ok=False, error=f'No se pudo leer el SVG: {exc}'), 400
-    with app.test_request_context('/benchmark-plate-svg', method='POST', json={'svgText': svg_text}):
-        return benchmark_plate_svg()
-
-
-def _attempt_row(target, label, result, seed, continuous, phase):
-    metrics = _metrics([], result) if False else None
-    return {
-        'target': target, 'label': label, 'phase': phase,
-        'fits': bool(result.get('fits')), 'seed': seed,
-        'rotation': 'continua' if continuous else '15°',
-        'stripWidthMm': result.get('stripWidthMm'),
-        'solverDensity': result.get('solverDensity'),
-        'error': result.get('error')
-    }
-
-
-@app.post('/solve')
+@app.post("/solve")
 def solve():
     data = request.get_json(silent=True) or {}
     trace_id = uuid.uuid4().hex[:12]
     started = time.time()
 
-    width_mm = PLATE_WIDTH_MM
-    height_mm = PLATE_HEIGHT_MM
-    gap_mm = 3.0
-    raw = sorted(data.get('kits') or [], key=lambda k: (core._priority(k), str(k.get('date') or ''), str(k.get('figure') or '')))[:32]
+    raw = sorted(
+        data.get("kits") or [],
+        key=lambda k: (core._priority(k), str(k.get("date") or ""), str(k.get("figure") or "")),
+    )[:MAX_POOL]
     if not raw:
-        return jsonify(ok=False, error='No llegaron figuras al laboratorio', traceId=trace_id), 400
+        return jsonify(ok=False, error="No llegaron figuras al motor", traceId=trace_id), 400
 
-    kits, rejected = [], []
+    budget = int(data.get("budgetSeconds") or DEFAULT_BUDGET_SECONDS)
+    budget = max(25, min(150, budget))
+    requested_anchors = int(data.get("urgentAnchorCount") or DEFAULT_ANCHORS)
+
+    kits = []
+    rejected = []
     for k in raw:
         try:
-            kits.append(core._prep_kit(k, width_mm, height_mm))
+            kits.append(core._prep_kit(k, PLATE_WIDTH_MM, PLATE_HEIGHT_MM))
         except Exception as exc:
-            rejected.append({'kitId': str(k.get('kitId') or ''), 'figure': str(k.get('figure') or ''), 'reason': str(exc)})
+            rejected.append({
+                "kitId": str(k.get("kitId") or ""),
+                "figure": str(k.get("figure") or ""),
+                "reason": str(exc),
+            })
 
     if not kits:
-        return jsonify(ok=False, error='No hay kits geométricos utilizables', rejected=rejected[:10], traceId=trace_id), 422
+        return jsonify(ok=False, error="No hay geometria SVG utilizable", traceId=trace_id, rejected=rejected[:12]), 422
 
     attempts = []
-    chosen = None
-    max_target = min(14, len(kits))
-    min_target = max(1, min(6, max_target))
+    selected = None
+    best_result = None
+    anchor_count_used = 0
 
-    # 1) Buscar la MAYOR cantidad que realmente entra. No existe puerta artificial de 10.
-    # Dos selecciones por cantidad y dos búsquedas cortas por selección.
-    for target in range(max_target, min_target - 1, -1):
-        variants = core._candidate_selections(kits, target)[:2]
-        feasible = []
-        for vidx, (label, selected) in enumerate(variants):
-            quick_runs = [
-                (2201 + target*73 + vidx*311, False, 11),
-                (3301 + target*97 + vidx*421, True, 15),
-            ]
-            for seed, continuous, seconds in quick_runs:
-                result = core._run_sparrow(selected, gap_mm, seconds, seed, continuous=continuous)
-                m = _metrics(selected, result) if result.get('ok') else None
-                attempts.append({
-                    'target': target, 'label': label, 'phase': 'feasibility',
-                    'fits': bool(result.get('fits')), 'seed': seed,
-                    'rotation': 'continua' if continuous else '15°',
-                    'geometricOccupancyPct': m.get('geometricOccupancyPct') if m else None,
-                    'stripWidthMm': m.get('stripWidthMm') if m else result.get('stripWidthMm'),
-                    'materialInsideUsedStripPct': m.get('materialInsideUsedStripPct') if m else None,
-                    'error': result.get('error')
-                })
-                if result.get('ok') and result.get('fits'):
-                    feasible.append((selected, label, result, seed, continuous))
-        if feasible:
-            # Primera cantidad que entra = máxima cantidad posible bajo estas selecciones.
-            # Elegimos el mejor arranque rápido por menor strip y lo refinamos.
-            feasible.sort(key=lambda x: (float(x[2].get('stripWidthMm') or 1e18), -float(x[2].get('solverDensity') or 0)))
-            chosen = feasible[0]
+    # PASS 1: preservar el mayor bloque urgente que realmente sea colocable.
+    start_anchor = min(len(kits), max(1, requested_anchors))
+    for count in range(start_anchor, 0, -1):
+        if time.time() - started >= budget - 12:
+            break
+        rows = kits[:count]
+        seed = 1103 + count * 97
+        seconds = min(QUICK_SECONDS + 1, max(3, int(budget - (time.time() - started) - 10)))
+        result = core._run_sparrow(rows, GAP_MM, seconds, seed, continuous=False)
+        _attempt(attempts, "urgent-anchor", f"top-{count}-urgentes", rows, result, seed, False)
+        if result.get("ok") and result.get("fits"):
+            selected = list(rows)
+            best_result = result
+            anchor_count_used = count
             break
 
-    if chosen is None:
-        return jsonify(ok=False, error='Sparrow limpio no encontró una placa válida en este conjunto',
-                       build=BUILD, traceId=trace_id, attempts=attempts, rejected=rejected[:10],
-                       elapsedSeconds=round(time.time()-started, 2)), 422
+    # Ultimo salvavidas: intentar cada kit individual hasta hallar uno valido.
+    if selected is None:
+        for idx, row in enumerate(kits[:10]):
+            if time.time() - started >= budget - 8:
+                break
+            seed = 1709 + idx * 53
+            result = core._run_sparrow([row], GAP_MM, 4, seed, continuous=False)
+            _attempt(attempts, "single-fallback", "pieza-individual", [row], result, seed, False)
+            if result.get("ok") and result.get("fits"):
+                selected = [row]
+                best_result = result
+                anchor_count_used = 1 if idx == 0 else 0
+                break
 
-    selected, label, best_result, best_seed, best_continuous = chosen
+    if selected is None:
+        return jsonify(
+            ok=False,
+            error="Sparrow no pudo colocar ni una pieza valida",
+            build=BUILD,
+            traceId=trace_id,
+            attempts=attempts,
+            rejected=rejected[:12],
+            elapsedSeconds=round(time.time() - started, 2),
+        ), 422
 
-    # 2) Mismo conjunto exacto: aplicar lo aprendido del benchmark real.
-    # Varias semillas + rotación continua. Como el material ya es fijo, gana menor strip.
-    refine_seeds = [1777, 3911, 5119]
-    for seed in refine_seeds:
-        result = core._run_sparrow(selected, gap_mm, 22, seed, continuous=True)
-        m = _metrics(selected, result) if result.get('ok') else None
-        attempts.append({
-            'target': len(selected), 'label': label, 'phase': 'continuous-refine',
-            'fits': bool(result.get('fits')), 'seed': seed, 'rotation': 'continua',
-            'geometricOccupancyPct': m.get('geometricOccupancyPct') if m else None,
-            'stripWidthMm': m.get('stripWidthMm') if m else result.get('stripWidthMm'),
-            'materialInsideUsedStripPct': m.get('materialInsideUsedStripPct') if m else None,
-            'error': result.get('error')
-        })
-        if result.get('ok') and result.get('fits'):
-            if float(result.get('stripWidthMm') or 1e18) < float(best_result.get('stripWidthMm') or 1e18):
-                best_result, best_seed, best_continuous = result, seed, True
+    # PASS 2: crecimiento greedy geometrico. Se prueba pieza por pieza y se acepta
+    # solamente si el conjunto completo sigue entrando con GAP real.
+    fill_pass = 0
+    while time.time() - started < budget - 20:
+        candidates = _extension_candidates(selected, kits, limit=4)
+        if not candidates:
+            break
+
+        fitted = []
+        for idx, cand in enumerate(candidates):
+            remaining = budget - (time.time() - started)
+            if remaining < 20:
+                break
+            rows = selected + [cand]
+            seed = 2309 + fill_pass * 401 + idx * 83 + len(rows) * 17
+            seconds = min(QUICK_SECONDS, max(3, int(remaining - 17)))
+            result = core._run_sparrow(rows, GAP_MM, seconds, seed, continuous=False)
+            _attempt(attempts, "fill", f"agregar:{cand.get('figure')}", rows, result, seed, False)
+            if result.get("ok") and result.get("fits"):
+                fitted.append((_candidate_score(selected, cand, result), cand, result))
+
+        if not fitted:
+            break
+
+        fitted.sort(key=lambda x: x[0], reverse=True)
+        _, winner, winner_result = fitted[0]
+        selected.append(winner)
+        best_result = winner_result
+        fill_pass += 1
+
+    # PASS 3: segunda mirada. Intenta una pieza chica/compacta con rotacion continua
+    # si la pasada rapida no encontro mas crecimiento.
+    if time.time() - started < budget - 16:
+        extra_candidates = _extension_candidates(selected, kits, limit=3)
+        for idx, cand in enumerate(extra_candidates):
+            remaining = budget - (time.time() - started)
+            if remaining < 14:
+                break
+            rows = selected + [cand]
+            seed = 4703 + idx * 131 + len(rows) * 19
+            seconds = min(8, max(4, int(remaining - 10)))
+            result = core._run_sparrow(rows, GAP_MM, seconds, seed, continuous=True)
+            _attempt(attempts, "continuous-extra", f"rotacion-libre:{cand.get('figure')}", rows, result, seed, True)
+            if result.get("ok") and result.get("fits"):
+                selected.append(cand)
+                best_result = result
+                break
+
+    # PASS 4: refinar exactamente el mismo conjunto. Aca no cambia que piezas entran;
+    # solo buscamos compactarlas mejor con rotacion continua y distintas semillas.
+    for idx, seed in enumerate((7919, 10429)):
+        remaining = budget - (time.time() - started)
+        if remaining < 7:
+            break
+        seconds = min(REFINE_SECONDS, max(5, int(remaining - 2)))
+        result = core._run_sparrow(selected, GAP_MM, seconds, seed + idx * 17, continuous=True)
+        _attempt(attempts, "refine", "mismo-conjunto", selected, result, seed + idx * 17, True)
+        best_result = _best_same_set(best_result, result)
 
     metrics = _metrics(selected, best_result)
+    selected_ids = [k.get("kitId") for k in selected]
+
     return jsonify(
-        ok=True, build=BUILD, traceId=trace_id, engine='Sparrow clean benchmark-promoted',
-        historicalRuntimesLoaded=False, completeFigures=len(selected), placements=best_result.get('placements') or [],
-        geometricOccupancyPct=metrics['geometricOccupancyPct'],
-        stripWidthUsagePct=metrics['stripWidthUsagePct'],
-        materialInsideUsedStripPct=metrics['materialInsideUsedStripPct'],
-        sparrowReportedDensityPct=metrics['sparrowReportedDensityPct'],
-        materialAreaMm2=metrics['materialAreaMm2'], plateAreaMm2=metrics['plateAreaMm2'],
-        stripWidthMm=metrics['stripWidthMm'], gapMm=3.0, widthCm=122, heightCm=58,
-        selectionStrategy=label, seed=best_seed,
-        rotation='continua' if best_continuous else '15°',
-        scoring='max quantity feasible; then minimum strip for same material',
-        noArtificialMinimum=True, attempts=attempts, rejected=rejected[:10],
-        elapsedSeconds=round(time.time()-started, 2)
+        ok=True,
+        build=BUILD,
+        traceId=trace_id,
+        engine="Sparrow multi-pass best-effort",
+        historicalRuntimesLoaded=False,
+        completeFigures=len(selected),
+        urgentAnchorsRequested=start_anchor,
+        urgentAnchorsKept=anchor_count_used,
+        selectedKitIds=selected_ids,
+        placements=best_result.get("placements") or [],
+        gapMm=GAP_MM,
+        widthCm=122,
+        heightCm=58,
+        minimumCompleteFigures=None,
+        minimumDensity=None,
+        noArtificialMinimum=True,
+        bestEffort=True,
+        stoppedBecause="no-more-fit-or-time-budget",
+        budgetSeconds=budget,
+        rejected=rejected[:12],
+        rejectedCount=len(rejected),
+        attempts=attempts,
+        elapsedSeconds=round(time.time() - started, 2),
+        **metrics,
     )
