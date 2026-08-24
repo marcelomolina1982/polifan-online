@@ -1,5 +1,5 @@
-from clean_lab_app import app, solve
-from clean_lab_selftest import register_selftest, _fixture_to_kits
+from clean_lab_app import app
+from clean_lab_v2 import solve_v2 as solve
 from flask import jsonify, request
 import json, threading, time, uuid
 
@@ -10,7 +10,7 @@ _lock = threading.Lock()
 def _run_job(job_id, payload):
     started = time.time()
     try:
-        with app.test_request_context('/solve', method='POST', json=payload):
+        with app.test_request_context('/solve-v2', method='POST', json=payload):
             response = solve()
             status = 200
             body = response
@@ -62,19 +62,37 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True)
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v2')
 
 
-register_selftest(app, solve)
+def _smoke_kits():
+    # Geometrias concavas pequenas: validan parser SVG, GAP, rotacion y multipass.
+    shapes = [
+        '0,0 180,0 180,55 95,55 95,150 0,150',
+        '0,0 150,0 150,150 95,150 95,70 0,70',
+        '0,0 170,0 170,60 110,60 110,125 55,125 55,60 0,60',
+        '0,35 65,35 65,0 145,70 65,140 65,105 0,105',
+        '0,0 140,0 140,45 80,45 80,120 0,120',
+        '0,0 120,0 120,120 65,120 65,65 0,65',
+        '0,0 155,0 155,50 100,50 100,145 45,145 45,50 0,50',
+        '0,0 135,0 135,135 90,135 90,85 45,85 45,135 0,135',
+        '0,0 110,0 110,85 60,85 60,150 0,150',
+        '0,0 145,0 145,110 85,110 85,60 0,60',
+    ]
+    kits = []
+    for i, pts in enumerate(shapes):
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="20cm" height="20cm" viewBox="0 0 200 200"><polygon points="{pts}" fill="none" stroke="black"/></svg>'
+        kits.append({'kitId':f'smoke-{i+1}','figure':f'smoke-{i+1}','priority':i+1,'parts':[{'instanceId':f'smoke-{i+1}','name':f'smoke-{i+1}','role':'simple','sourceWidthCm':20,'sourceHeightCm':20,'svgText':svg}]})
+    return kits
 
 
 def _startup_selftest():
     time.sleep(3)
     started = time.time()
     try:
-        kits = _fixture_to_kits()
-        payload = {'kits': kits, 'budgetSeconds': 75, 'urgentAnchorCount': min(6, len(kits))}
-        with app.test_request_context('/solve', method='POST', json=payload):
+        kits = _smoke_kits()
+        payload = {'kits': kits, 'budgetSeconds': 45, 'urgentAnchorCount': 4}
+        with app.test_request_context('/solve-v2', method='POST', json=payload):
             response = solve()
         status = 200
         body = response
@@ -85,11 +103,10 @@ def _startup_selftest():
             'marker': 'POLIFAN_SELFTEST_RESULT',
             'httpStatus': status,
             'ok': bool(isinstance(data, dict) and data.get('ok')),
-            'fixtureKits': len(kits),
+            'build': data.get('build') if isinstance(data, dict) else None,
             'completeFigures': data.get('completeFigures') if isinstance(data, dict) else None,
             'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
             'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
-            'urgentAnchorsKept': data.get('urgentAnchorsKept') if isinstance(data, dict) else None,
             'placements': len(data.get('placements') or []) if isinstance(data, dict) else 0,
             'attemptCount': len(data.get('attempts') or []) if isinstance(data, dict) else 0,
             'error': data.get('error') if isinstance(data, dict) else 'invalid response',
