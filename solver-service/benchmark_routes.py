@@ -3,7 +3,7 @@ from xml.etree import ElementTree as ET
 import time, uuid
 
 from flask import jsonify, request
-from clean_lab_app import app, core, GAP_MM, PLATE_WIDTH_MM, PLATE_HEIGHT_MM, _metrics
+from clean_lab_app import app, core, GAP_MM, _metrics
 
 SVG_NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', SVG_NS)
@@ -18,17 +18,11 @@ def _extract_piece_kits(svg_text):
             continue
         piece = deepcopy(g)
         piece.attrib.pop('transform', None)
-        # IMPORTANTE: el nodo copiado ya pertenece al namespace SVG.
-        # Si creamos un wrapper sin namespace y además agregamos xmlns manualmente,
-        # ElementTree serializa dos declaraciones equivalentes y el parser falla con
-        # "duplicate attribute". Creamos el wrapper *en* el namespace y dejamos que
-        # ElementTree emita una sola declaración xmlns.
         wrapper = ET.Element(f'{{{SVG_NS}}}svg', {
             'width': '1220mm', 'height': '580mm', 'viewBox': '0 0 1220 580'
         })
         wrapper.append(piece)
         piece_svg = ET.tostring(wrapper, encoding='unicode')
-        # Validación local antes de pasar el SVG al parser geométrico.
         ET.fromstring(piece_svg)
         geom, trimx, trimy = core.svg_to_geometry(piece_svg, 122, 58, solver_tolerance_mm=.18, max_vertices=360)
         if geom.is_empty or geom.area <= 0:
@@ -54,19 +48,33 @@ def _extract_piece_kits(svg_text):
     return kits
 
 
-def _run_exact(kits, budget=90):
+def _run_exact(kits, budget=185):
     started = time.time()
     attempts = []
     best = None
-    runs = [(1777, True, 22), (3911, True, 22), (907, False, 18), (5119, True, 22)]
+    # Más tiempo por corrida y más semillas: priorizamos calidad sobre velocidad.
+    runs = [
+        (1777, True, 42),
+        (3911, True, 36),
+        (907, True, 34),
+        (5119, True, 34),
+        (10429, True, 28),
+        (907, False, 18),
+    ]
     for seed, continuous, seconds in runs:
-        if time.time() - started > budget - 8:
+        remaining = budget - (time.time() - started)
+        if remaining < 12:
             break
+        seconds = min(seconds, max(8, int(remaining - 6)))
         result = core._run_sparrow(kits, GAP_MM, seconds, seed, continuous=continuous)
         m = _metrics(kits, result) if result.get('ok') else {}
         attempts.append({
-            'seed': seed, 'rotation': 'continua' if continuous else '15deg',
-            'fits': bool(result.get('fits')), 'stripWidthMm': m.get('stripWidthMm'),
+            'seed': seed,
+            'rotation': 'continua' if continuous else '15deg',
+            'seconds': seconds,
+            'fits': bool(result.get('fits')),
+            'stripWidthMm': m.get('stripWidthMm'),
+            'stripWidthUsagePct': m.get('stripWidthUsagePct'),
             'geometricOccupancyPct': m.get('geometricOccupancyPct'),
             'materialInsideUsedStripPct': m.get('materialInsideUsedStripPct'),
             'error': result.get('error')
@@ -83,7 +91,7 @@ def _run_exact(kits, budget=90):
 @app.route('/upload-benchmark', methods=['GET', 'POST'])
 def upload_benchmark():
     if request.method == 'GET':
-        return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Polifan · prueba real</title><style>body{font-family:Arial;max-width:760px;margin:35px auto;padding:22px}button{padding:13px 18px;font-size:16px}input{margin:20px 0;width:100%}.note{background:#f3f3f3;padding:14px;border-radius:10px}</style></head><body><h2>Prueba real de placa · Render</h2><div class="note">Subí un SVG exportado de una placa. Se extraen sus contornos reales, se respetan 3 mm y Sparrow hace varias pasadas. No usa Vercel.</div><form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><button type="submit">Reacomodar placa real</button></form></body></html>'''
+        return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Polifan · prueba real</title><style>body{font-family:Arial;max-width:760px;margin:35px auto;padding:22px}button{padding:13px 18px;font-size:16px}input{margin:20px 0;width:100%}.note{background:#f3f3f3;padding:14px;border-radius:10px}</style></head><body><h2>Prueba real de placa · Render</h2><div class="note">Búsqueda profunda: varias pasadas con rotación continua, GAP real de 3 mm y hasta ~3 minutos de cálculo. No usa Vercel.</div><form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><button type="submit">Buscar mejor placa</button></form></body></html>'''
     uploaded = request.files.get('file')
     if not uploaded:
         return jsonify(ok=False, error='Falta archivo SVG'), 400
@@ -94,12 +102,12 @@ def upload_benchmark():
         return jsonify(ok=False, error=f'No se pudo leer el SVG: {exc}'), 422
     if not kits:
         return jsonify(ok=False, error='No se detectaron piezas data-polifan-piece en el SVG'), 422
-    result, attempts, elapsed = _run_exact(kits, 95)
+    result, attempts, elapsed = _run_exact(kits, 185)
     trace_id = uuid.uuid4().hex[:12]
     if result is None:
         return jsonify(ok=False, error='No se pudo reacomodar el conjunto completo', traceId=trace_id,
                        pieceCount=len(kits), gapMm=GAP_MM, attempts=attempts, elapsedSeconds=elapsed), 422
     m = _metrics(kits, result)
-    return jsonify(ok=True, engine='Sparrow exact real-SVG multipass', traceId=trace_id,
+    return jsonify(ok=True, engine='Sparrow deep real-SVG multipass', traceId=trace_id,
                    pieceCount=len(kits), placements=result.get('placements') or [], gapMm=GAP_MM,
                    widthCm=122, heightCm=58, attempts=attempts, elapsedSeconds=elapsed, **m)
