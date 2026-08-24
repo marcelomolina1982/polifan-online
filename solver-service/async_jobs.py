@@ -5,7 +5,10 @@ from nest_sparrow import app
 _jobs = {}
 _lock = threading.RLock()
 _active_job_id = None
-MAX_ACTIVE_SECONDS = 120
+# Sparrow puede necesitar varios minutos en placas complejas. El límite anterior
+# de 120 s marcaba como error trabajos que seguían calculándose correctamente.
+# Dejamos un margen amplio sólo como protección frente a un proceso realmente colgado.
+MAX_ACTIVE_SECONDS = 1800
 
 
 def _active_solver_view():
@@ -183,4 +186,4 @@ def reset_active_nest_job():
 
 @app.get('/engine-info')
 def engine_info():
-    return jsonify(ok=True, asyncRuntimeVersion='v25.0.20-dynamic-solver-timeout120', runtimeSolver=_solver_identity(), maxActiveSeconds=MAX_ACTIVE_SECONDS)
+    return jsonify(ok=True, asyncRuntimeVersion='v25.0.20-dynamic-solver-timeout1800', runtimeSolver=_solver_identity(), maxActiveSeconds=MAX_ACTIVE_SECONDS)
