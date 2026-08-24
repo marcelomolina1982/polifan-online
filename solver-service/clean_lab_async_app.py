@@ -3,6 +3,9 @@ from clean_lab_v2 import solve_v2 as solve
 from flask import jsonify, request
 import json, threading, time, uuid
 
+# Registra la ruta /upload-benchmark dentro de la misma app Flask.
+import benchmark_routes  # noqa: F401
+
 _jobs = {}
 _lock = threading.Lock()
 
@@ -62,11 +65,10 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v2')
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v2', directSvgBenchmark=True)
 
 
 def _smoke_kits():
-    # Geometrias concavas pequenas: validan parser SVG, GAP, rotacion y multipass.
     shapes = [
         '0,0 180,0 180,55 95,55 95,150 0,150',
         '0,0 150,0 150,150 95,150 95,70 0,70',
