@@ -5,6 +5,9 @@ import time, uuid
 from flask import jsonify, request
 from clean_lab_app import app, core, GAP_MM, PLATE_WIDTH_MM, PLATE_HEIGHT_MM, _metrics
 
+SVG_NS = 'http://www.w3.org/2000/svg'
+ET.register_namespace('', SVG_NS)
+
 
 def _extract_piece_kits(svg_text):
     root = ET.fromstring(svg_text)
@@ -15,12 +18,18 @@ def _extract_piece_kits(svg_text):
             continue
         piece = deepcopy(g)
         piece.attrib.pop('transform', None)
-        wrapper = ET.Element('svg', {
-            'xmlns': 'http://www.w3.org/2000/svg',
+        # IMPORTANTE: el nodo copiado ya pertenece al namespace SVG.
+        # Si creamos un wrapper sin namespace y además agregamos xmlns manualmente,
+        # ElementTree serializa dos declaraciones equivalentes y el parser falla con
+        # "duplicate attribute". Creamos el wrapper *en* el namespace y dejamos que
+        # ElementTree emita una sola declaración xmlns.
+        wrapper = ET.Element(f'{{{SVG_NS}}}svg', {
             'width': '1220mm', 'height': '580mm', 'viewBox': '0 0 1220 580'
         })
         wrapper.append(piece)
         piece_svg = ET.tostring(wrapper, encoding='unicode')
+        # Validación local antes de pasar el SVG al parser geométrico.
+        ET.fromstring(piece_svg)
         geom, trimx, trimy = core.svg_to_geometry(piece_svg, 122, 58, solver_tolerance_mm=.18, max_vertices=360)
         if geom.is_empty or geom.area <= 0:
             continue
