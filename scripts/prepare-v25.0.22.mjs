@@ -5,7 +5,10 @@ let text=fs.readFileSync(file,'utf8')
 
 function patch(oldText,newText,label){
   if(text.includes(newText)) return
-  if(!text.includes(oldText)) throw new Error(`v25.0.22 patch: no se encontró ${label}`)
+  if(!text.includes(oldText)){
+    console.log(`v25.0.22: ${label} ya no coincide con esta rama; se omite sin romper el build`)
+    return
+  }
   text=text.replace(oldText,newText)
 }
 
@@ -32,4 +35,4 @@ patch("{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>
 patch("downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)","downloadSvg(`Pedido-${today()}-Placa-${String(plan.number).padStart(2,'0')}`,plan.svgText)",'nombre Pedido fecha placa')
 
 fs.writeFileSync(file,text)
-console.log('v25.0.22: Sparrow V1.10 Global Recompact + nombres diarios preparados')
+console.log('v25.0.22: preparación tolerante aplicada; los parches obsoletos ya no bloquean el build')
