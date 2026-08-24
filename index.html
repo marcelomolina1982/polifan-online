@@ -19,14 +19,17 @@
       if('serviceWorker' in navigator){
         window.addEventListener('load',async()=>{
           try{
-            const r=await navigator.serviceWorker.register('/sw.js?v=25.0.10',{updateViaCache:'none'});
-            await r.update();
+            const build='25.0.32'
+            const r=await navigator.serviceWorker.register('/sw.js?v='+build,{updateViaCache:'none'})
+            await r.update()
+            const reloadKey='sw-reloaded-'+build
             navigator.serviceWorker.addEventListener('controllerchange',()=>{
-              if(!sessionStorage.getItem('sw-reloaded-25.0.10')){
-                sessionStorage.setItem('sw-reloaded-25.0.10','1');
-                location.reload();
+              if(!sessionStorage.getItem(reloadKey)){
+                sessionStorage.setItem(reloadKey,'1')
+                location.reload()
               }
-            });
+            })
+            if(r.waiting)r.waiting.postMessage?.({type:'SKIP_WAITING'})
           }catch(e){console.warn('SW update',e)}
         })
       }
