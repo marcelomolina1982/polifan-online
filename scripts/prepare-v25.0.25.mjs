@@ -50,5 +50,27 @@ text=text.split('1220 mm').join('1230 mm')
 text=text.split('Math.max(0,1220-Number(plan.stripWidthMm||plan.usedWidthMm||1220))').join('Math.max(0,1230-Number(plan.stripWidthMm||plan.usedWidthMm||1230))')
 rep('width="1220mm" height="580mm" viewBox="0 0 1220 580"','width="1230mm" height="580mm" viewBox="0 0 1230 580"','SVG exportado 123 cm')
 
+// Protección crítica: al registrar/terminar un corte, esa acción sólo puede
+// modificar movimientos e historial de cortes. Nunca catálogo, categorías,
+// Biblioteca SVG, pedidos ni inventario base aunque la pantalla tenga un estado viejo.
+rep("await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})","await onSave({...db,__onlyKeys:['movements','cutBatches'],movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})",'registro Sparrow aislado')
+
 fs.writeFileSync(file,text)
-console.log('v25.0.25: Sparrow V1.13 Residual Fill UI preparada · ancho 123 cm')
+
+const cutsFile='src/pages/CutBatches.jsx'
+let cuts=fs.readFileSync(cutsFile,'utf8')
+cuts=cuts.split("onSave({...db,movements,cutBatches})").join("onSave({...db,__onlyKeys:['movements','cutBatches'],movements,cutBatches})")
+cuts=cuts.split("onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches})").join("onSave({...db,__onlyKeys:['movements','cutBatches'],movements:[...(db.movements||[]),...movements],cutBatches})")
+cuts=cuts.split("onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})").join("onSave({...db,__onlyKeys:['movements','cutBatches'],movements:[...(db.movements||[]),...reversals],cutBatches})")
+cuts=cuts.split("onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})").join("onSave({...db,__onlyKeys:['cutBatches'],cutBatches:[...(db.cutBatches||[]),batch]})")
+fs.writeFileSync(cutsFile,cuts)
+
+const appFile='src/App.jsx'
+let app=fs.readFileSync(appFile,'utf8')
+const oldSave="async function saveData(next){\n    mutationEpochRef.current+=1;loadSequenceRef.current+=1;savingRef.current=true;setSaving(true)\n    const previous=db,baseline=serverDataRef.current||previous,changedKeys=changedTopLevelKeys(previous,next)"
+const newSave="async function saveData(next){\n    const requestedOnlyKeys=Array.isArray(next?.__onlyKeys)?[...new Set(next.__onlyKeys.filter(Boolean))]:null\n    if(next&&typeof next==='object'&&Object.prototype.hasOwnProperty.call(next,'__onlyKeys')){next={...next};delete next.__onlyKeys}\n    mutationEpochRef.current+=1;loadSequenceRef.current+=1;savingRef.current=true;setSaving(true)\n    const previous=db,baseline=serverDataRef.current||previous,changedKeys=requestedOnlyKeys?requestedOnlyKeys.filter(key=>stableJson(previous?.[key])!==stableJson(next?.[key])):changedTopLevelKeys(previous,next)"
+if(app.includes(oldSave))app=app.replace(oldSave,newSave)
+else if(!app.includes('const requestedOnlyKeys=Array.isArray(next?.__onlyKeys)'))throw new Error('v25.0.25 patch: no se encontró saveData para aislar cortes')
+fs.writeFileSync(appFile,app)
+
+console.log('v25.0.25: Sparrow V1.13 · ancho 123 cm · confirmación de cortes aislada')
