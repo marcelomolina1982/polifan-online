@@ -238,6 +238,70 @@ export function automaticOrderOutflow(db){
   return out
 }
 
+const CUT_REPAIR_CUTOFF='2026-08-14T23:59:59'
+
+function batchTimestamp(batch){
+  return String(batch?.finishedAt||batch?.createdAt||batch?.date||'')
+}
+
+function movementBelongsToBatch(movement,batch){
+  if(String(movement?.batchId||'')&&String(movement?.batchId||'')===String(batch?.id||''))return true
+  const number=String(batch?.number||'').trim()
+  return Boolean(number&&String(movement?.detail||'').includes(`Placa #${number}`))
+}
+
+function movementNetForBatchItem(db,batch,figure,component){
+  let net=0
+  const figureKey=normalizeFigureKey(figure)
+  ;(db.movements||[]).forEach(m=>{
+    if(!m?.figure||normalizeFigureKey(m.figure)!==figureKey)return
+    const movementComponent=m.component||'complete'
+    if(movementComponent!==component||!movementBelongsToBatch(m,batch))return
+    const q=Math.max(0,Number(m.qty||0))
+    const positive=component==='complete'
+      ?['Entrada extra','Ajuste positivo','Entrada de corte'].includes(m.type)
+      :['Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo'].includes(m.type)
+    const negative=component==='complete'
+      ?['Salida manual','Ajuste negativo'].includes(m.type)
+      :['Salida manual','Ajuste negativo','Ajuste componente negativo'].includes(m.type)
+    if(positive)net+=q
+    else if(negative)net-=q
+  })
+  return net
+}
+
+function missingFinishedBatchProduction(db){
+  const complete={},components={}
+  ;(db.cutBatches||[])
+    .filter(batch=>batch?.status==='Terminada'&&batchTimestamp(batch)>CUT_REPAIR_CUTOFF)
+    .forEach(batch=>{
+      const multiplier=Math.max(1,Number(batch.multiplier)||1)
+      const expected=new Map()
+      ;(batch.items||[]).forEach(item=>{
+        if(!item?.figure)return
+        const component=item.component||'complete'
+        if(!['complete','tapa','base'].includes(component))return
+        const qty=Math.max(0,Number(item.qty||0))*multiplier
+        if(!qty)return
+        const key=`${component}|${normalizeFigureKey(item.figure)}`
+        const current=expected.get(key)||{figure:String(item.figure).trim(),component,qty:0}
+        current.qty+=qty
+        expected.set(key,current)
+      })
+      expected.forEach(entry=>{
+        const already=movementNetForBatchItem(db,batch,entry.figure,entry.component)
+        const missing=Math.max(0,entry.qty-already)
+        if(!missing)return
+        if(entry.component==='complete')complete[entry.figure]=(complete[entry.figure]||0)+missing
+        else{
+          if(!components[entry.figure])components[entry.figure]={tapa:0,base:0}
+          components[entry.figure][entry.component]+=missing
+        }
+      })
+    })
+  return {complete,components}
+}
+
 export function manualBalance(db){
   const balance={}
   ;(db.movements||[]).forEach(m=>{
@@ -245,6 +309,10 @@ export function manualBalance(db){
     const q=Number(m.qty||0)
     const positive=['Entrada extra','Ajuste positivo','Entrada de corte'].includes(m.type)
     balance[m.figure]=(balance[m.figure]||0)+(positive?q:-q)
+  })
+  const supplements=missingFinishedBatchProduction(db).complete
+  Object.entries(supplements).forEach(([figure,qty])=>{
+    balance[figure]=(balance[figure]||0)+Number(qty||0)
   })
   return balance
 }
@@ -259,6 +327,12 @@ export function looseComponentBalance(db){
     if(!positive && !negative) return
     if(!balance[m.figure]) balance[m.figure]={tapa:0,base:0}
     balance[m.figure][m.component]+=positive?q:-q
+  })
+  const supplements=missingFinishedBatchProduction(db).components
+  Object.entries(supplements).forEach(([figure,parts])=>{
+    if(!balance[figure])balance[figure]={tapa:0,base:0}
+    balance[figure].tapa+=Number(parts?.tapa||0)
+    balance[figure].base+=Number(parts?.base||0)
   })
   Object.values(balance).forEach(v=>{
     v.tapa=Math.max(0,Number(v.tapa||0))
