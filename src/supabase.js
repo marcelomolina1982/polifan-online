@@ -1,14 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||'https://eftksimpkkvmyfurwqii.supabase.co'
-const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishable_RJheqVJ6VdJC7291e2z7WQ_0vsBsDWN'
+const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||'https://mcmndnxrbsdlaxpfidsn.supabase.co'
+const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishable_jYJLmMGO5E0doDU2tf9xyA_tB6QsqyH'
 const client=createClient(SUPABASE_URL,SUPABASE_KEY)
 
 const APP_CACHE_KEY='polifan-app-cache'
 const EMERGENCY_CACHE_KEY='polifan-emergency-backup-v1'
 const AUTO_BACKUPS_KEY='polifan-auto-backups-v1'
 const APP_REV_KEY='polifan-app-revision-v2'
-const MAX_LOCAL_BACKUPS=8
+const MAX_LOCAL_BACKUPS=5
 let mainHydratedThisSession=false
 
 function isPublicCatalog(){try{const q=new URLSearchParams(window.location.search);return window.location.hash==='#pedido'||q.get('pedido')==='1'}catch{return false}}
@@ -41,6 +41,8 @@ export async function createAppBackup(state,reason='manual'){const local=saveLoc
 export function listLocalBackups(){const value=readJson(AUTO_BACKUPS_KEY);return Array.isArray(value)?value:[]}
 export async function listCloudBackups(){
   try{
+    // Importante: sólo metadatos. La versión anterior descargaba hasta 30 backups completos
+    // (varios MB cada uno) cada vez que se abría Ajustes, provocando un egress enorme.
     const {data,error}=await client.from('app_state').select('id,updated_at').like('id','backup_%').order('updated_at',{ascending:false}).limit(30)
     if(error)throw error
     return {ok:true,items:(data||[]).map(row=>({id:row.id,createdAt:row.updated_at||'',reason:'remoto',summary:null,state:null}))}
@@ -49,9 +51,9 @@ export async function listCloudBackups(){
 export async function restoreCloudBackup(id){try{const {data,error}=await client.from('app_state').select('data').eq('id',id).maybeSingle();if(error||!data?.data)throw error||new Error('Respaldo no encontrado');const clean={...data.data};delete clean.__backupMeta;return {ok:true,state:clean}}catch(error){return {ok:false,error}}}
 
 const COLLECTIONS={
-  orders:{prefix:'order_',key:o=>String(o?.id||'').trim(),allowDelete:true},
-  cutBatches:{prefix:'batch_',key:o=>String(o?.id||'').trim(),allowDelete:false},
-  movements:{prefix:'movement_',key:o=>String(o?.id||'').trim(),allowDelete:false}
+  orders:{prefix:'order_',key:o=>String(o?.id||'').trim()},
+  cutBatches:{prefix:'batch_',key:o=>String(o?.id||'').trim()},
+  movements:{prefix:'movement_',key:o=>String(o?.id||'').trim()}
 }
 const stamp=o=>String(o?.updatedAt||o?.finishedAt||o?.createdAt||o?.date||'')
 const rowId=(prefix,id)=>`${prefix}${id}`
@@ -65,9 +67,7 @@ async function persistCollectionDelta(name,nextItems=[],previousItems=[]){
     const before=prev.get(id)
     if(!before||JSON.stringify(before)!==JSON.stringify(item))rows.push({id:rowId(cfg.prefix,id),data:{collection:name,item},updated_at:stamp(item)||now})
   }
-  if(cfg.allowDelete){
-    for(const [id] of prev){if(!nextIds.has(id))rows.push({id:rowId(cfg.prefix,id),data:{collection:name,deleted:true,deletedId:id,deletedAt:now},updated_at:now})}
-  }
+  for(const [id] of prev){if(!nextIds.has(id))rows.push({id:rowId(cfg.prefix,id),data:{collection:name,deleted:true,deletedId:id,deletedAt:now},updated_at:now})}
   if(!rows.length)return {ok:true,changed:0}
   try{
     const {error}=await client.from('app_state').upsert(rows,{onConflict:'id'});if(error)throw error
@@ -84,32 +84,17 @@ function mergeRows(base=[],rows=[],name){
   for(const row of rows){
     const d=row?.data||{}
     if(d.collection&&d.collection!==name)continue
-    if(d.deleted){
-      if(cfg.allowDelete){const id=String(d.deletedId||'').trim()||String(row?.id||'').replace(cfg.prefix,'');if(id)map.delete(id)}
-      continue
-    }
+    if(d.deleted){const id=String(d.deletedId||'').trim()||String(row?.id||'').replace(cfg.prefix,'');if(id)map.delete(id);continue}
     const item=d.item||d.order,id=cfg.key(item);if(!id)continue
-    const current=map.get(id)
-    if(!current||stamp(item)>=stamp(current))map.set(id,item)
+    const current=map.get(id);if(!current||stamp(item)>=stamp(current))map.set(id,item)
   }
   return [...map.values()]
 }
-function recoverClosedDatesFromLocal(state){
-  const current=Array.isArray(state?.productionClosedDates)?state.productionClosedDates:[]
-  const merged=new Set(current)
-  // Durante el incidente el main conservó algunos cierres viejos pero perdió los
-  // más recientes. Por eso no alcanza con recuperar sólo cuando el array está vacío.
-  // Unimos los cierres presentes en las copias locales recientes (máx. 8).
-  for(const backup of listLocalBackups()){
-    const dates=backup?.state?.productionClosedDates
-    if(Array.isArray(dates))dates.forEach(d=>{if(/^\d{4}-\d{2}-\d{2}$/.test(String(d||'')))merged.add(String(d))})
-  }
-  const next=[...merged].sort()
-  return next.length===current.length&&next.every((d,i)=>d===current.slice().sort()[i])?state:{...state,productionClosedDates:next,__recoveredClosedDates:true}
-}
 async function mergeCriticalState(state){
   if(isPublicCatalog())return state
-  let merged=recoverClosedDatesFromLocal({...state})
+  let merged={...state}
+  // Sólo filas durables pequeñas. Se eliminó por completo el escaneo automático de
+  // backups cloud, que podía descargar decenas o cientos de MB en un solo arranque.
   const results=await Promise.all(Object.keys(COLLECTIONS).map(async name=>[name,await readDurableCollection(name)]))
   for(const [name,durable] of results)if(durable.ok)merged={...merged,[name]:mergeRows(merged[name]||[],durable.rows,name)}
   return merged
@@ -122,9 +107,7 @@ async function optimizedMainRead(target,args){
     try{
       const meta=await client.from('app_state').select('updated_at').eq('id','main').maybeSingle()
       if(!meta.error&&String(meta.data?.updated_at||'')===knownRevision){
-        const mergedCached=await mergeCriticalState(cached)
-        writeJson(APP_CACHE_KEY,mergedCached);writeJson(EMERGENCY_CACHE_KEY,mergedCached)
-        return {data:{data:mergedCached,updated_at:knownRevision},error:null,__cacheHit:true,__criticalMerged:true}
+        return {data:{data:cached,updated_at:knownRevision},error:null,__cacheHit:true}
       }
     }catch{}
   }
@@ -156,13 +139,10 @@ function wrapReadBuilder(builder,ctx={}){
 function wrapWriteBuilder(builder,durablePromise,hasCriticalChanges,state){
   if(!builder||typeof builder!=='object')return builder
   return new Proxy(builder,{get(target,prop){
-    if(prop==='then')return (resolve,reject)=>Promise.all([Promise.resolve(durablePromise).catch(error=>({ok:false,error})),Promise.resolve(target)]).then(async([durable,result])=>{
+    if(prop==='then')return (resolve,reject)=>Promise.all([Promise.resolve(durablePromise).catch(error=>({ok:false,error})),Promise.resolve(target)]).then(([durable,result])=>{
       const revision=result?.data?.[0]?.updated_at||result?.data?.updated_at||''
       if(revision)writeText(APP_REV_KEY,revision);else writeText(APP_REV_KEY,'')
-      if(state&&typeof state==='object'){
-        const healed=await mergeCriticalState(state)
-        writeJson(APP_CACHE_KEY,healed);writeJson(EMERGENCY_CACHE_KEY,healed);mainHydratedThisSession=true
-      }
+      if(state&&typeof state==='object'){writeJson(APP_CACHE_KEY,state);writeJson(EMERGENCY_CACHE_KEY,state);mainHydratedThisSession=true}
       if(hasCriticalChanges&&durable?.ok&&result?.error){console.warn('El estado general falló, pero los datos críticos quedaron guardados',result.error);return resolve({...result,error:null,__durableOnly:true})}
       if(hasCriticalChanges&&!durable?.ok&&!result?.error)return resolve({...result,__durableWarning:true})
       return resolve(result)
