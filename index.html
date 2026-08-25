@@ -19,7 +19,7 @@
       if('serviceWorker' in navigator){
         window.addEventListener('load',async()=>{
           try{
-            const build='25.0.32'
+            const build='25.0.33'
             const r=await navigator.serviceWorker.register('/sw.js?v='+build,{updateViaCache:'none'})
             await r.update()
             const reloadKey='sw-reloaded-'+build
