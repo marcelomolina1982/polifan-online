@@ -238,12 +238,37 @@ export function automaticOrderOutflow(db){
   return out
 }
 
+// Los cortes terminados son la fuente de verdad de la producción física. Antes se
+// dependía de movement_*; si esos movimientos quedaban desincronizados, "Para cortar"
+// volvía a pedir piezas ya fabricadas aunque las placas siguieran guardadas.
+function finishedBatchBalances(db){
+  const complete={},components={}
+  ;(db.cutBatches||[]).filter(b=>b.status==='Terminada').forEach(batch=>{
+    const multiplier=Math.max(1,Number(batch.multiplier)||1)
+    ;(batch.items||[]).forEach(item=>{
+      if(!item?.figure)return
+      const qty=Math.max(0,Number(item.qty||0))*multiplier
+      if(!qty)return
+      if(['tapa','base'].includes(item.component)){
+        if(!components[item.figure])components[item.figure]={tapa:0,base:0}
+        components[item.figure][item.component]+=qty
+      }else complete[item.figure]=(complete[item.figure]||0)+qty
+    })
+  })
+  return {complete,components}
+}
+
 export function manualBalance(db){
   const balance={}
   ;(db.movements||[]).forEach(m=>{
     if(!m.figure || ['tapa','base'].includes(m.component))return
+    // Todo movimiento asociado a una placa se deriva de cutBatches para evitar
+    // duplicados y para poder reconstruir inventario aun si movement_* se dañó.
+    if(m.batchId)return
     const q=Number(m.qty||0)
-    const positive=['Entrada extra','Ajuste positivo','Entrada de corte'].includes(m.type)
+    const positive=['Entrada extra','Ajuste positivo'].includes(m.type)
+    const negative=['Salida manual','Ajuste negativo'].includes(m.type)
+    if(!positive&&!negative)return
     balance[m.figure]=(balance[m.figure]||0)+(positive?q:-q)
   })
   return balance
@@ -252,9 +277,9 @@ export function manualBalance(db){
 export function looseComponentBalance(db){
   const balance={}
   ;(db.movements||[]).forEach(m=>{
-    if(!m.figure || !['tapa','base'].includes(m.component)) return
+    if(!m.figure || !['tapa','base'].includes(m.component) || m.batchId)return
     const q=Number(m.qty||0)
-    const positive=['Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo'].includes(m.type)
+    const positive=['Entrada extra','Ajuste positivo','Ajuste componente positivo'].includes(m.type)
     const negative=['Salida manual','Ajuste negativo','Ajuste componente negativo'].includes(m.type)
     if(!positive && !negative) return
     if(!balance[m.figure]) balance[m.figure]={tapa:0,base:0}
@@ -268,14 +293,19 @@ export function looseComponentBalance(db){
 }
 
 export function physicalStockBalance(db){
-  const raw=manualBalance(db)
+  const manual=manualBalance(db)
+  const batch=finishedBatchBalances(db)
   const out=automaticOrderOutflow(db)
   const loose=looseComponentBalance(db)
-  const names=new Set([...Object.keys(raw),...Object.keys(out),...Object.keys(loose)])
+  const names=new Set([...Object.keys(manual),...Object.keys(batch.complete),...Object.keys(batch.components),...Object.keys(out),...Object.keys(loose)])
   const physical={}
   names.forEach(figure=>{
-    const paired=Math.min(Number(loose[figure]?.tapa||0),Number(loose[figure]?.base||0))
-    physical[figure]=Math.max(0,Number(raw[figure]||0)+paired-Number(out[figure]||0))
+    const manualComplete=Number(manual[figure]||0)
+    const batchComplete=Number(batch.complete[figure]||0)
+    const tapa=Number(loose[figure]?.tapa||0)+Number(batch.components[figure]?.tapa||0)
+    const base=Number(loose[figure]?.base||0)+Number(batch.components[figure]?.base||0)
+    const paired=Math.min(tapa,base)
+    physical[figure]=Math.max(0,manualComplete+batchComplete+paired-Number(out[figure]||0))
   })
   return physical
 }
@@ -310,16 +340,16 @@ export function stockRows(db){
   const inCutComponents=activeCutComponents(db)
   const autoOut=automaticOrderOutflow(db)
   const loose=looseComponentBalance(db)
+  const batchParts=finishedBatchBalances(db).components
   const catalogNames=(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)
-  const names=new Set([...(db.figures||[]),...catalogNames,...Object.keys(demand),...Object.keys(physical),...Object.keys(inCut),...Object.keys(inCutComponents),...Object.keys(autoOut),...Object.keys(loose)])
+  const names=new Set([...(db.figures||[]),...catalogNames,...Object.keys(demand),...Object.keys(physical),...Object.keys(inCut),...Object.keys(inCutComponents),...Object.keys(autoOut),...Object.keys(loose),...Object.keys(batchParts)])
   return [...names].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})).map(f=>{
     const cut=Number(physical[f]||0)
     const ordered=Number(demand[f]||0)
     const cutting=Number(inCut[f]||0)
     const free=cut-ordered
-    const projected=cut+cutting-ordered
-    const rawLooseTapa=Number(loose[f]?.tapa||0)
-    const rawLooseBase=Number(loose[f]?.base||0)
+    const rawLooseTapa=Number(loose[f]?.tapa||0)+Number(batchParts[f]?.tapa||0)
+    const rawLooseBase=Number(loose[f]?.base||0)+Number(batchParts[f]?.base||0)
     const pairedNow=Math.min(rawLooseTapa,rawLooseBase)
     const looseTapa=Math.max(0,rawLooseTapa-pairedNow)
     const looseBase=Math.max(0,rawLooseBase-pairedNow)
