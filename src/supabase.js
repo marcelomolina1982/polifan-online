@@ -96,13 +96,16 @@ function mergeRows(base=[],rows=[],name){
 }
 function recoverClosedDatesFromLocal(state){
   const current=Array.isArray(state?.productionClosedDates)?state.productionClosedDates:[]
-  if(current.length)return state
-  const backups=listLocalBackups()
-  for(const backup of backups){
+  const merged=new Set(current)
+  // Durante el incidente el main conservó algunos cierres viejos pero perdió los
+  // más recientes. Por eso no alcanza con recuperar sólo cuando el array está vacío.
+  // Unimos los cierres presentes en las copias locales recientes (máx. 8).
+  for(const backup of listLocalBackups()){
     const dates=backup?.state?.productionClosedDates
-    if(Array.isArray(dates)&&dates.length)return {...state,productionClosedDates:[...new Set(dates)].sort(),__recoveredClosedDates:true}
+    if(Array.isArray(dates))dates.forEach(d=>{if(/^\d{4}-\d{2}-\d{2}$/.test(String(d||'')))merged.add(String(d))})
   }
-  return state
+  const next=[...merged].sort()
+  return next.length===current.length&&next.every((d,i)=>d===current.slice().sort()[i])?state:{...state,productionClosedDates:next,__recoveredClosedDates:true}
 }
 async function mergeCriticalState(state){
   if(isPublicCatalog())return state
