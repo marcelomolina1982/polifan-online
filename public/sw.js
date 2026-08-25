@@ -1,4 +1,4 @@
-const SW_VERSION='25.0.35'
+const SW_VERSION='25.0.39'
 self.addEventListener('install',event=>{self.skipWaiting()})
 self.addEventListener('activate',event=>{event.waitUntil((async()=>{
   const keys=await caches.keys()
