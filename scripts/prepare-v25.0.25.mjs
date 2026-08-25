@@ -42,5 +42,13 @@ else if(!text.includes('Array.isArray(plan.partialExtras)?plan.partialExtras')) 
 
 rep("notes:`Sparrow V1.12 Area First · ${plan.units.length} unidades atendidas · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm${plan.partialExtra?` · extra ${plan.partialExtra.figure} ${plan.partialExtra.component}; próxima falta ${plan.partialExtra.missingCounterpart}`:''}`","notes:`Sparrow V1.13 Residual Fill · ${plan.units.length} unidades atendidas · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm${Array.isArray(plan.partialExtras)&&plan.partialExtras.length?` · ${plan.partialExtras.length} extra(s): ${plan.partialExtras.map(x=>`${x.figure} ${x.component}; falta ${x.missingCounterpart}`).join(' | ')}`:''}`",'notas extras')
 
+// Placas nuevas: el material físico mide 126 cm de ancho, pero Sparrow trabaja
+// deliberadamente sobre 123 cm para dejar 3 cm de reserva total de material.
+rep("widthCm:122,heightCm:58","widthCm:123,heightCm:58",'ancho de cálculo 123 cm')
+text=text.split('1220 × 580 mm').join('1230 × 580 mm')
+text=text.split('1220 mm').join('1230 mm')
+text=text.split('Math.max(0,1220-Number(plan.stripWidthMm||plan.usedWidthMm||1220))').join('Math.max(0,1230-Number(plan.stripWidthMm||plan.usedWidthMm||1230))')
+rep('width="1220mm" height="580mm" viewBox="0 0 1220 580"','width="1230mm" height="580mm" viewBox="0 0 1230 580"','SVG exportado 123 cm')
+
 fs.writeFileSync(file,text)
-console.log('v25.0.25: Sparrow V1.13 Residual Fill UI preparada')
+console.log('v25.0.25: Sparrow V1.13 Residual Fill UI preparada · ancho 123 cm')
