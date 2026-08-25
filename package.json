@@ -2,6 +2,7 @@
   "name": "polifan-profesional",
   "private": true,
   "version": "25.0.40",
+  "description": "Modo operativo seguro",
   "type": "module",
   "scripts": {
     "dev": "vite",
