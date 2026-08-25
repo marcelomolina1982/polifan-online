@@ -1,39 +1,43 @@
-name: Validar build
+name: Sparrow V1.14 benchmark 12
+
 on:
   push:
-    branches: [main]
+    branches:
+      - lab/sparrow-v114-global-human-search
+    paths:
+      - 'solver-service/benchmarks/**'
+      - '.github/workflows/sparrow-benchmark-v114.yml'
   pull_request:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - 'solver-service/benchmarks/**'
+      - '.github/workflows/sparrow-benchmark-v114.yml'
+  workflow_dispatch:
+
 jobs:
-  build:
+  benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build
-      - name: Setup Rust for LAB Sparrow benchmark
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build official Sparrow for LAB benchmark
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build official Sparrow
         run: |
           git clone --depth 1 https://github.com/JeroenGar/sparrow.git /tmp/sparrow
           cd /tmp/sparrow
           cargo build --release --features only_final_svg --bin sparrow
           cp target/release/sparrow /tmp/sparrow-bin
       - name: Stress known 12-complete geometry
-        if: github.head_ref == 'lab/sparrow-v114-global-human-search'
         shell: bash
         run: |
           set -euo pipefail
-          FIX="$GITHUB_WORKSPACE/solver-service/benchmarks/polifan_benchmark_12.json"
           mkdir -p /tmp/runs
+          FIX="$GITHUB_WORKSPACE/solver-service/benchmarks/polifan_benchmark_12.json"
           seeds=(101 307 911 1701 4099 7919 12011 31337 48017 65537 91081 131071)
           echo 'seed,exit,placed,width_mm,success' > /tmp/results.csv
-          best=999999; wins=0
+          best=999999
+          wins=0
           for seed in "${seeds[@]}"; do
             d="/tmp/runs/$seed"; mkdir -p "$d"; cd "$d"
             set +e
@@ -44,8 +48,11 @@ jobs:
             if [ -f "$out" ]; then
               read placed width < <(python3 - "$out" <<'PY'
 import json,sys
-p=json.load(open(sys.argv[1])); s=p.get('solution') or {}
-print(len(((s.get('layout') or {}).get('placed_items') or [])), float(s.get('strip_width') or 999999))
+p=json.load(open(sys.argv[1]))
+s=p.get('solution') or {}
+placed=len(((s.get('layout') or {}).get('placed_items') or []))
+width=float(s.get('strip_width') or 999999)
+print(placed,width)
 PY
 )
             else
@@ -65,11 +72,16 @@ PY
           done
           echo "wins=$wins" | tee /tmp/summary.txt
           echo "best_width_mm=$best" | tee -a /tmp/summary.txt
+          echo '--- RESULTS ---'
           cat /tmp/results.csv
+          echo '--- SUMMARY ---'
           cat /tmp/summary.txt
-      - name: Upload Sparrow benchmark result
-        if: always() && github.head_ref == 'lab/sparrow-v114-global-human-search'
-        uses: actions/upload-artifact@v4
+          if [ "$wins" -eq 0 ]; then
+            echo 'Benchmark: Sparrow no encontró las 24 piezas dentro de 1214 mm en esta tanda.'
+          else
+            echo "Benchmark: Sparrow encontró las 24 piezas en $wins de ${#seeds[@]} semillas."
+          fi
+      - uses: actions/upload-artifact@v4
         with:
           name: sparrow-v114-benchmark-results
           path: |
