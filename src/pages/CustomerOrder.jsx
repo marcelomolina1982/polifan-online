@@ -8,24 +8,28 @@ export default function CustomerOrder(){
   const [special,setSpecial]=useState('')
   useEffect(()=>{
     let mounted=true
+    let lastRefreshAt=0
     const applyPublic=(state,updatedAt='')=>{
       if(!mounted||!state)return
       const safe={...state,orders:[],productionClosedDates:[]}
       setCatalogState({...safe,__updatedAt:updatedAt||String(Date.now())})
       try{localStorage.setItem(CACHE_KEY,JSON.stringify({state:safe,updatedAt:updatedAt||'',cachedAt:new Date().toISOString()}))}catch{}
     }
-    const refresh=async()=>{
+    const refresh=async(force=false)=>{
+      const now=Date.now()
+      if(!force&&lastRefreshAt&&now-lastRefreshAt<120000)return
+      lastRefreshAt=now
       const {data,error}=await supabase.from('public_catalog').select('data,updated_at').eq('id','main').maybeSingle()
       if(!error&&data?.data){applyPublic(data.data,data.updated_at||'');return}
       try{const cached=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');if(cached?.state)applyPublic(cached.state,cached.updatedAt||'')}catch{}
     }
-    refresh()
-    const onVisible=()=>{if(document.visibilityState==='visible')refresh()}
-    const onOnline=()=>refresh()
-    window.addEventListener('focus',refresh);window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)
-    const timer=window.setInterval(refresh,10000)
-    const channel=supabase.channel('catalog-public-sync-v3').on('postgres_changes',{event:'*',schema:'public',table:'public_catalog',filter:'id=eq.main'},refresh).subscribe()
-    return()=>{mounted=false;window.removeEventListener('focus',refresh);window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);window.clearInterval(timer);supabase.removeChannel(channel)}
+    refresh(true)
+    const onVisible=()=>{if(document.visibilityState==='visible')refresh(false)}
+    const onOnline=()=>refresh(false)
+    window.addEventListener('focus',()=>refresh(false));window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)
+    // Sin polling periódico: Realtime avisa cuando el catálogo cambia y recién ahí se vuelve a descargar.
+    const channel=supabase.channel('catalog-public-sync-v4').on('postgres_changes',{event:'*',schema:'public',table:'public_catalog',filter:'id=eq.main'},()=>refresh(true)).subscribe()
+    return()=>{mounted=false;window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}
   },[])
   const products=catalogState.customerCatalog||[]
   const collections=catalogState.catalogCollections||[]
