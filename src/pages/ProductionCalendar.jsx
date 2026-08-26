@@ -2,6 +2,7 @@ import React, {useMemo,useState} from 'react'
 import {Title,Badge} from '../components/UI'
 import {DAILY_PIECE_LIMIT,orderPieces,productionStatus,todayArgentinaISO,localISO} from '../lib/production'
 import {packagingForPieces} from '../lib/packaging'
+import {supabase} from '../supabase'
 
 const iso=d=>localISO(d)
 const add=(date,days)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+days);return iso(d)}
@@ -20,11 +21,32 @@ export default function ProductionCalendar({db,onSave,go}){
   async function toggleClosed(){
     const action=selectedClosed?'reabrir':'cerrar'
     if(!window.confirm(`¿Querés ${action} la producción del ${label(selected)}?`))return
-    const next=selectedClosed?closedDates.filter(d=>d!==selected):[...new Set([...closedDates,selected])].sort()
     setClosing(true)
-    const result=await onSave({...db,productionClosedDates:next})
-    setClosing(false)
-    if(result?.ok) alert(selectedClosed?'Producción reabierta y sincronizada con el catálogo.':'Producción cerrada y sincronizada con el catálogo.')
+    try{
+      let saved=false,lastError=null
+      for(let attempt=1;attempt<=5&&!saved;attempt++){
+        const {data:row,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
+        if(readError){lastError=readError;break}
+        const latestData=row?.data||{}
+        const latestClosed=Array.isArray(latestData.productionClosedDates)?latestData.productionClosedDates:[]
+        const next=selectedClosed
+          ? latestClosed.filter(d=>d!==selected)
+          : [...new Set([...latestClosed,selected])].sort()
+        const updatedAt=new Date().toISOString()
+        let query=supabase.from('app_state').update({data:{...latestData,productionClosedDates:next},updated_at:updatedAt}).eq('id','main')
+        if(row?.updated_at)query=query.eq('updated_at',row.updated_at)
+        const result=await query.select('updated_at')
+        if(result.error){lastError=result.error;break}
+        if(result.data?.length){saved=true;break}
+        await new Promise(resolve=>setTimeout(resolve,120*attempt))
+      }
+      if(!saved)throw lastError||new Error('El estado cambió varias veces mientras se guardaba.')
+      alert(selectedClosed?'Producción reabierta y sincronizada con el catálogo.':'Producción cerrada y sincronizada con el catálogo.')
+      window.location.reload()
+    }catch(error){
+      alert('No se pudo sincronizar el calendario: '+(error?.message||'error de sincronización'))
+      setClosing(false)
+    }
   }
 
   return <>
