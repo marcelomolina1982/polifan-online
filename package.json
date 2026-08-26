@@ -1,12 +1,12 @@
 {
-  "name": "polifan-profesional",
+  "name": "tu-vida-en-tinta-catalogo-v2",
   "private": true,
-  "version": "25.0.49-catalogo-v2",
-  "description": "Laboratorio aislado del Catálogo V2",
+  "version": "2.0.0-lab",
+  "description": "Catálogo V2 independiente de Tu Vida en Tinta",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-catalogo-v2.mjs && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
