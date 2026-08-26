@@ -23,24 +23,8 @@ export default function ProductionCalendar({db,onSave,go}){
     if(!window.confirm(`¿Querés ${action} la producción del ${label(selected)}?`))return
     setClosing(true)
     try{
-      let saved=false,lastError=null
-      for(let attempt=1;attempt<=5&&!saved;attempt++){
-        const {data:row,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
-        if(readError){lastError=readError;break}
-        const latestData=row?.data||{}
-        const latestClosed=Array.isArray(latestData.productionClosedDates)?latestData.productionClosedDates:[]
-        const next=selectedClosed
-          ? latestClosed.filter(d=>d!==selected)
-          : [...new Set([...latestClosed,selected])].sort()
-        const updatedAt=new Date().toISOString()
-        let query=supabase.from('app_state').update({data:{...latestData,productionClosedDates:next},updated_at:updatedAt}).eq('id','main')
-        if(row?.updated_at)query=query.eq('updated_at',row.updated_at)
-        const result=await query.select('updated_at')
-        if(result.error){lastError=result.error;break}
-        if(result.data?.length){saved=true;break}
-        await new Promise(resolve=>setTimeout(resolve,120*attempt))
-      }
-      if(!saved)throw lastError||new Error('El estado cambió varias veces mientras se guardaba.')
+      const {error}=await supabase.rpc('set_production_closed_date',{p_date:selected,p_closed:!selectedClosed})
+      if(error)throw error
       alert(selectedClosed?'Producción reabierta y sincronizada con el catálogo.':'Producción cerrada y sincronizada con el catálogo.')
       window.location.reload()
     }catch(error){
