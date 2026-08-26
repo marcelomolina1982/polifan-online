@@ -1,12 +1,8 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
-import './styles.css'
-import './trust-overrides.css'
-import './catalog-pro.css'
-import './trustCatalogEnhancements'
-import './catalogProEnhancements'
+import CustomerOrderV2 from './pages/CustomerOrderV2'
+import './catalog-v2-shell.css'
 
 createRoot(document.getElementById('root')).render(
-  <React.StrictMode><App /></React.StrictMode>
+  <React.StrictMode><CustomerOrderV2 /></React.StrictMode>
 )
