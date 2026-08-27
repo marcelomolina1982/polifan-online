@@ -2,14 +2,45 @@
 from flask import jsonify, request
 import time, uuid
 
-from clean_lab_app import (
-    app, core, PLATE_WIDTH_MM, PLATE_HEIGHT_MM, GAP_MM,
-    _metrics, _attempt, _best_same_set,
-)
+import clean_lab_app as base
+from clean_lab_app import app, core, GAP_MM, _attempt, _best_same_set
 
-BUILD = "best-effort-multipass-v4-batch-fill-2026-08-24"
+# Placa física nueva: 1260x600 mm. Área útil conservadora definida por operación: 1230x580 mm.
+PLATE_WIDTH_MM = 1230.0
+PLATE_HEIGHT_MM = 580.0
+PLATE_AREA_MM2 = PLATE_WIDTH_MM * PLATE_HEIGHT_MM
+
+# El runtime histórico estaba fijado a 1220 mm. Parcheamos las constantes de los módulos
+# cargados por este laboratorio para que TODO el cálculo v4 use 1230 mm sin tocar producción.
+base.PLATE_WIDTH_MM = PLATE_WIDTH_MM
+base.PLATE_HEIGHT_MM = PLATE_HEIGHT_MM
+base.PLATE_AREA_MM2 = PLATE_AREA_MM2
+core.PLATE_WIDTH_MM = PLATE_WIDTH_MM
+core.PLATE_HEIGHT_MM = PLATE_HEIGHT_MM
+core.PLATE_AREA_MM2 = PLATE_AREA_MM2
+
+BUILD = "best-effort-multipass-v4-1230-residual-2026-08-27"
 DEFAULT_BUDGET_SECONDS = 180
 MAX_POOL_V4 = 120
+
+
+def _material_area(rows):
+    return sum(float(k.get('area') or 0) for k in rows)
+
+
+def _metrics(rows, result):
+    area = _material_area(rows)
+    strip = float(result.get('stripWidthMm') or 0)
+    strip_area = strip * PLATE_HEIGHT_MM if strip > 0 else 0
+    return {
+        'materialAreaMm2': round(area, 2),
+        'plateAreaMm2': round(PLATE_AREA_MM2, 2),
+        'geometricOccupancyPct': round(100.0 * area / PLATE_AREA_MM2, 3),
+        'stripWidthMm': round(strip, 3),
+        'stripWidthUsagePct': round(100.0 * strip / PLATE_WIDTH_MM, 3) if strip else 0.0,
+        'materialInsideUsedStripPct': round(100.0 * area / strip_area, 3) if strip_area else 0.0,
+        'sparrowReportedDensityPct': round(float(result.get('solverDensity') or 0), 3),
+    }
 
 
 def _rank_remaining(selected, kits):
@@ -37,6 +68,40 @@ def _rank_remaining(selected, kits):
                     out.append(row)
                 added = True
         if not added:
+            break
+        i += 1
+    return out
+
+
+def _residual_candidates(selected, kits, limit=28):
+    """Explora huecos residuales con más diversidad que el ranking normal.
+
+    Alterna piezas de envolvente chica, área chica, alta solidez y prioridad. Esto evita
+    abandonar una placa sólo porque los primeros candidatos grandes no entren.
+    """
+    used = {k.get('kitId') for k in selected}
+    remain = [k for k in kits if k.get('kitId') not in used]
+    orders = [
+        sorted(remain, key=lambda k: (k.get('envelope', 1e18), k.get('area', 1e18), k.get('priority', 999999))),
+        sorted(remain, key=lambda k: (k.get('area', 1e18), k.get('envelope', 1e18), k.get('priority', 999999))),
+        sorted(remain, key=lambda k: (-k.get('solidity', 0), k.get('envelope', 1e18), k.get('priority', 999999))),
+        sorted(remain, key=lambda k: (k.get('priority', 999999), k.get('envelope', 1e18))),
+    ]
+    out, seen = [], set()
+    i = 0
+    while len(out) < limit:
+        progressed = False
+        for rows in orders:
+            if i < len(rows):
+                row = rows[i]
+                kid = row.get('kitId')
+                if kid not in seen:
+                    seen.add(kid)
+                    out.append(row)
+                    if len(out) >= limit:
+                        break
+                progressed = True
+        if not progressed:
             break
         i += 1
     return out
@@ -76,7 +141,7 @@ def solve_v4():
     best_result = None
     anchor_kept = 0
 
-    # PASS 1: bloque urgente. No se negocia la prioridad; buscamos el bloque mayor que entra.
+    # PASS 1: bloque urgente.
     for count in range(min(anchor_requested, len(kits)), 0, -1):
         if time.time() - started > budget - 35:
             break
@@ -101,21 +166,19 @@ def solve_v4():
         return jsonify(ok=False,error='No se pudo colocar ninguna pieza valida',build=BUILD,traceId=trace_id,
                        rejected=rejected[:16],attempts=attempts,elapsedSeconds=round(time.time()-started,2)),422
 
-    # PASS 2: crecimiento POR LOTES. Intentar una pieza por corrida desperdiciaba casi todo
-    # el presupuesto. Empezamos con grupos grandes y reducimos 8 -> 4 -> 2 -> 1.
+    # PASS 2: crecimiento por lotes 8 -> 4 -> 2 -> 1.
     batch_accepts = []
     for batch_size in (8, 4, 2, 1):
-        while time.time() - started < budget - 32:
+        while time.time() - started < budget - 42:
             ranked = _rank_remaining(selected, kits)
             if not ranked:
                 break
             batch = ranked[:batch_size]
-            if len(batch) < batch_size:
-                if batch_size > 1:
-                    break
+            if len(batch) < batch_size and batch_size > 1:
+                break
             rows = selected + batch
             remaining = budget - (time.time() - started)
-            seconds = min(12 if batch_size >= 4 else 9, max(5, int(remaining - 27)))
+            seconds = min(12 if batch_size >= 4 else 9, max(5, int(remaining - 37)))
             seed = 4001 + len(selected) * 131 + batch_size * 43 + len(attempts) * 17
             result = _attempt_rows(rows, attempts, 'batch-fill', f'+{len(batch)} candidatos', seed, seconds, False)
             if result.get('ok') and result.get('fits'):
@@ -125,32 +188,43 @@ def solve_v4():
                 continue
             break
 
-    # PASS 3: rescate de huecos con rotacion continua, uno por uno, pero solo al final.
+    # PASS 3: rescate residual profundo. No se limita a los primeros 10 candidatos.
+    # Se prueban hasta 28 candidatos diversos y, para los más prometedores, dos semillas.
     rescue_rounds = 0
+    residual_attempts = 0
     while time.time() - started < budget - 20:
-        ranked = _rank_remaining(selected, kits)
+        ranked = _residual_candidates(selected, kits, limit=28)
         if not ranked:
             break
         accepted = False
-        for idx, cand in enumerate(ranked[:10]):
+        for idx, cand in enumerate(ranked):
             remaining = budget - (time.time() - started)
             if remaining < 18:
                 break
             rows = selected + [cand]
-            seconds = min(7, max(4, int(remaining - 14)))
-            seed = 7001 + rescue_rounds * 503 + idx * 89 + len(selected) * 29
-            result = _attempt_rows(rows, attempts, 'continuous-rescue', f'agregar:{cand.get("figure")}', seed, seconds, True)
-            if result.get('ok') and result.get('fits'):
-                selected.append(cand)
-                best_result = result
-                rescue_rounds += 1
-                accepted = True
+            seeds = [7001 + rescue_rounds * 503 + idx * 89 + len(selected) * 29]
+            if idx < 8 and remaining > 27:
+                seeds.append(17011 + rescue_rounds * 607 + idx * 131 + len(selected) * 37)
+            for seed in seeds:
+                remaining = budget - (time.time() - started)
+                if remaining < 16:
+                    break
+                seconds = min(7, max(4, int(remaining - 13)))
+                result = _attempt_rows(rows, attempts, 'residual-cavity-rescue', f'agregar:{cand.get("figure")}', seed, seconds, True)
+                residual_attempts += 1
+                if result.get('ok') and result.get('fits'):
+                    selected.append(cand)
+                    best_result = result
+                    rescue_rounds += 1
+                    accepted = True
+                    break
+            if accepted:
                 break
         if not accepted:
             break
 
-    # PASS 4: compactacion del conjunto ganador.
-    for idx, seed in enumerate((8111, 10903, 13217)):
+    # PASS 4: compactación del conjunto ganador con varias semillas.
+    for idx, seed in enumerate((8111, 10903, 13217, 17837)):
         remaining = budget - (time.time() - started)
         if remaining < 7:
             break
@@ -161,15 +235,16 @@ def solve_v4():
     m = _metrics(selected, best_result)
     return jsonify(
         ok=True, build=BUILD, traceId=trace_id,
-        engine='Sparrow best-effort multipass v4 batch fill',
+        engine='Sparrow best-effort multipass v4 · 1230 residual',
         completeFigures=len(selected), placements=best_result.get('placements') or [],
         selectedKitIds=[k.get('kitId') for k in selected],
         urgentAnchorsRequested=anchor_requested, urgentAnchorsKept=anchor_kept,
         candidatePool=len(kits), rawPoolConsidered=len(raw), maxPool=MAX_POOL_V4,
-        gapMm=GAP_MM, widthCm=122, heightCm=58,
+        gapMm=GAP_MM, widthCm=123, heightCm=58,
         minimumCompleteFigures=None, minimumDensity=None, noArtificialMinimum=True,
         bestEffort=True, budgetSeconds=budget,
-        batchAccepts=batch_accepts, batchAdded=sum(batch_accepts), rescueRounds=rescue_rounds,
+        batchAccepts=batch_accepts, batchAdded=sum(batch_accepts),
+        rescueRounds=rescue_rounds, residualAttempts=residual_attempts,
         stoppedBecause='no-more-fit-or-time-budget',
         rejected=rejected[:16], rejectedCount=len(rejected), attempts=attempts,
         elapsedSeconds=round(time.time()-started, 2), **m,
