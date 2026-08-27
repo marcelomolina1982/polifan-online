@@ -7,6 +7,12 @@ import './catalog-pro.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 
-createRoot(document.getElementById('root')).render(
-  <React.StrictMode><App /></React.StrictMode>
-)
+const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
+if(window.location.hash==='#pedido'){
+  const query=window.location.search || ''
+  window.location.replace(`${NEW_CATALOG_URL}${query}`)
+}else{
+  createRoot(document.getElementById('root')).render(
+    <React.StrictMode><App /></React.StrictMode>
+  )
+}
