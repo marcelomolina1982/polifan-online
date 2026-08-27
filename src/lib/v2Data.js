@@ -3,7 +3,7 @@ import {supabase} from '../supabase'
 export const PAGE_SECTIONS={
   dashboard:['orders','movements','stockMin','figures','cutBatches'],
   operations:['orders','movements','stockMin','figures','cutBatches','costSettings','packagingStock'],
-  new:['orders','clients','figures','customerCatalog','quotes','productionClosedDates'],
+  new:['orders','clients','figures','customerCatalog','productionClosedDates'],
   orders:['orders'],
   calendar:['orders','productionClosedDates','packedDeliveryDates'],
   cut:['orders','movements','stockMin','figures','cutBatches'],
