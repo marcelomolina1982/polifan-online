@@ -13,7 +13,7 @@ export const PAGE_SECTIONS={
   stock:['orders','movements','stockMin','figures','inventoryRecount','inventoryRecountCloseout'],
   clients:['clients','orders'],
   assistant:['chatbotSettings'],
-  quotes:['quotes','clients','figures','customerCatalog','orders'],
+  quotes:['quotes','clients','orders'],
   webrequests:['quotes','orders','clients','customerCatalog','movements','stockMin','figures','cutBatches','svgLibrary','productionClosedDates'],
   trust:['customerReviews','customerPhotos'],
   catalog:['customerCatalog','catalogCollections','customerSettings'],
@@ -97,4 +97,4 @@ export async function patchV2Sections(patch,userId){
 }
 
 export function pageSections(page){return PAGE_SECTIONS[page]||['orders']}
-export const pageNeedsFullCatalog=page=>page==='catalog'
+export const pageNeedsFullCatalog=page=>page==='catalog'||page==='settings'

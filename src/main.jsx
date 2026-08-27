@@ -1,6 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import AppV2 from './AppV2'
+import {scheduleV2Prefetch} from './v2Prefetch'
 import './styles.css'
 import './trust-overrides.css'
 import './catalog-pro.css'
@@ -28,4 +29,5 @@ if(window.location.hash==='#pedido'){
   createRoot(document.getElementById('root')).render(
     <React.StrictMode><AppV2 /></React.StrictMode>
   )
+  scheduleV2Prefetch()
 }
