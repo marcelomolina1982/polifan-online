@@ -12,7 +12,7 @@ export const PAGE_SECTIONS={
   svglibrary:['svgLibrary','figures','customerCatalog','svgAnalysisHistory'],
   stock:['orders','movements','stockMin','figures','inventoryRecount','inventoryRecountCloseout'],
   clients:['clients','orders'],
-  assistant:['customerCatalog','customerSettings','chatbotSettings','catalogCollections'],
+  assistant:['chatbotSettings'],
   quotes:['quotes','clients','figures','customerCatalog','orders'],
   webrequests:['quotes','orders'],
   trust:['customerReviews','customerPhotos'],
@@ -20,7 +20,7 @@ export const PAGE_SECTIONS={
   analytics:['orders','quotes','customerCatalog'],
   expenses:['expenses','incomes'],
   monthly:['orders','expenses','incomes'],
-  costs:['costSettings','customerCatalog'],
+  costs:['costSettings'],
   settings:['customerSettings','attentionTemplates','chatbotSettings']
 }
 
