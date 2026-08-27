@@ -72,6 +72,7 @@ const mergeArrayById=(baseline,latest,next,key='')=>{
       section.value===undefined?merged.delete(id):merged.set(id,section.value)
       continue
     }
+    if(key==='orders'&&wanted===undefined){merged.delete(id);continue}
     if(base===undefined&&remote!==undefined&&(key==='orders'||key==='clients')){wanted===undefined?merged.delete(id):merged.set(id,wanted);continue}
     const normalizedBase=comparableRecord(base,key),normalizedRemote=comparableRecord(remote,key),normalizedWanted=comparableRecord(wanted,key)
     if(stableJson(normalizedRemote)!==stableJson(normalizedBase)&&stableJson(normalizedRemote)!==stableJson(normalizedWanted)){conflicts.push(id);continue}
