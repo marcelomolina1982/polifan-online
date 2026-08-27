@@ -72,6 +72,7 @@ const mergeArrayById=(baseline,latest,next,key='')=>{
       section.value===undefined?merged.delete(id):merged.set(id,section.value)
       continue
     }
+    if(key==='orders'&&wanted===undefined){merged.delete(id);continue}
     if(base===undefined&&remote!==undefined&&(key==='orders'||key==='clients')){wanted===undefined?merged.delete(id):merged.set(id,wanted);continue}
     const normalizedBase=comparableRecord(base,key),normalizedRemote=comparableRecord(remote,key),normalizedWanted=comparableRecord(wanted,key)
     if(stableJson(normalizedRemote)!==stableJson(normalizedBase)&&stableJson(normalizedRemote)!==stableJson(normalizedWanted)){conflicts.push(id);continue}
@@ -148,7 +149,8 @@ export default function App(){
         }
         if(attempt<3){await new Promise(resolve=>setTimeout(resolve,250*attempt));continue}break
       }
-      if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break}
+      if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break
+      }
       const confirmed={...emptyState(),...merged};serverRevisionRef.current=result.data[0]?.updated_at||updatedAt;serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
     }
     savingRef.current=false;setSaving(false);alert('No se pudo guardar en Supabase. Ningún dato más nuevo fue sobrescrito: '+(lastError?.message||'error de sincronización'));return{ok:false,error:lastError||new Error('Error de sincronización')}
