@@ -8,20 +8,20 @@ export const PAGE_SECTIONS={
   calendar:['orders','productionClosedDates','packedDeliveryDates'],
   cut:['orders','movements','stockMin','figures','cutBatches'],
   cutbatches:['movements','figures','cutBatches'],
-  sheetplanner:['orders','figures','svgLibrary','generatedSheets','cutBatches'],
+  sheetplanner:['orders','movements','stockMin','figures','customerCatalog','svgLibrary','cutBatches'],
   svglibrary:['svgLibrary','customerCatalog'],
   stock:['orders','movements','stockMin','figures','inventoryRecount','inventoryRecountCloseout'],
   clients:['clients','orders'],
   assistant:['chatbotSettings'],
   quotes:['quotes','clients','figures','customerCatalog','orders'],
-  webrequests:['quotes','orders'],
+  webrequests:['quotes','orders','clients','customerCatalog','movements','stockMin','figures','cutBatches','svgLibrary','productionClosedDates'],
   trust:['customerReviews','customerPhotos'],
   catalog:['customerCatalog','catalogCollections','customerSettings'],
-  analytics:['orders','quotes','customerCatalog'],
+  analytics:['orders','movements','stockMin','figures','cutBatches','svgLibrary','customerCatalog'],
   expenses:['expenses','incomes'],
   monthly:['orders','expenses','incomes'],
   costs:['costSettings'],
-  settings:['customerSettings','attentionTemplates','chatbotSettings']
+  settings:['orders','movements','stockMin','figures','clients','cutBatches','incomes','expenses','customerSettings','customerCatalog','svgLibrary','generatedSheets','productionClosedDates','packedDeliveryDates','attentionMessages','attentionTemplates','quotes','customerReviews','customerPhotos','chatbotSettings','catalogCollections','costSettings','packagingStock','inventoryRecount','inventoryRecountCloseout','svgAnalysisHistory']
 }
 
 const uniq=list=>[...new Set((list||[]).filter(Boolean))]
