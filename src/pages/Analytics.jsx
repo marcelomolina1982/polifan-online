@@ -1,1 +1,1 @@
-export {default} from './AnalyticsEnhanced'
+export {default} from './AnalyticsBase'
