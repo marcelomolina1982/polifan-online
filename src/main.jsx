@@ -6,8 +6,10 @@ import './trust-overrides.css'
 import './catalog-pro.css'
 import './app-v2.css'
 import './app-v2-phase1.css'
+import './orders-v2.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
+import './orders-v2-enhancements'
 
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 if(window.location.hash==='#pedido'){
