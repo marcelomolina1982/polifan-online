@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import AppV2 from './AppV2'
 import './styles.css'
 import './trust-overrides.css'
 import './catalog-pro.css'
@@ -8,6 +8,7 @@ import './app-v2.css'
 import './app-v2-phase1.css'
 import './orders-v2.css'
 import './order-form-v2.css'
+import './v2-shell.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 import './orders-v2-enhancements'
@@ -18,6 +19,6 @@ if(window.location.hash==='#pedido'){
   window.location.replace(`${NEW_CATALOG_URL}${query}`)
 }else{
   createRoot(document.getElementById('root')).render(
-    <React.StrictMode><App /></React.StrictMode>
+    <React.StrictMode><AppV2 /></React.StrictMode>
   )
 }
