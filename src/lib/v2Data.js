@@ -127,7 +127,10 @@ export async function loadV2Sections(keys,{fullCatalog=false}={}){
 
 export async function patchV2Sections(patch,userId){
   const safePatch=Object.fromEntries(Object.entries(patch||{}).filter(([key])=>allowedKeys.has(key)))
-  if(Array.isArray(safePatch.orders))safePatch.orders=await decorateOrderHistory(safePatch.orders,userId)
+  if(Array.isArray(safePatch.orders)){
+    safePatch.orders=await decorateOrderHistory(safePatch.orders,userId)
+    if(patch&&typeof patch==='object')patch.orders=safePatch.orders
+  }
   const {data,error}=await withTimeout(supabase.rpc('patch_v2_sections',{p_patch:safePatch,p_updated_by:userId||null}),'guardado')
   if(error)throw error
   const row=Array.isArray(data)?data[0]:data
