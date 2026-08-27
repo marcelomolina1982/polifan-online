@@ -17,7 +17,7 @@ export const PAGE_SECTIONS={
   webrequests:['quotes','orders'],
   trust:['customerReviews','customerPhotos'],
   catalog:['customerCatalog','catalogCollections','customerSettings'],
-  analytics:['orders','catalogEvents','quotes','customerCatalog'],
+  analytics:['orders','quotes','customerCatalog'],
   expenses:['expenses','incomes'],
   monthly:['orders','expenses','incomes'],
   costs:['costSettings','customerCatalog'],
@@ -26,9 +26,21 @@ export const PAGE_SECTIONS={
 
 const uniq=list=>[...new Set((list||[]).filter(Boolean))]
 
-export async function loadV2Sections(keys){
+export async function loadV2Sections(keys,{fullCatalog=false}={}){
   const wanted=uniq(keys)
   if(!wanted.length)return{data:{},updatedAt:''}
+  if(fullCatalog&&wanted.includes('customerCatalog')){
+    const normal=wanted.filter(k=>!['customerCatalog','catalogCollections','customerSettings'].includes(k))
+    const [base,full]=await Promise.all([
+      normal.length?supabase.rpc('get_v2_sections',{p_keys:normal}):Promise.resolve({data:[],error:null}),
+      supabase.rpc('get_v2_catalog_full')
+    ])
+    if(base.error)throw base.error
+    if(full.error)throw full.error
+    const baseRow=Array.isArray(base.data)?base.data[0]:base.data
+    const fullRow=Array.isArray(full.data)?full.data[0]:full.data
+    return{data:{...(baseRow?.data||{}),...(fullRow?.data||{})},updatedAt:fullRow?.updated_at||baseRow?.updated_at||''}
+  }
   const {data,error}=await supabase.rpc('get_v2_sections',{p_keys:wanted})
   if(error)throw error
   const row=Array.isArray(data)?data[0]:data
@@ -43,3 +55,4 @@ export async function patchV2Sections(patch,userId){
 }
 
 export function pageSections(page){return PAGE_SECTIONS[page]||['orders']}
+export const pageNeedsFullCatalog=page=>page==='catalog'
