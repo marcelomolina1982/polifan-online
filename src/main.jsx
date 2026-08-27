@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import './trust-overrides.css'
 import './catalog-pro.css'
+import './app-v2.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 
