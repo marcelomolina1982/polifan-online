@@ -1,5 +1,5 @@
 // LAB CLEAN V2: this preview must never execute the historical V1.12 nesting path.
-// BUILD MARKER 2026-08-24: matcher tolerates compacted MotorDefinitivo formatting.
+// BUILD MARKER 2026-08-27: force 1230x580 and capture exact benchmark payloads.
 export default function sparrowLabRoutePlugin(){
   return {
     name:'sparrow-lab-route',
@@ -37,15 +37,20 @@ export default function sparrowLabRoutePlugin(){
       }
       out=out.replace("const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v1'","const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v2-clean'")
 
+      // El laboratorio usa el área útil operativa real: 1230 x 580 mm.
+      out=out.replaceAll('widthCm:122,heightCm:58','widthCm:123,heightCm:58')
+      out=out.replaceAll('width=\"1220mm\" height=\"580mm\" viewBox=\"0 0 1220 580\"','width=\"1230mm\" height=\"580mm\" viewBox=\"0 0 1230 580\"')
+      out=out.replaceAll('1220 × 580 mm','1230 × 580 mm')
+
       // Match both pretty-printed and compacted source. Stop exactly at finishResult.
       const rx=/\basync\s+function\s+runPayload\s*\(payload\s*,\s*multiplier\s*\)\s*\{[\s\S]*?\}\s*async\s+function\s+finishResult/
       if(!rx.test(out))throw new Error('sparrowLabRoutePlugin: no encontré runPayload en MotorDefinitivo')
-      const replacement=`async function runPayload(payload,multiplier){\n    clearActiveJob()\n    setProgress('Sparrow limpio · enviando geometrías reales…')\n    const clean=await solveWithSparrowLab(payload,{\n      onStage:stage=>setProgress(stage)\n    })\n    const raw=clean.raw||{}\n    return {\n      ...raw,\n      ok:true,\n      engine:clean.engine,\n      placements:clean.placements,\n      completeFigures:clean.completeFigures,\n      density:clean.geometricOccupancyPct,\n      geometricOccupancyPct:clean.geometricOccupancyPct,\n      stripWidthMm:clean.stripWidthMm,\n      stripWidthUsagePct:clean.stripWidthUsagePct,\n      materialInsideUsedStripPct:clean.materialInsideUsedStripPct,\n      rotationStep:raw.rotation==='continua'?'continua':(raw.rotation||'-'),\n      reachedMinimum:true,\n      noArtificialMinimum:true,\n      candidatePool:Number(raw.candidatePoolTested||0),\n      selectionStrategy:clean.selectionStrategy||clean.engine,\n      elapsedSeconds:Number(raw.elapsedSeconds||0)\n    }\n  }\n  async function finishResult`
+      const replacement=`async function runPayload(payload,multiplier){\n    clearActiveJob()\n    const benchmark={\n      schema:'polifan-nesting-benchmark-v1',\n      capturedAt:new Date().toISOString(),\n      source:'MotorDefinitivo',\n      plate:{widthMm:1230,heightMm:580,gapMm:Number(payload?.gapCm||0)*10},\n      multiplier:Number(multiplier||1),\n      payload:{...payload,widthCm:123,heightCm:58}\n    }\n    try{localStorage.setItem('polifan-motor-benchmark-last-v1',JSON.stringify(benchmark))}catch{}\n    try{window.__POLIFAN_LAST_NEST_BENCHMARK__=benchmark}catch{}\n    payload={...payload,widthCm:123,heightCm:58}\n    setProgress('Sparrow limpio · 1230×580 · benchmark capturado · enviando geometrías reales…')\n    const clean=await solveWithSparrowLab(payload,{\n      onStage:stage=>setProgress(stage)\n    })\n    const raw=clean.raw||{}\n    return {\n      ...raw,\n      ok:true,\n      engine:clean.engine,\n      placements:clean.placements,\n      completeFigures:clean.completeFigures,\n      density:clean.geometricOccupancyPct,\n      geometricOccupancyPct:clean.geometricOccupancyPct,\n      stripWidthMm:clean.stripWidthMm,\n      stripWidthUsagePct:clean.stripWidthUsagePct,\n      materialInsideUsedStripPct:clean.materialInsideUsedStripPct,\n      rotationStep:raw.rotation==='continua'?'continua':(raw.rotation||'-'),\n      reachedMinimum:true,\n      noArtificialMinimum:true,\n      candidatePool:Number(raw.candidatePoolTested||0),\n      selectionStrategy:clean.selectionStrategy||clean.engine,\n      elapsedSeconds:Number(raw.elapsedSeconds||0)\n    }\n  }\n  async function finishResult`
       out=out.replace(rx,replacement)
       out=out.replaceAll('Motor Sparrow + Certificador V1.7','Sparrow CLEAN Area-First + Certificador')
       out=out.replaceAll('10 base · crecer mientras entre','AREA-FIRST real · sin mínimo artificial')
       out=out.replaceAll('Sparrow asíncrono · V1.7 certifica','Sparrow CLEAN directo · Area-First')
-      out=out.replaceAll('Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1220 × 580 mm.','Prueba aislada: usa Sparrow CLEAN directamente y prioriza área real ocupada, sin pasar por V1.12.')
+      out=out.replaceAll('Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1230 × 580 mm.','Prueba aislada: usa Sparrow CLEAN directamente sobre 1230 × 580 mm, captura el input reproducible y prioriza figuras completas + ocupación real.')
       return {code:out,map:null}
     }
   }
