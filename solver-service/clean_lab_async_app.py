@@ -19,6 +19,7 @@ import benchmark_replay_routes  # noqa: F401
 import benchmark_strategy_routes  # noqa: F401
 import residual_space_routes  # noqa: F401
 import real_state_benchmark  # noqa: F401
+import plate07_bbox_regression  # noqa: F401
 
 _jobs = {}
 _lock = threading.Lock()
