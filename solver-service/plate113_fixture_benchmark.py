@@ -2,7 +2,7 @@
 
 Reads the final real plate SVG fixture committed only to the isolated lab branch,
 recovers each complete geometric kit from the unplaced source paths embedded in
-the Sparrow groups, and asks the current V4 motor to autonomously repack all 12
+the Sparrow groups, and asks the active lab runtime to autonomously repack all 12
 complete kits (the original 11 + the manually added pencil).
 """
 import base64
@@ -17,7 +17,8 @@ from xml.etree import ElementTree as ET
 from flask import jsonify
 
 from clean_lab_app import app
-from clean_lab_v4 import solve_v4, PLATE_WIDTH_MM, PLATE_HEIGHT_MM, GAP_MM
+from clean_lab_v4 import PLATE_WIDTH_MM, PLATE_HEIGHT_MM, GAP_MM
+from sa_runtime_wrapper import solve_v4_sa as solve_active
 from benchmark_routes import _validate_layout
 import nest_sparrow as core
 
@@ -95,8 +96,6 @@ def build_reconstructed_kits():
             "svgText": _wrap_path(paths[0].attrib["d"]),
         })
 
-    # The mate's second component and both pencil components were ungrouped in
-    # the user's final edited SVG. Reattach them as complete kits.
     top_paths = {str(ch.attrib.get("id") or ""): ch for ch in list(root) if _tag(ch) == "path"}
     mate_id = next((k for k in by_kit if "mate yuyero" in k.lower()), None)
     if not mate_id or "path3" not in top_paths:
@@ -132,7 +131,6 @@ def build_reconstructed_kits():
     ]
 
     ordered = []
-    # Preserve the real original batch ordering; pencil is deliberately last.
     priority = 1
     for kid, parts in by_kit.items():
         if kid == "manual-lapiz":
@@ -163,13 +161,12 @@ def run_plate113_benchmark():
     started = time.time()
     kits = build_reconstructed_kits()
 
-    # Run the production candidate path exactly as V4 sees it.
     with app.test_request_context(
         "/solve-v4",
         method="POST",
         json={"kits": kits, "budgetSeconds": 240, "urgentAnchorCount": 4},
     ):
-        response = solve_v4()
+        response = solve_active()
 
     status = 200
     body = response
@@ -211,6 +208,9 @@ def run_plate113_benchmark():
         "cavityAdded": data.get("cavityAdded"),
         "pairAccepted": data.get("pairAccepted"),
         "swapAccepted": data.get("swapAccepted"),
+        "saEscapeRan": data.get("saEscapeRan"),
+        "saSuccess": data.get("saSuccess"),
+        "saCertified": data.get("saCertified"),
         "stripWidthMm": data.get("stripWidthMm"),
         "geometricOccupancyPct": data.get("geometricOccupancyPct"),
         "layoutValidation": validation,
