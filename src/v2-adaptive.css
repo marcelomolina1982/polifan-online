@@ -1,0 +1,61 @@
+/* V2 adaptive workspace: one app, two deliberate interaction densities. */
+.v2-shell{--v2-tap:44px}
+.v2-shell button,.v2-shell input,.v2-shell select{min-height:var(--v2-tap)}
+.v2-shell textarea{min-height:88px}
+.v2-shell table{width:100%;border-collapse:separate;border-spacing:0}
+.v2-shell .panel,.v2-shell .v2-card{min-width:0}
+.v2-shell main>*{min-width:0}
+.v2-shell .table-wrap,.v2-shell .table-scroll,.v2-shell .overflow-x{max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}
+.v2-shell .actions,.v2-shell .toolbar,.v2-shell .filters{flex-wrap:wrap}
+.v2-shell :focus-visible{outline:3px solid rgba(115,87,255,.28);outline-offset:2px}
+
+/* Desktop: denser information, stable navigation, useful sticky table headings. */
+@media(min-width:981px){
+  .v2-shell .content>main{padding-left:clamp(24px,3vw,46px)!important;padding-right:clamp(24px,3vw,46px)!important}
+  .v2-shell table thead th{position:sticky;top:74px;z-index:4;background:rgba(247,249,253,.96);backdrop-filter:blur(10px)}
+  .v2-shell .panel table,.v2-shell .v2-card table{font-size:.92rem}
+  .v2-shell .toolbar,.v2-shell .filters{gap:10px}
+}
+
+/* Tablet: preserve useful columns but remove decorative density. */
+@media(min-width:761px) and (max-width:980px){
+  .v2-shell .content>header{padding-inline:18px!important}
+  .v2-shell .content>main{padding:20px 16px 48px!important}
+  .v2-shell .panel,.v2-shell .v2-card{border-radius:16px!important}
+  .v2-shell table{font-size:.88rem}
+}
+
+/* Phone: touch-first. No desktop controls squeezed into a narrow viewport. */
+@media(max-width:760px){
+  html,body,#root{max-width:100%;overflow-x:hidden}
+  .v2-shell{--v2-tap:48px}
+  .v2-shell .sidebar{max-width:86vw!important;overflow-y:auto;overscroll-behavior:contain}
+  .v2-shell .sidebar nav{padding-bottom:92px!important}
+  .v2-shell .side-help{display:none!important}
+  .v2-shell .content>header{position:sticky;top:0;z-index:35;gap:8px}
+  .v2-shell .header-right{margin-left:auto;min-width:0}
+  .v2-shell .header-right .sync{max-width:118px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .v2-shell .content>header .ghost{min-width:48px;padding-inline:10px!important}
+  .v2-shell .content>main{padding:14px 10px 88px!important}
+  .v2-shell .title{margin-bottom:14px!important}
+  .v2-shell .title h1,.v2-shell h1{font-size:26px!important;line-height:1.05!important}
+  .v2-shell h2{font-size:20px}
+  .v2-shell .panel,.v2-shell .v2-card{border-radius:16px!important;padding-left:14px!important;padding-right:14px!important;box-shadow:0 10px 30px rgba(35,48,79,.06)!important}
+  .v2-shell .grid,.v2-shell .cards,.v2-shell .stats-grid{grid-template-columns:1fr!important}
+  .v2-shell .actions,.v2-shell .toolbar,.v2-shell .filters{display:flex;gap:8px;width:100%}
+  .v2-shell .actions>button,.v2-shell .toolbar>button{flex:1 1 auto}
+  .v2-shell input,.v2-shell select,.v2-shell textarea{font-size:16px!important;width:100%;max-width:100%}
+  .v2-shell label{min-width:0}
+  .v2-shell form .row,.v2-shell form .form-row{grid-template-columns:1fr!important;gap:10px!important}
+  .v2-shell table{min-width:680px;font-size:.86rem}
+  .v2-shell table th,.v2-shell table td{padding:10px 9px!important;white-space:nowrap}
+  .v2-shell .table-wrap,.v2-shell .table-scroll,.v2-shell .overflow-x,.v2-shell .panel:has(>table),.v2-shell .v2-card:has(>table){overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .v2-shell .v2-catalog-access{align-items:flex-start;flex-direction:column!important;padding:16px!important}
+  .v2-shell .v2-catalog-access button{width:100%}
+}
+
+@media(max-width:390px){
+  .v2-shell .sync{display:none!important}
+  .v2-shell .content>main{padding-inline:8px!important}
+  .v2-shell .panel,.v2-shell .v2-card{padding-inline:12px!important}
+}
