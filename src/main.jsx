@@ -11,9 +11,11 @@ import './order-form-v2.css'
 import './v2-shell.css'
 import './dashboard-v4.css'
 import './v2-workspaces.css'
+import './v2-navigation.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 import './orders-v2-enhancements'
+import './v2NavigationEnhancement'
 
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 if(window.location.hash==='#pedido'){
