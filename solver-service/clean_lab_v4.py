@@ -4,6 +4,7 @@ import time, uuid
 
 import clean_lab_app as base
 from clean_lab_app import app, core, GAP_MM, _attempt, _best_same_set
+from cavity_postfill import try_add_one as cavity_try_add_one
 
 PLATE_WIDTH_MM = 1230.0
 PLATE_HEIGHT_MM = 580.0
@@ -15,7 +16,7 @@ core.PLATE_WIDTH_MM = PLATE_WIDTH_MM
 core.PLATE_HEIGHT_MM = PLATE_HEIGHT_MM
 core.PLATE_AREA_MM2 = PLATE_AREA_MM2
 
-BUILD = "best-effort-multipass-v4-1230-pair-residual-2026-08-28"
+BUILD = "best-effort-multipass-v4-1230-pair-residual-cavity-2026-08-28"
 DEFAULT_BUDGET_SECONDS = 180
 MAX_POOL_V4 = 120
 
@@ -118,6 +119,18 @@ def solve_v4():
                 if result.get('ok') and result.get('fits'):selected.append(cand);best_result=result;rescue_rounds+=1;accepted=True;break
             if accepted:break
         if not accepted:break
+
+    # PASS 3B: preserve the already-certified Sparrow arrangement and search its true
+    # residual cavities directly for one whole pending kit. This targets the exact
+    # failure seen in Placa 07: a valid +1 exists without moving the accepted pieces.
+    cavity_attempted=0;cavity_accepted=0;cavity_added=None;cavity_certified=False
+    if len(selected)<len(kits) and time.time()-started<budget-14:
+        remaining=budget-(time.time()-started)
+        cand,new_result,diag=cavity_try_add_one(selected,kits,best_result,PLATE_WIDTH_MM,PLATE_HEIGHT_MM,GAP_MM,edge_mm=3.0,max_seconds=min(10,max(3,remaining-6)),max_candidates=14)
+        cavity_attempted=int(diag.get('attempted') or 0);cavity_certified=bool(diag.get('certified'))
+        if cand is not None:
+            selected.append(cand);best_result=new_result;cavity_accepted=1;cavity_added=cand.get('figure')
+
     # PASS 4: try two pending complete figures together. Greedy +1 can miss complementary cavities.
     pair_attempts=0;pair_accepted=0
     if time.time()-started<budget-22 and len(kits)-len(selected)>=2:
@@ -150,7 +163,7 @@ def solve_v4():
         if remaining<7:break
         result=_attempt_rows(selected,attempts,'final-refine','mismo-conjunto',seed+idx*19,min(14,max(5,int(remaining-2))),True);best_result=_best_same_set(best_result,result)
     m=_metrics(selected,best_result)
-    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 pair residual + swap repack',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,pairAttempts=pair_attempts,pairAccepted=pair_accepted,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
+    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 pair residual + certified cavity postfill + swap repack',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,cavityAttempted=cavity_attempted,cavityAccepted=cavity_accepted,cavityAdded=cavity_added,cavityCertified=cavity_certified,pairAttempts=pair_attempts,pairAccepted=pair_accepted,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
 
 @app.post('/solve-v4')
 def solve_v4_route():return solve_v4()
