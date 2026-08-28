@@ -16,7 +16,7 @@ core.PLATE_WIDTH_MM = PLATE_WIDTH_MM
 core.PLATE_HEIGHT_MM = PLATE_HEIGHT_MM
 core.PLATE_AREA_MM2 = PLATE_AREA_MM2
 
-BUILD = "best-effort-multipass-v4-1230-pair-residual-cavity-2026-08-28"
+BUILD = "best-effort-multipass-v4-1230-exact-plus-one-2026-08-28"
 DEFAULT_BUDGET_SECONDS = 180
 MAX_POOL_V4 = 120
 
@@ -54,6 +54,24 @@ def _pair_candidates(selected,kits,limit=20):
             score=(float(a.get('envelope') or 1e18)+float(b.get('envelope') or 1e18),float(a.get('area') or 1e18)+float(b.get('area') or 1e18),int(a.get('priority') or 999999)+int(b.get('priority') or 999999))
             pairs.append((score,a,b))
     pairs.sort(key=lambda row:row[0]);return [(a,b) for _,a,b in pairs[:limit]]
+
+def _target_escape_orders(selected,kits):
+    used={k.get('kitId') for k in selected};pending=[k for k in kits if k.get('kitId') not in used]
+    if len(pending)!=1:return []
+    p=pending[0];base_rows=list(selected)
+    variants=[
+        ('pendiente-primero',[p]+base_rows),
+        ('pendiente-ultimo',base_rows+[p]),
+        ('compactas-primero',sorted(base_rows+[p],key=lambda k:(k.get('envelope',1e18),k.get('area',1e18)))),
+        ('grandes-primero',sorted(base_rows+[p],key=lambda k:(-float(k.get('area') or 0),k.get('envelope',1e18)))),
+        ('densas-primero',sorted(base_rows+[p],key=lambda k:(-float(k.get('solidity') or 0),k.get('envelope',1e18)))),
+    ]
+    out=[];seen=set()
+    for label,rows in variants:
+        sig=tuple(k.get('kitId') for k in rows)
+        if sig in seen:continue
+        seen.add(sig);out.append((label,rows))
+    return out
 
 def _swap_variants(selected,kits,anchor_kept,limit=18):
     incoming=_residual_candidates(selected,kits,12);out=[];seen=set()
@@ -93,40 +111,52 @@ def solve_v4():
     if selected is None:return jsonify(ok=False,error='No se pudo colocar ninguna pieza valida',build=BUILD,traceId=trace_id,rejected=rejected[:16],attempts=attempts,elapsedSeconds=round(time.time()-started,2)),422
     batch_accepts=[]
     for batch_size in (8,4,2,1):
-        while time.time()-started<budget-42:
+        while time.time()-started<budget-68:
             ranked=_rank_remaining(selected,kits)
             if not ranked:break
             batch=ranked[:batch_size]
             if len(batch)<batch_size and batch_size>1:break
-            rows=selected+batch;remaining=budget-(time.time()-started);seconds=min(12 if batch_size>=4 else 9,max(5,int(remaining-37)));seed=4001+len(selected)*131+batch_size*43+len(attempts)*17
+            rows=selected+batch;remaining=budget-(time.time()-started);seconds=min(12 if batch_size>=4 else 9,max(5,int(remaining-63)));seed=4001+len(selected)*131+batch_size*43+len(attempts)*17
             result=_attempt_rows(rows,attempts,'batch-fill',f'+{len(batch)} candidatos',seed,seconds,False)
             if result.get('ok') and result.get('fits'):selected.extend(batch);best_result=result;batch_accepts.append(len(batch));continue
             break
     rescue_rounds=0;residual_attempts=0
-    while time.time()-started<budget-34:
+    while time.time()-started<budget-58:
         ranked=_residual_candidates(selected,kits,28)
         if not ranked:break
         accepted=False
         for idx,cand in enumerate(ranked):
             remaining=budget-(time.time()-started)
-            if remaining<30:break
+            if remaining<54:break
             rows=selected+[cand];seeds=[7001+rescue_rounds*503+idx*89+len(selected)*29]
-            if idx<8 and remaining>37:seeds.append(17011+rescue_rounds*607+idx*131+len(selected)*37)
+            if idx<8 and remaining>62:seeds.append(17011+rescue_rounds*607+idx*131+len(selected)*37)
             for seed in seeds:
                 remaining=budget-(time.time()-started)
-                if remaining<26:break
-                result=_attempt_rows(rows,attempts,'residual-cavity-rescue',f'agregar:{cand.get("figure")}',seed,min(7,max(4,int(remaining-23))),True);residual_attempts+=1
+                if remaining<48:break
+                result=_attempt_rows(rows,attempts,'residual-cavity-rescue',f'agregar:{cand.get("figure")}',seed,min(8,max(4,int(remaining-44))),True);residual_attempts+=1
                 if result.get('ok') and result.get('fits'):selected.append(cand);best_result=result;rescue_rounds+=1;accepted=True;break
             if accepted:break
         if not accepted:break
 
+    # PASS 3A: when only one whole kit is missing, spend a deliberate search reserve on
+    # the exact target set. Different item orders + seeds are cheap compared with losing
+    # one complete figure. This is specifically designed for the proven 22 -> 23 case.
+    exact_plus_one_attempts=0;exact_plus_one_accepted=0;exact_plus_one_strategy=None
+    if len(kits)-len(selected)==1 and time.time()-started<budget-28:
+        for oidx,(label,rows) in enumerate(_target_escape_orders(selected,kits)):
+            remaining=budget-(time.time()-started)
+            if remaining<23:break
+            seconds=min(14,max(8,int((remaining-8)/max(1,5-oidx))))
+            result=_attempt_rows(rows,attempts,'exact-plus-one-escape',label,52003+oidx*1877,seconds,True);exact_plus_one_attempts+=1
+            if result.get('ok') and result.get('fits'):
+                selected=list(rows);best_result=result;exact_plus_one_accepted=1;exact_plus_one_strategy=label;break
+
     # PASS 3B: preserve the already-certified Sparrow arrangement and search its true
-    # residual cavities directly for one whole pending kit. This targets the exact
-    # failure seen in Placa 07: a valid +1 exists without moving the accepted pieces.
+    # residual cavities directly for one whole pending kit.
     cavity_attempted=0;cavity_accepted=0;cavity_added=None;cavity_certified=False
     if len(selected)<len(kits) and time.time()-started<budget-14:
         remaining=budget-(time.time()-started)
-        cand,new_result,diag=cavity_try_add_one(selected,kits,best_result,PLATE_WIDTH_MM,PLATE_HEIGHT_MM,GAP_MM,edge_mm=3.0,max_seconds=min(10,max(3,remaining-6)),max_candidates=14)
+        cand,new_result,diag=cavity_try_add_one(selected,kits,best_result,PLATE_WIDTH_MM,PLATE_HEIGHT_MM,GAP_MM,edge_mm=3.0,max_seconds=min(12,max(3,remaining-6)),max_candidates=14)
         cavity_attempted=int(diag.get('attempted') or 0);cavity_certified=bool(diag.get('certified'))
         if cand is not None:
             selected.append(cand);best_result=new_result;cavity_accepted=1;cavity_added=cand.get('figure')
@@ -163,7 +193,7 @@ def solve_v4():
         if remaining<7:break
         result=_attempt_rows(selected,attempts,'final-refine','mismo-conjunto',seed+idx*19,min(14,max(5,int(remaining-2))),True);best_result=_best_same_set(best_result,result)
     m=_metrics(selected,best_result)
-    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 pair residual + certified cavity postfill + swap repack',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,cavityAttempted=cavity_attempted,cavityAccepted=cavity_accepted,cavityAdded=cavity_added,cavityCertified=cavity_certified,pairAttempts=pair_attempts,pairAccepted=pair_accepted,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
+    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 exact +1 escape + certified cavity',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,exactPlusOneAttempts=exact_plus_one_attempts,exactPlusOneAccepted=exact_plus_one_accepted,exactPlusOneStrategy=exact_plus_one_strategy,cavityAttempted=cavity_attempted,cavityAccepted=cavity_accepted,cavityAdded=cavity_added,cavityCertified=cavity_certified,pairAttempts=pair_attempts,pairAccepted=pair_accepted,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
 
 @app.post('/solve-v4')
 def solve_v4_route():return solve_v4()
