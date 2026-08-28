@@ -46,3 +46,8 @@ def run():
         print(json.dumps({'marker':'POLIFAN_PLACA07_BBOX','ok':False,'error':str(exc),'elapsedSeconds':round(time.time()-started,2)},ensure_ascii=False),flush=True)
 
 threading.Thread(target=run,daemon=True).start()
+
+# The exact-geometry Plate #113 regression waits until the older startup tests
+# have had time to finish, then runs on the same isolated service.
+from plate113_fixture_benchmark import start_plate113_startup_benchmark
+start_plate113_startup_benchmark()
