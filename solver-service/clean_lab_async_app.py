@@ -9,10 +9,9 @@ import nest_sparrow as core
 # subprocess.run changes cwd. Freeze the executable path now, while cwd is solver-service.
 core.SPARROW_BIN = os.path.abspath(os.environ.get('SPARROW_BIN', './sparrow'))
 
-# Generic strip-aware ranking: promotes complete BASE/TAPA kits whose rotated
-# components can exploit narrow residual bands without hard-coding any figure.
-import strip_fit_runtime
-strip_fit_runtime.install()
+# Lab-only candidate ordering learned from the 2026-08-28 human-corrected plate.
+# This monkeypatches only ranking helpers; Sparrow + independent validation remain authoritative.
+import strip_fit_enhancement  # noqa: F401
 
 # Registra las rutas de benchmark dentro de la misma app Flask.
 import benchmark_routes  # noqa: F401
