@@ -17,6 +17,7 @@ import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 import './orders-v2-enhancements'
 import './v2NavigationEnhancement'
+import './v2MobileTables'
 
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 if(window.location.hash==='#pedido'){
