@@ -33,11 +33,39 @@ const newStart=`  async function startJob(payload,multiplier){\n    let response
 if(motor.includes(oldStart))motor=motor.replace(oldStart,newStart)
 fs.writeFileSync(motorFile,motor)
 
+// Candidata V2: menos egress, guardado atómico, cache liviana y catálogo público optimizado.
+const v2DataFile='src/lib/v2Data.js'
+let v2=fs.readFileSync(v2DataFile,'utf8')
+v2=v2.replace("dashboard:['orders','movements','stockMin','figures','cutBatches']","dashboard:['orders','movements','stockMin','figures','cutBatches','packagingStock']")
+if(!v2.includes('loadV2SectionsWithRevisions'))v2+=`\nexport async function loadV2SectionsWithRevisions(keys,{fullCatalog=false}={}){\n  const wanted=uniq(keys)\n  if(!wanted.length)return{data:{},revisions:{},updatedAt:''}\n  if(!fullCatalog){\n    try{\n      const {data,error}=await supabase.rpc('get_v2_sections_with_revisions',{p_keys:wanted})\n      if(error)throw error\n      const row=Array.isArray(data)?data[0]:data\n      return{data:row?.data||{},revisions:row?.revisions||{},updatedAt:row?.updated_at||''}\n    }catch(error){if(!isSchemaCacheError(error))throw error}\n  }\n  const base=await loadV2Sections(wanted,{fullCatalog})\n  const {data:revisionRows,error:revisionError}=await supabase.rpc('get_v2_section_revisions',{p_keys:wanted})\n  if(revisionError)throw revisionError\n  const revisions={}\n  for(const row of revisionRows||[])revisions[row.section_key]=row.updated_at\n  return{...base,revisions}\n}\n\nexport async function patchV2SectionsChecked(patch,expectedRevisions,userId){\n  const {data,error}=await supabase.rpc('patch_v2_sections_checked',{p_patch:patch,p_expected_revisions:expectedRevisions||{},p_updated_by:userId||null})\n  if(error)throw error\n  const row=Array.isArray(data)?data[0]:data\n  return{updatedAt:row?.updated_at||'',conflictKeys:row?.conflict_keys||[]}\n}\n\nexport async function loadV2SvgMetadata(){\n  const {data,error}=await supabase.rpc('get_v2_svg_metadata')\n  if(error)throw error\n  const row=Array.isArray(data)?data[0]:data\n  return{data:row?.data||[],updatedAt:row?.updated_at||''}\n}\n\nexport async function loadV2SvgFull(id){\n  const {data,error}=await supabase.rpc('get_v2_svg_full',{p_id:String(id||'')})\n  if(error)throw error\n  const row=Array.isArray(data)?data[0]:data\n  return{data:row?.data||null,updatedAt:row?.updated_at||''}\n}\n`
+fs.writeFileSync(v2DataFile,v2)
+
+const appV2File='src/AppV2.jsx'
+let appV2=fs.readFileSync(appV2File,'utf8')
+appV2=appV2.replace("import {loadV2Sections,patchV2Sections,pageSections,pageNeedsFullCatalog} from './lib/v2Data'","import {loadV2Sections,loadV2SectionsWithRevisions,patchV2SectionsChecked,pageSections,pageNeedsFullCatalog} from './lib/v2Data'")
+appV2=appV2.replace("const readCache=()=>{try{return JSON.parse(localStorage.getItem(V2_CACHE)||'{}')}catch{return{}}}\nconst writeCache=value=>{try{localStorage.setItem(V2_CACHE,JSON.stringify(value))}catch{}}",`const V2_CACHE_EXCLUDE=new Set(['customerCatalog','svgLibrary'])\nconst sanitizeCache=value=>{const data={...(value?.data||{})};for(const key of V2_CACHE_EXCLUDE)delete data[key];return{...value,keys:(value?.keys||[]).filter(k=>!V2_CACHE_EXCLUDE.has(k)),data}}\nconst readCache=()=>{try{return sanitizeCache(JSON.parse(localStorage.getItem(V2_CACHE)||'{}'))}catch{return{}}}\nconst writeCache=value=>{try{localStorage.setItem(V2_CACHE,JSON.stringify(sanitizeCache(value)))}catch{try{localStorage.removeItem(V2_CACHE)}catch{}}}`)
+appV2=appV2.replace("const latestResult=await loadV2Sections(keys,{fullCatalog:keys.includes('customerCatalog')&&pageNeedsFullCatalog(page)})","const latestResult=await loadV2SectionsWithRevisions(keys,{fullCatalog:keys.includes('customerCatalog')&&pageNeedsFullCatalog(page)})")
+appV2=appV2.replace("      await patchV2Sections(patch,session?.user?.id)\n      const confirmed=",`      const checked=await patchV2SectionsChecked(patch,latestResult.revisions||{},session?.user?.id)\n      if(checked.conflictKeys?.length){alert('Otra sesión guardó cambios mientras estabas trabajando: '+checked.conflictKeys.join(', ')+'. Recargá esa sección antes de repetir el cambio.');return{ok:false,conflict:true}}\n      const confirmed=`)
+fs.writeFileSync(appV2File,appV2)
+
+const publicFile='src/pages/CustomerOrder.jsx'
+let publicPage=fs.readFileSync(publicFile,'utf8')
+publicPage=publicPage.replace("const {data,error}=await supabase.from('public_catalog').select('data,updated_at').eq('id','main').maybeSingle()\n      if(!error&&data?.data){applyPublic(data.data,data.updated_at||'');return}","const {data,error}=await supabase.rpc('get_public_catalog_v2')\n      const payload=Array.isArray(data)?data[0]:data\n      if(!error&&payload){applyPublic(payload,payload.updatedAt||'');return}")
+publicPage=publicPage.replace("const onOnline=()=>refresh(false)\n    window.addEventListener('focus',()=>refresh(false));window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)","const onOnline=()=>refresh(false)\n    const onFocus=()=>refresh(false)\n    window.addEventListener('focus',onFocus);window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)")
+publicPage=publicPage.replace("table:'public_catalog',filter:'id=eq.main'","table:'public_catalog_revision',filter:'id=eq.main'")
+publicPage=publicPage.replace("return()=>{mounted=false;window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}","return()=>{mounted=false;window.removeEventListener('focus',onFocus);window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}")
+fs.writeFileSync(publicFile,publicPage)
+
+const publicBaseFile='src/pages/CustomerOrderBase.jsx'
+let publicBase=fs.readFileSync(publicBaseFile,'utf8')
+publicBase=publicBase.replace("const { data: row, error } = await supabase.from('app_state').select('data,updated_at').eq('id', 'main').maybeSingle()\n          if(error) throw error\n          if(!row?.data) throw new Error('No se encontró la planificación principal.')\n          const state = row.data","const { data: planningRows, error } = await supabase.rpc('get_public_production_planning')\n          if(error) throw error\n          const row=Array.isArray(planningRows)?planningRows[0]:planningRows\n          if(!row?.data) throw new Error('No se encontró la planificación principal.')\n          const state = row.data")
+fs.writeFileSync(publicBaseFile,publicBase)
+
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
 version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.49'")
 version=version.replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.49'")
-version=version.replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Sparrow resistente a timeouts de Vercel/Render'")
+version=version.replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · candidata V2 optimizada para pruebas reales'")
 fs.writeFileSync(versionFile,version)
 const swFile='public/sw.js'
 let sw=fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.49'")
@@ -45,4 +73,4 @@ fs.writeFileSync(swFile,sw)
 const indexFile='index.html'
 let index=fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.49'")
 fs.writeFileSync(indexFile,index)
-console.log('v25.0.49: proxies cortos + reintentos automáticos; sin 504 por espera acumulada')
+console.log('v25.0.49: candidata V2 · catálogo/planning livianos · guardado atómico · cache segura · Render resistente')
