@@ -59,12 +59,25 @@ def strip_profile(kit,gap_mm=None):
 
 def _is_strong_strip_candidate(kit):
     p=strip_profile(kit)
-    # The two real corrected plates both exposed the same family of failure:
-    # a long residual corridor roughly around 100 mm wide. Keep the rule generic
-    # and geometric: promote any complete kit that can consume a narrow strip.
-    vertical=p['fitsVertical'] and p.get('verticalWidthMm',1e9) <= 145.0 and p.get('verticalHeightMm',0) >= 0.62*v4.PLATE_HEIGHT_MM
-    horizontal=p['fitsHorizontal'] and p.get('horizontalHeightMm',1e9) <= 145.0 and p.get('horizontalWidthMm',0) >= 0.62*v4.PLATE_WIDTH_MM
-    return bool(vertical or horizontal)
+    part_count=len([x for x in (kit.get('parts') or []) if _part_dims(x)!=(0.0,0.0)])
+
+    # Two different real plates exposed two strip families:
+    # 1) long pieces that consume most of a ~100 mm corridor;
+    # 2) compact complete BASE/TAPA kits that can stack inside the same corridor.
+    # The old rule only recognized family (1), so a real 72 x 120 mm pair could be
+    # skipped even though both components fit in the untouched right-side strip.
+    long_vertical=(p['fitsVertical'] and p.get('verticalWidthMm',1e9)<=145.0 and
+                   p.get('verticalHeightMm',0)>=0.62*v4.PLATE_HEIGHT_MM)
+    long_horizontal=(p['fitsHorizontal'] and p.get('horizontalHeightMm',1e9)<=145.0 and
+                     p.get('horizontalWidthMm',0)>=0.62*v4.PLATE_WIDTH_MM)
+
+    compact_vertical=(part_count>=2 and p['fitsVertical'] and
+                      p.get('verticalWidthMm',1e9)<=95.0 and
+                      0.20*v4.PLATE_HEIGHT_MM<=p.get('verticalHeightMm',0)<=0.58*v4.PLATE_HEIGHT_MM)
+    compact_horizontal=(part_count>=2 and p['fitsHorizontal'] and
+                        p.get('horizontalHeightMm',1e9)<=95.0 and
+                        0.20*v4.PLATE_WIDTH_MM<=p.get('horizontalWidthMm',0)<=0.58*v4.PLATE_WIDTH_MM)
+    return bool(long_vertical or long_horizontal or compact_vertical or compact_horizontal)
 
 
 _original_residual=v4._residual_candidates
@@ -79,7 +92,10 @@ def _strip_ranked_remaining(selected,kits):
     for k in remain:
         p=strip_profile(k)
         if p['fitsVertical'] or p['fitsHorizontal']:
-            ranked.append((p['score'],int(k.get('priority') or 999999),float(k.get('envelope') or 1e18),k))
+            # Complete compact kits get first crack at the residual pass. This is
+            # still generic geometry-only ranking; no product name is special-cased.
+            compact_bonus=-28.0 if _is_strong_strip_candidate(k) and len(k.get('parts') or [])>=2 else 0.0
+            ranked.append((p['score']+compact_bonus,int(k.get('priority') or 999999),float(k.get('envelope') or 1e18),k))
     ranked.sort(key=lambda row:(row[0],row[1],row[2]))
     return [row[3] for row in ranked]
 
@@ -97,11 +113,11 @@ def enhanced_rank_remaining(selected,kits):
 
 
 def enhanced_attempt_rows(rows,attempts,phase,label,seed,seconds,continuous):
-    """Give a likely strip-fit +1 candidate a couple of extra continuous-rotation tries.
+    """Give likely strip-fit +1 candidates extra continuous-rotation tries.
 
-    This is intentionally narrow: it activates only during the residual +1 pass and
-    only for a geometrically strong strip candidate. It does not relax collision,
-    edge or gap rules and it does not hard-code any product name.
+    Activates only during the residual +1 pass and only for geometry that is either
+    a long narrow strip consumer or a compact complete kit. It never relaxes gap,
+    collision or edge rules; Sparrow remains authoritative.
     """
     first=_original_attempt_rows(rows,attempts,phase,label,seed,seconds,continuous)
     if first.get('ok') and first.get('fits'):
@@ -114,9 +130,9 @@ def enhanced_attempt_rows(rows,attempts,phase,label,seed,seconds,continuous):
 
     kid=str(cand.get('kitId') or cand.get('figure') or '')
     salt=sum((idx+1)*ord(ch) for idx,ch in enumerate(kid)) % 10007
-    retry_seconds=max(4,min(7,int(seconds or 5)))
+    retry_seconds=max(5,min(9,int(seconds or 6)+2))
     best=first
-    for extra_idx,extra_seed in enumerate((53003+salt,73009+salt)):
+    for extra_idx,extra_seed in enumerate((53003+salt,73009+salt,93001+salt)):
         result=v4.core._run_sparrow(rows,v4.GAP_MM,retry_seconds,extra_seed,continuous=True)
         v4._attempt(attempts,'strip-cavity-focused',f'{label} · retry {extra_idx+1}',rows,result,extra_seed,True)
         if result.get('ok') and result.get('fits'):
