@@ -8,6 +8,7 @@ const GROUPS=[
 ]
 
 const labelOf=button=>String(button?.textContent||'').replace(/^[^A-Za-zÁÉÍÓÚÑÜ0-9]+/,'').trim()
+let observer=null
 
 function ensurePrimaryAction(nav,buttons){
   const newOrder=buttons.find(b=>labelOf(b)==='Nuevo pedido')
@@ -16,31 +17,48 @@ function ensurePrimaryAction(nav,buttons){
   if(newOrder.parentElement!==nav||nav.firstElementChild!==newOrder)nav.insertBefore(newOrder,nav.firstElementChild)
 }
 
+function makeGroup(title){
+  const group=document.createElement('div')
+  group.className='nav-group v2-nav-generated'
+  const heading=document.createElement('small')
+  heading.textContent=title
+  group.appendChild(heading)
+  return group
+}
+
 function applyNavigation(){
   const nav=document.querySelector('.sidebar nav')
   if(!nav)return
-  const existing=[...nav.querySelectorAll('.nav-group')]
-  const buttons=[...nav.querySelectorAll('button')]
-  ensurePrimaryAction(nav,buttons)
+  observer?.disconnect()
+  try{
+    const existing=[...nav.querySelectorAll('.nav-group')]
+    const buttons=[...nav.querySelectorAll('button')]
+    ensurePrimaryAction(nav,buttons)
 
-  const byTitle=new Map(existing.map(group=>[String(group.querySelector('small')?.textContent||'').trim(),group]))
-  const pool=existing.slice()
-  GROUPS.forEach(([title,labels],index)=>{
-    let group=byTitle.get(title)||pool[index]
-    if(!group)return
-    const heading=group.querySelector('small')
-    if(heading)heading.textContent=title
-    labels.forEach(label=>{
-      const button=buttons.find(b=>labelOf(b)===label)
-      if(button&&button!==nav.firstElementChild)group.appendChild(button)
+    const byTitle=new Map(existing.map(group=>[String(group.querySelector('small')?.textContent||'').trim(),group]))
+    const claimed=new Set()
+    const orderedGroups=[]
+    GROUPS.forEach(([title,labels],index)=>{
+      let group=byTitle.get(title)
+      if(!group){
+        group=existing.find((g,i)=>!claimed.has(g)&&i===index)||existing.find(g=>!claimed.has(g))||makeGroup(title)
+      }
+      claimed.add(group)
+      const heading=group.querySelector('small')||group.insertBefore(document.createElement('small'),group.firstChild)
+      heading.textContent=title
+      labels.forEach(label=>{
+        const button=buttons.find(b=>labelOf(b)===label)
+        if(button)group.appendChild(button)
+      })
+      group.style.display=''
+      orderedGroups.push(group)
     })
-    nav.appendChild(group)
-  })
 
-  existing.forEach(group=>{
-    const realButtons=[...group.querySelectorAll('button')].filter(b=>!b.classList.contains('v2-primary-new-order'))
-    group.style.display=realButtons.length?'':'none'
-  })
+    existing.filter(g=>!claimed.has(g)).forEach(g=>g.remove())
+    orderedGroups.forEach(group=>nav.appendChild(group))
+  }finally{
+    observer?.observe(document.documentElement,{subtree:true,childList:true})
+  }
 }
 
 let scheduled=false
@@ -50,6 +68,7 @@ const schedule=()=>{
   requestAnimationFrame(()=>{scheduled=false;applyNavigation()})
 }
 
+observer=new MutationObserver(schedule)
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{once:true})
 else schedule()
-new MutationObserver(schedule).observe(document.documentElement,{subtree:true,childList:true})
+observer.observe(document.documentElement,{subtree:true,childList:true})
