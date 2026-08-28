@@ -12,7 +12,7 @@ async function fetchTimed(url,options={},timeoutMs=30000){
 export default async function handler(req,res){
   if(req.method!=='POST')return res.status(405).json({ok:false,error:'Método no permitido'})
   const incoming=req.body||{}
-  const payload={...incoming,gapCm:.3,widthCm:123,heightCm:58,requiredGapMm:3,edgeMarginMm:3,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V4 1230 exact +1',clientBuild:'best-effort-multipass-v4-1230-exact-plus-one-2026-08-28'}
+  const payload={...incoming,gapCm:.3,widthCm:123,heightCm:58,requiredGapMm:3,edgeMarginMm:3,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V4 1230 exact +1',clientBuild:'best-effort-multipass-v4-1230-exact-plus-one-2026-08-28-r2'}
   try{
     try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'}},30000)}catch{}
     const r=await fetchTimed(BASE+'/solve-start',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)},30000)
