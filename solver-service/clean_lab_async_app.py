@@ -1,7 +1,13 @@
 from clean_lab_app import app
 from clean_lab_v4 import solve_v4 as solve
 from flask import jsonify, request
-import json, threading, time, uuid
+import json, os, threading, time, uuid
+import nest_sparrow as core
+
+# Render starts this service inside solver-service, but Sparrow runs each optimization
+# from a temporary working directory. A relative ./sparrow therefore disappears when
+# subprocess.run changes cwd. Freeze the executable path now, while cwd is solver-service.
+core.SPARROW_BIN = os.path.abspath(os.environ.get('SPARROW_BIN', './sparrow'))
 
 # Registra la ruta /upload-benchmark dentro de la misma app Flask.
 import benchmark_routes  # noqa: F401
@@ -65,7 +71,8 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, maxCandidatePool=120)
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, maxCandidatePool=120,
+                   sparrowBinary=core.SPARROW_BIN, sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN, os.X_OK))
 
 
 def _smoke_kits():
