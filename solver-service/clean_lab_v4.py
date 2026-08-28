@@ -15,7 +15,7 @@ core.PLATE_WIDTH_MM = PLATE_WIDTH_MM
 core.PLATE_HEIGHT_MM = PLATE_HEIGHT_MM
 core.PLATE_AREA_MM2 = PLATE_AREA_MM2
 
-BUILD = "best-effort-multipass-v4-1230-residual-swap-2026-08-28"
+BUILD = "best-effort-multipass-v4-1230-pair-residual-2026-08-28"
 DEFAULT_BUDGET_SECONDS = 180
 MAX_POOL_V4 = 120
 
@@ -46,10 +46,16 @@ def _residual_candidates(selected,kits,limit=28):
     used={k.get('kitId') for k in selected};remain=[k for k in kits if k.get('kitId') not in used]
     return _interleave([sorted(remain,key=lambda k:(k.get('envelope',1e18),k.get('area',1e18),k.get('priority',999999))),sorted(remain,key=lambda k:(k.get('area',1e18),k.get('envelope',1e18),k.get('priority',999999))),sorted(remain,key=lambda k:(-k.get('solidity',0),k.get('envelope',1e18),k.get('priority',999999))),sorted(remain,key=lambda k:(k.get('priority',999999),k.get('envelope',1e18)))],limit)
 
+def _pair_candidates(selected,kits,limit=20):
+    incoming=_residual_candidates(selected,kits,10);pairs=[]
+    for i,a in enumerate(incoming):
+        for b in incoming[i+1:]:
+            score=(float(a.get('envelope') or 1e18)+float(b.get('envelope') or 1e18),float(a.get('area') or 1e18)+float(b.get('area') or 1e18),int(a.get('priority') or 999999)+int(b.get('priority') or 999999))
+            pairs.append((score,a,b))
+    pairs.sort(key=lambda row:row[0]);return [(a,b) for _,a,b in pairs[:limit]]
+
 def _swap_variants(selected,kits,anchor_kept,limit=18):
-    used={k.get('kitId') for k in selected};remain=[k for k in kits if k.get('kitId') not in used]
     incoming=_residual_candidates(selected,kits,12);out=[];seen=set()
-    # Preserve urgent anchors. Replace the least cavity-friendly selected kits first.
     removable=list(enumerate(selected))[max(0,anchor_kept):]
     removable=sorted(removable,key=lambda t:(-float(t[1].get('envelope') or 0),float(t[1].get('solidity') or 0),-int(t[1].get('priority') or 999999)))[:6]
     for idx,old in removable:
@@ -96,23 +102,33 @@ def solve_v4():
             if result.get('ok') and result.get('fits'):selected.extend(batch);best_result=result;batch_accepts.append(len(batch));continue
             break
     rescue_rounds=0;residual_attempts=0
-    while time.time()-started<budget-28:
+    while time.time()-started<budget-34:
         ranked=_residual_candidates(selected,kits,28)
         if not ranked:break
         accepted=False
         for idx,cand in enumerate(ranked):
             remaining=budget-(time.time()-started)
-            if remaining<24:break
+            if remaining<30:break
             rows=selected+[cand];seeds=[7001+rescue_rounds*503+idx*89+len(selected)*29]
-            if idx<8 and remaining>31:seeds.append(17011+rescue_rounds*607+idx*131+len(selected)*37)
+            if idx<8 and remaining>37:seeds.append(17011+rescue_rounds*607+idx*131+len(selected)*37)
             for seed in seeds:
                 remaining=budget-(time.time()-started)
-                if remaining<20:break
-                result=_attempt_rows(rows,attempts,'residual-cavity-rescue',f'agregar:{cand.get("figure")}',seed,min(7,max(4,int(remaining-17))),True);residual_attempts+=1
+                if remaining<26:break
+                result=_attempt_rows(rows,attempts,'residual-cavity-rescue',f'agregar:{cand.get("figure")}',seed,min(7,max(4,int(remaining-23))),True);residual_attempts+=1
                 if result.get('ok') and result.get('fits'):selected.append(cand);best_result=result;rescue_rounds+=1;accepted=True;break
             if accepted:break
         if not accepted:break
-    # PASS 4: repacking by substitution. A locally awkward kit can block two better-fitting kits.
+    # PASS 4: try two pending complete figures together. Greedy +1 can miss complementary cavities.
+    pair_attempts=0;pair_accepted=0
+    if time.time()-started<budget-22 and len(kits)-len(selected)>=2:
+        for pidx,(a,b) in enumerate(_pair_candidates(selected,kits,20)):
+            remaining=budget-(time.time()-started)
+            if remaining<16:break
+            rows=selected+[a,b]
+            result=_attempt_rows(rows,attempts,'residual-pair-rescue',f'+2:{a.get("figure")} + {b.get("figure")}',41003+pidx*271,min(7,max(4,int(remaining-11))),True);pair_attempts+=1
+            if result.get('ok') and result.get('fits'):
+                selected=rows;best_result=result;pair_accepted=2;break
+    # PASS 5: repacking by substitution. A locally awkward kit can block two better-fitting kits.
     swap_attempts=0;swap_accepted=0
     if time.time()-started<budget-18 and len(selected)<len(kits):
         original_ids={k.get('kitId') for k in selected}
@@ -121,7 +137,6 @@ def solve_v4():
             if remaining<14:break
             result=_attempt_rows(variant,attempts,'residual-swap-repack',label,23003+vidx*211,min(6,max(4,int(remaining-10))),True);swap_attempts+=1
             if not(result.get('ok') and result.get('fits')):continue
-            # Try to turn a neutral one-for-one swap into +1 complete figure.
             extra=[k for k in _residual_candidates(variant,kits,12) if k.get('kitId') not in original_ids or k.get('kitId')==old.get('kitId')]
             for eidx,cand in enumerate(extra):
                 remaining=budget-(time.time()-started)
@@ -135,7 +150,7 @@ def solve_v4():
         if remaining<7:break
         result=_attempt_rows(selected,attempts,'final-refine','mismo-conjunto',seed+idx*19,min(14,max(5,int(remaining-2))),True);best_result=_best_same_set(best_result,result)
     m=_metrics(selected,best_result)
-    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 residual + swap repack',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
+    return jsonify(ok=True,build=BUILD,traceId=trace_id,engine='Sparrow best-effort multipass v4 · 1230 pair residual + swap repack',completeFigures=len(selected),placements=best_result.get('placements') or [],selectedKitIds=[k.get('kitId') for k in selected],urgentAnchorsRequested=anchor_requested,urgentAnchorsKept=anchor_kept,candidatePool=len(kits),rawPoolConsidered=len(raw),maxPool=MAX_POOL_V4,gapMm=GAP_MM,widthCm=123,heightCm=58,minimumCompleteFigures=None,minimumDensity=None,noArtificialMinimum=True,bestEffort=True,budgetSeconds=budget,batchAccepts=batch_accepts,batchAdded=sum(batch_accepts),rescueRounds=rescue_rounds,residualAttempts=residual_attempts,pairAttempts=pair_attempts,pairAccepted=pair_accepted,swapAttempts=swap_attempts,swapAccepted=swap_accepted,stoppedBecause='no-more-fit-or-time-budget',rejected=rejected[:16],rejectedCount=len(rejected),attempts=attempts,elapsedSeconds=round(time.time()-started,2),**m)
 
 @app.post('/solve-v4')
 def solve_v4_route():return solve_v4()
