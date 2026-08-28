@@ -20,6 +20,7 @@ import './orders-v2-enhancements'
 import './v2NavigationEnhancement'
 import './v2MobileTables'
 
+// V2 bundle: responsive mobile shell + validated 1230 mm nesting motor.
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 if(window.location.hash==='#pedido'){
   const query=window.location.search || ''
