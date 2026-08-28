@@ -9,6 +9,11 @@ import nest_sparrow as core
 # subprocess.run changes cwd. Freeze the executable path now, while cwd is solver-service.
 core.SPARROW_BIN = os.path.abspath(os.environ.get('SPARROW_BIN', './sparrow'))
 
+# Generic strip-aware ranking: promotes complete BASE/TAPA kits whose rotated
+# components can exploit narrow residual bands without hard-coding any figure.
+import strip_fit_runtime
+strip_fit_runtime.install()
+
 # Registra las rutas de benchmark dentro de la misma app Flask.
 import benchmark_routes  # noqa: F401
 import benchmark_replay_routes  # noqa: F401
@@ -74,7 +79,7 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, jsonBenchmarkReplay=True, strategyBenchmark=True, residualSpaceDiagnostics=True, maxCandidatePool=120,
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, jsonBenchmarkReplay=True, strategyBenchmark=True, residualSpaceDiagnostics=True, stripFitRanking=True, maxCandidatePool=120,
                    sparrowBinary=core.SPARROW_BIN, sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN, os.X_OK))
 
 
