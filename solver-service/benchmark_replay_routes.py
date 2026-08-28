@@ -79,3 +79,8 @@ def replay_benchmark():
         layoutValidation=validation,
         solverResult=result,
     ), (200 if validation.get('ok') else 422)
+
+
+# Importado al final para registrar la búsqueda profunda sin crear un ciclo durante
+# la inicialización de Flask. Sólo existe en la rama aislada del motor.
+import benchmark_deep_routes  # noqa: E402,F401
