@@ -1,5 +1,5 @@
 from clean_lab_app import app
-from clean_lab_v4 import solve_v4 as solve
+from sa_runtime_wrapper import solve_v4_sa as solve
 from flask import jsonify, request
 import json, os, threading, time, uuid
 import nest_sparrow as core
@@ -80,7 +80,7 @@ def solve_status():
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, jsonBenchmarkReplay=True, strategyBenchmark=True, residualSpaceDiagnostics=True, stripFitRanking=True, realStateBenchmark=True, maxCandidatePool=120,
+    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, jsonBenchmarkReplay=True, strategyBenchmark=True, residualSpaceDiagnostics=True, stripFitRanking=True, realStateBenchmark=True, simulatedAnnealingEscape=True, independentSACertification=True, maxCandidatePool=120,
                    sparrowBinary=core.SPARROW_BIN, sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN, os.X_OK))
 
 
@@ -129,6 +129,10 @@ def _startup_selftest():
             'batchAccepts': data.get('batchAccepts') if isinstance(data, dict) else None,
             'batchAdded': data.get('batchAdded') if isinstance(data, dict) else None,
             'rescueRounds': data.get('rescueRounds') if isinstance(data, dict) else None,
+            'saEscapeRan': data.get('saEscapeRan') if isinstance(data, dict) else None,
+            'saIterations': data.get('saIterations') if isinstance(data, dict) else None,
+            'saSuccess': data.get('saSuccess') if isinstance(data, dict) else None,
+            'saCertified': data.get('saCertified') if isinstance(data, dict) else None,
             'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
             'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
             'placements': len(data.get('placements') or []) if isinstance(data, dict) else 0,
