@@ -1,5 +1,10 @@
 import './prepare-v25.0.56.mjs'
 import fs from 'node:fs'
+import { runLogisticsMoneyRegression } from '../src/lib/logisticsZones.js'
+
+const regression=runLogisticsMoneyRegression()
+if(!regression.ok)throw new Error('v25.0.60: regresión de tarifas de logística: '+JSON.stringify(regression.failures))
+console.log(`v25.0.60: regresión logística OK · ${regression.total} controles de dinero`)
 
 const file='src/pages/CustomerOrderBase.jsx'
 let s=fs.readFileSync(file,'utf8')
