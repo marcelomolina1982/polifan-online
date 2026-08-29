@@ -19,19 +19,17 @@ fs.writeFileSync(v2DataFile,v2)
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
 if(!motor.includes("import {supabase} from '../supabase'"))motor=motor.replace("import {today} from '../lib/format'","import {today} from '../lib/format'\nimport {supabase} from '../supabase'")
-motor=motor.replace("const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}","const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgId:String(comp.id||''),svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}")
-const oldStart=`  async function startJob(payload,multiplier){
-    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})
-    const data=await response.json().catch(()=>({}))`
-const newStart=`  async function startJob(payload,multiplier){
-    const sessionResult=await supabase.auth.getSession()
-    const accessToken=sessionResult?.data?.session?.access_token||''
-    if(!accessToken)throw new Error('La sesión venció. Volvé a ingresar antes de generar una placa.')
-    const compact={...payload,_accessToken:accessToken,kits:(payload.kits||[]).map(k=>({...k,parts:(k.parts||[]).map(p=>{const {svgText,...rest}=p;return rest})}))}
-    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(compact)})
-    const data=await response.json().catch(()=>({}))`
-if(!motor.includes(oldStart))throw new Error('v25.0.55: no encontré startJob para compactar payload')
-motor=motor.replace(oldStart,newStart)
+const rowBefore="const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}"
+const rowAfter="const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgId:String(comp.id||''),svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}"
+if(motor.includes(rowBefore))motor=motor.replace(rowBefore,rowAfter)
+else if(!motor.includes("svgId:String(comp.id||'')"))throw new Error('v25.0.55: no encontré fila de pieza para agregar svgId')
+const startAnchor='  async function startJob(payload,multiplier){'
+if(!motor.includes(startAnchor))throw new Error('v25.0.55: no encontré startJob')
+motor=motor.replace(startAnchor,startAnchor+`\n    const sessionResult=await supabase.auth.getSession()\n    const accessToken=sessionResult?.data?.session?.access_token||''\n    if(!accessToken)throw new Error('La sesión venció. Volvé a ingresar antes de generar una placa.')\n    const compact={...payload,_accessToken:accessToken,kits:(payload.kits||[]).map(k=>({...k,parts:(k.parts||[]).map(p=>{const {svgText,...rest}=p;return rest})}))}`)
+const bodyAnchor='body:JSON.stringify(payload)'
+const bodyCount=motor.split(bodyAnchor).length-1
+if(bodyCount!==1)throw new Error('v25.0.55: JSON.stringify(payload) de nest-start aparece '+bodyCount+' veces')
+motor=motor.replace(bodyAnchor,'body:JSON.stringify(compact)')
 fs.writeFileSync(motorFile,motor)
 
 const versionFile='src/version.js'
