@@ -16,9 +16,27 @@ v2=v2.replace(rx,`export async function loadV2SvgFull(id){
 }`)
 fs.writeFileSync(v2DataFile,v2)
 
+const motorFile='src/pages/MotorDefinitivo.jsx'
+let motor=fs.readFileSync(motorFile,'utf8')
+if(!motor.includes("import {supabase} from '../supabase'"))motor=motor.replace("import {today} from '../lib/format'","import {today} from '../lib/format'\nimport {supabase} from '../supabase'")
+motor=motor.replace("const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}","const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgId:String(comp.id||''),svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}")
+const oldStart=`  async function startJob(payload,multiplier){
+    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})
+    const data=await response.json().catch(()=>({}))`
+const newStart=`  async function startJob(payload,multiplier){
+    const sessionResult=await supabase.auth.getSession()
+    const accessToken=sessionResult?.data?.session?.access_token||''
+    if(!accessToken)throw new Error('La sesión venció. Volvé a ingresar antes de generar una placa.')
+    const compact={...payload,_accessToken:accessToken,kits:(payload.kits||[]).map(k=>({...k,parts:(k.parts||[]).map(p=>{const {svgText,...rest}=p;return rest})}))}
+    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(compact)})
+    const data=await response.json().catch(()=>({}))`
+if(!motor.includes(oldStart))throw new Error('v25.0.55: no encontré startJob para compactar payload')
+motor=motor.replace(oldStart,newStart)
+fs.writeFileSync(motorFile,motor)
+
 const versionFile='src/version.js'
-let version=fs.readFileSync(versionFile,'utf8').replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.55'").replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.55'").replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · motor SVG móvil autenticado'")
+let version=fs.readFileSync(versionFile,'utf8').replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.56'").replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.56'").replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Sparrow payload liviano y SVG servidor'")
 fs.writeFileSync(versionFile,version)
-const swFile='public/sw.js';fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.55'"))
-const indexFile='index.html';fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.55'"))
-console.log('v25.0.55: SVG autenticado por POST · sin header Authorization del navegador · cache/SW renovados')
+const swFile='public/sw.js';fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.56'"))
+const indexFile='index.html';fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.56'"))
+console.log('v25.0.56: navegador envía refs SVG livianas · Vercel hidrata antes de Sparrow · cache renovada')
