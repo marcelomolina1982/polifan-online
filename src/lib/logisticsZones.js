@@ -43,25 +43,34 @@ export function resolveLogisticsZone({locality='',district='',province='',postal
   return {...zone,locality:String(locality||'').trim(),district:String(district||'').trim(),postalCode:String(postalCode||'').trim(),source:districtZone?'district':'locality'}
 }
 
-// Regression checks for money-sensitive logistics. Quantity is intentionally absent:
-// local logistics price MUST depend only on the resolved zone, never order size.
+// Money-sensitive regression: local logistics price depends ONLY on zone, never order quantity.
 export const LOGISTICS_MONEY_REGRESSION_CASES=[
-  [{locality:'José León Suárez',district:'General San Martín',province:'Buenos Aires'},'ZONA 1',4000],
-  [{locality:'Boulogne',district:'San Isidro',province:'Buenos Aires'},'ZONA 1',4000],
-  [{locality:'Villa Tesei',district:'Hurlingham',province:'Buenos Aires'},'GBA 1',5000],
-  [{locality:'Don Torcuato',district:'Tigre',province:'Buenos Aires'},'GBA 1',5000],
-  [{locality:'Bernal',district:'Quilmes',province:'Buenos Aires'},'GBA 2',6000],
-  [{locality:'Del Viso',district:'Pilar',province:'Buenos Aires'},'GBA 3',8500],
-  [{locality:'City Bell',district:'La Plata',province:'Buenos Aires'},'GBA 3',8500]
+  [{locality:'José León Suárez',district:'General San Martín',province:'Buenos Aires'},'ZONA 1',4000,'localidad + partido'],
+  [{locality:'Boulogne',district:'San Isidro',province:'Buenos Aires'},'ZONA 1',4000,'alias localidad'],
+  [{locality:'Villa Tesei',district:'Hurlingham',province:'Buenos Aires'},'GBA 1',5000,'GBA 1'],
+  [{locality:'Don Torcuato',district:'Tigre',province:'Buenos Aires'},'GBA 1',5000,'GBA 1 alias'],
+  [{locality:'Bernal',district:'Quilmes',province:'Buenos Aires'},'GBA 2',6000,'GBA 2'],
+  [{locality:'Del Viso',district:'Pilar',province:'Buenos Aires'},'GBA 3',8500,'partido prevalece sobre alias de zona menor'],
+  [{locality:'City Bell',district:'La Plata',province:'Buenos Aires'},'GBA 3',8500,'GBA 3'],
+  [{locality:'Localidad no listada',district:'Quilmes',province:'Buenos Aires'},'GBA 2',6000,'localidad desconocida pero partido cubierto'],
+  [{locality:'Bernal',district:'La Plata',province:'Buenos Aires'},'GBA 3',8500,'partido prevalece ante datos contradictorios']
 ]
 
 export function runLogisticsMoneyRegression(){
   const failures=[]
-  for(const [input,expectedZone,expectedPrice] of LOGISTICS_MONEY_REGRESSION_CASES){
+  for(const [input,expectedZone,expectedPrice,label] of LOGISTICS_MONEY_REGRESSION_CASES){
     const got=resolveLogisticsZone(input)
-    if(!got||got.id!==expectedZone||got.price!==expectedPrice)failures.push({input,expectedZone,expectedPrice,got})
+    if(!got||got.id!==expectedZone||got.price!==expectedPrice)failures.push({label,input,expectedZone,expectedPrice,got})
+    for(const quantity of [1,6,12,24,50]){
+      const again=resolveLogisticsZone({...input,quantity})
+      if(!again||again.id!==expectedZone||again.price!==expectedPrice)failures.push({label:`${label} · quantity=${quantity}`,input,expectedZone,expectedPrice,got:again})
+    }
   }
-  const outside=resolveLogisticsZone({locality:'Rosario',district:'Rosario',province:'Santa Fe'})
-  if(outside!==null)failures.push({input:'Rosario/Santa Fe',expected:null,got:outside})
-  return {ok:failures.length===0,total:LOGISTICS_MONEY_REGRESSION_CASES.length+1,failures}
+  const outsideCases=[
+    {locality:'Rosario',district:'Rosario',province:'Santa Fe'},
+    {locality:'Córdoba',district:'Capital',province:'Córdoba'},
+    {locality:'Localidad desconocida',district:'Partido desconocido',province:'Buenos Aires'}
+  ]
+  for(const input of outsideCases){const got=resolveLogisticsZone(input);if(got!==null)failures.push({label:'sin cobertura debe quedar sin precio',input,expected:null,got})}
+  return {ok:failures.length===0,total:LOGISTICS_MONEY_REGRESSION_CASES.length*6+outsideCases.length,failures}
 }
