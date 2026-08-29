@@ -7,6 +7,8 @@ export default async function handler(req,res){
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'})
   const id=String(req.query?.id||'').trim()
   if(!id)return res.status(400).json({error:'Falta id SVG'})
+  const auth=String(req.headers?.authorization||'').trim()
+  if(!/^Bearer\s+\S+/i.test(auth))return res.status(401).json({error:'Sesión requerida para cargar SVG'})
   try{
     const controller=new AbortController()
     const timer=setTimeout(()=>controller.abort(),12000)
@@ -16,7 +18,7 @@ export default async function handler(req,res){
         method:'POST',
         headers:{
           apikey:SUPABASE_KEY,
-          authorization:'Bearer '+SUPABASE_KEY,
+          authorization:auth,
           'content-type':'application/json',
           accept:'application/json'
         },
