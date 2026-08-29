@@ -12,6 +12,7 @@ app.get('/health',(q,s)=>s.json({ok:true,service:'viacargo-agency-quote'}));
 app.get('/test-sanluis',async(q,s)=>{try{s.json(await quote('5700',12))}catch(e){s.status(502).json({ok:false,error:e?.message||String(e)})}});
 app.post('/quote',async(req,res)=>{try{const cp=String(req.body?.destinationCp||'').trim();const quantity=Math.max(1,Number(req.body?.quantity||1));if(!/^\d{4}$/.test(cp))return res.status(400).json({ok:false,error:'destinationCp debe tener 4 dígitos'});const r=await quote(cp,quantity);if(!r.agencyToAgency.length)return res.status(422).json({...r,ok:false,error:'Via Cargo no devolvió una tarifa Agencia → Agencia; requiere revisión humana'});res.json(r)}catch(e){res.status(502).json({ok:false,error:e?.message||String(e)})}});
 const server=app.listen(process.env.PORT,()=>console.log('VIACARGO_QUOTE_SERVICE_READY'));
+setTimeout(async()=>{try{console.log('VIACARGO_SELFTEST',JSON.stringify(await quote('5700',12)))}catch(e){console.error('VIACARGO_SELFTEST_ERROR',e?.message||String(e))}},12000);
 const originalListen=express.application.listen;
 express.application.listen=function(...args){if(this===app)return originalListen.apply(this,args);console.log('VIACARGO_LEGACY_LISTEN_IGNORED');return server};
 }
