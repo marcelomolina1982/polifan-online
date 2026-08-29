@@ -1,6 +1,6 @@
 export const config={maxDuration:60}
 
-const BASE='https://polifan-motor-1230-bench-v4.onrender.com'
+const BASE='https://polifan-motor-1230-bench-v5.onrender.com'
 const SUPABASE_URL=process.env.VITE_SUPABASE_URL||'https://eftksimpkkvmyfurwqii.supabase.co'
 const SUPABASE_KEY=process.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishable_RJheqVJ6VdJC7291e2z7WQ_0vsBsDWN'
 
@@ -41,15 +41,15 @@ export default async function handler(req,res){
   const incoming={...raw};delete incoming._accessToken
   try{
     const hydrated=await hydratePayload(incoming,token)
-    const payload={...hydrated,gapCm:.3,widthCm:123,heightCm:58,requiredGapMm:3,edgeMarginMm:3,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V4 1230 exact +1',clientBuild:'best-effort-multipass-v4-1230-exact-plus-one-2026-08-29-r3'}
+    const payload={...hydrated,gapCm:.3,widthCm:123,heightCm:58,requiredGapMm:3,edgeMarginMm:3,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V1.13 / V5 1230',clientBuild:'sparrow-v1.13-v5-1230-certified-2026-08-29'}
     try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'}},30000)}catch{}
     const r=await fetchTimed(BASE+'/solve-start',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)},30000)
     const text=await r.text();let body={};try{body=JSON.parse(text||'{}')}catch{}
-    if(!r.ok||!body.jobId)return res.status(r.status||503).json({ok:false,error:body.error||`Sparrow 1230 no pudo iniciar (HTTP ${r.status})`,backend:'motor-1230-v4'})
-    const jobId=String(body.jobId).includes(':')?String(body.jobId):'motor1230:'+body.jobId
-    res.setHeader('cache-control','no-store');res.setHeader('x-solver-backend','motor-1230-v4')
-    return res.status(202).json({...body,ok:true,jobId,backend:'motor-1230-v4'})
+    if(!r.ok||!body.jobId)return res.status(r.status||503).json({ok:false,error:body.error||`Sparrow 1230 V5 no pudo iniciar (HTTP ${r.status})`,backend:'motor-1230-v5'})
+    const jobId=String(body.jobId).includes(':')?String(body.jobId):'motor1230v5:'+body.jobId
+    res.setHeader('cache-control','no-store');res.setHeader('x-solver-backend','motor-1230-v5')
+    return res.status(202).json({...body,ok:true,jobId,backend:'motor-1230-v5'})
   }catch(e){
-    return res.status(503).json({ok:false,backend:'motor-1230-v4',error:'No se pudo iniciar Sparrow 1230: '+(e?.name==='AbortError'?'timeout':(e?.message||String(e))),retryable:true})
+    return res.status(503).json({ok:false,backend:'motor-1230-v5',error:'No se pudo iniciar Sparrow 1230 V5: '+(e?.name==='AbortError'?'timeout':(e?.message||String(e))),retryable:true})
   }
 }
