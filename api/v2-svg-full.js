@@ -4,11 +4,11 @@ const SUPABASE_URL=process.env.VITE_SUPABASE_URL||'https://eftksimpkkvmyfurwqii.
 const SUPABASE_KEY=process.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishable_RJheqVJ6VdJC7291e2z7WQ_0vsBsDWN'
 
 export default async function handler(req,res){
-  if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'})
-  const id=String(req.query?.id||'').trim()
+  if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'})
+  const id=String(req.body?.id||'').trim()
+  const token=String(req.body?.token||'').trim()
   if(!id)return res.status(400).json({error:'Falta id SVG'})
-  const auth=String(req.headers?.authorization||'').trim()
-  if(!/^Bearer\s+\S+/i.test(auth))return res.status(401).json({error:'Sesión requerida para cargar SVG'})
+  if(!token)return res.status(401).json({error:'Sesión requerida para cargar SVG'})
   try{
     const controller=new AbortController()
     const timer=setTimeout(()=>controller.abort(),12000)
@@ -16,12 +16,7 @@ export default async function handler(req,res){
     try{
       response=await fetch(SUPABASE_URL+'/rest/v1/rpc/get_v2_svg_full',{
         method:'POST',
-        headers:{
-          apikey:SUPABASE_KEY,
-          authorization:auth,
-          'content-type':'application/json',
-          accept:'application/json'
-        },
+        headers:{apikey:SUPABASE_KEY,authorization:'Bearer '+token,'content-type':'application/json',accept:'application/json'},
         body:JSON.stringify({p_id:id}),
         signal:controller.signal,
         cache:'no-store'
