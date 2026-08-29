@@ -79,6 +79,25 @@ if(motor.includes(catchMarker)){
 
 fs.writeFileSync(motorFile,motor)
 
+// Los SVG completos ya no se piden desde el celular directo a Supabase.
+// Se cargan por el mismo dominio de Vercel y Vercel consulta Supabase del lado servidor.
+const v2DataFile='src/lib/v2Data.js'
+let v2=fs.readFileSync(v2DataFile,'utf8')
+const oldFull=`export async function loadV2SvgFull(id){
+  const {data,error}=await supabase.rpc('get_v2_svg_full',{p_id:String(id||'')})
+  if(error)throw error
+  const row=Array.isArray(data)?data[0]:data
+  return{data:row?.data||null,updatedAt:row?.updated_at||''}
+}`
+const newFull=`export async function loadV2SvgFull(id){
+  const response=await fetch('/api/v2-svg-full?id='+encodeURIComponent(String(id||'')),{cache:'no-store'})
+  const payload=await response.json().catch(()=>({}))
+  if(!response.ok)throw new Error(payload?.error||('No se pudo cargar SVG (HTTP '+response.status+')'))
+  return{data:payload?.data||null,updatedAt:payload?.updatedAt||''}
+}`
+v2=mustReplace(v2,oldFull,newFull,'loadV2SvgFull directo a Supabase')
+fs.writeFileSync(v2DataFile,v2)
+
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
 version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.54'")
@@ -93,4 +112,4 @@ const indexFile='index.html'
 let index=fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.54'")
 fs.writeFileSync(indexFile,index)
 
-console.log('v25.0.54: SVG sólo para pool real · concurrencia 4 · reintentos 3 · error de red contextualizado')
+console.log('v25.0.54: SVG vía Vercel · pool real 32 · concurrencia 4 · reintentos 3 · error contextualizado')
