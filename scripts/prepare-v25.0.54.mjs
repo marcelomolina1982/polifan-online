@@ -4,6 +4,7 @@ import fs from 'node:fs'
 // v25.0.54: hidratación SVG móvil robusta.
 // Sólo carga la geometría que realmente puede entrar al pool enviado al motor (32 kits),
 // limita concurrencia contra Supabase y reintenta fallos transitorios de red.
+// Publicación final de la candidata validada.
 
 function mustReplace(text,before,after,label){
   if(!text.includes(before)) throw new Error('v25.0.54: no encontré '+label)
