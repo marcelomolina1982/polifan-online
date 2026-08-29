@@ -1,4 +1,4 @@
-if(process.env.PORT&&!/(^|[\\/])npm(?:-cli)?(?:\.js)?$|(^|[\\/])npx(?:-cli)?(?:\.js)?$|install\.mjs/.test(process.argv[1]||'')){
+if(process.env.PORT&&!process.env.npm_config_user_agent&&!/(^|[\\/])npm(?:-cli)?(?:\.js)?$|(^|[\\/])npx(?:-cli)?(?:\.js)?$|install\.m?js/.test(process.argv[1]||'')){
 const express=require('express');
 const puppeteer=require('puppeteer');
 const app=express();
