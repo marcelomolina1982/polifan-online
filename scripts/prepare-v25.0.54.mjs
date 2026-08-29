@@ -63,7 +63,7 @@ const newHydrate=`async function hydrateUnits(units){
   await Promise.all(Array.from({length:workers},()=>worker()))
   if(failures.length){
     const sample=failures.slice(0,3).map(x=>x.name).join(', ')
-    throw new Error('No se pudieron cargar '+failures.length+' SVG necesarios desde Supabase'+(sample?' ('+sample+')':'')+'. Revisá la conexión y tocá Generar una placa nuevamente.')
+    throw new Error('No se pudieron cargar '+failures.length+' SVG necesarios'+(sample?' ('+sample+')':'')+'. Volvé a generar una vez.')
   }
 
   return all.map(u=>({...u,components:(u.components||[]).map(c=>byId.get(String(c.id))||c)}))
@@ -74,7 +74,7 @@ motor=mustReplace(motor,oldHydrate,newHydrate,'hydrateUnits original')
 // Mensaje específico para que un fallo de red nunca vuelva a quedar como "Failed to fetch" sin contexto.
 const catchMarker="    }catch(err){clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:err.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}finally{setBusy(false);setProgress('')}"
 if(motor.includes(catchMarker)){
-  motor=motor.replace(catchMarker,"    }catch(err){clearActiveJob();const message=String(err?.message||err||'Error desconocido');const friendly=message==='Failed to fetch'?'No se pudo completar una petición de red. Revisá la conexión y volvé a generar una vez.':message;setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:friendly,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}finally{setBusy(false);setProgress('')}")
+  motor=motor.replace(catchMarker,"    }catch(err){clearActiveJob();const message=String(err?.message||err||'Error desconocido');const friendly=message==='Failed to fetch'?'No se pudo completar una petición de red. Volvé a generar una vez.':message;setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:friendly,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}finally{setBusy(false);setProgress('')}")
 }
 
 fs.writeFileSync(motorFile,motor)
@@ -83,19 +83,14 @@ fs.writeFileSync(motorFile,motor)
 // Se cargan por el mismo dominio de Vercel y Vercel consulta Supabase del lado servidor.
 const v2DataFile='src/lib/v2Data.js'
 let v2=fs.readFileSync(v2DataFile,'utf8')
-const oldFull=`export async function loadV2SvgFull(id){
-  const {data,error}=await supabase.rpc('get_v2_svg_full',{p_id:String(id||'')})
-  if(error)throw error
-  const row=Array.isArray(data)?data[0]:data
-  return{data:row?.data||null,updatedAt:row?.updated_at||''}
-}`
-const newFull=`export async function loadV2SvgFull(id){
+const fullRx=/export async function loadV2SvgFull\(id\)\{[\s\S]*?\n\}/
+if(!fullRx.test(v2))throw new Error('v25.0.54: no encontré loadV2SvgFull para redirigir por Vercel')
+v2=v2.replace(fullRx,`export async function loadV2SvgFull(id){
   const response=await fetch('/api/v2-svg-full?id='+encodeURIComponent(String(id||'')),{cache:'no-store'})
   const payload=await response.json().catch(()=>({}))
   if(!response.ok)throw new Error(payload?.error||('No se pudo cargar SVG (HTTP '+response.status+')'))
   return{data:payload?.data||null,updatedAt:payload?.updatedAt||''}
-}`
-v2=mustReplace(v2,oldFull,newFull,'loadV2SvgFull directo a Supabase')
+}`)
 fs.writeFileSync(v2DataFile,v2)
 
 const versionFile='src/version.js'
