@@ -1,3 +1,4 @@
+if(!/npm-cli|npx-cli/.test(process.argv[1]||'')){
 const express=require('express');
 const puppeteer=require('puppeteer');
 const app=express();
@@ -11,3 +12,4 @@ app.get('/health',(q,s)=>s.json({ok:true,service:'viacargo-agency-quote'}));app.
 const server=app.listen(process.env.PORT||10000,()=>console.log('VIACARGO_QUOTE_SERVICE_READY'));
 const originalListen=express.application.listen;
 express.application.listen=function(...args){if(this===app)return originalListen.apply(this,args);console.log('VIACARGO_LEGACY_LISTEN_IGNORED');return server};
+}
