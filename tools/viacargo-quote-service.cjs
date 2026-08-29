@@ -1,4 +1,4 @@
-if(process.env.PORT&&!/npm-cli|npx-cli/.test(process.argv[1]||'')){
+if(process.env.PORT&&!/npm-cli|npx-cli|install\.mjs/.test(process.argv[1]||'')){
 const express=require('express');
 const puppeteer=require('puppeteer');
 const app=express();
