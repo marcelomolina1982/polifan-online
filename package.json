@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/prepare-v25.0.64.mjs && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node scripts/render-install-chrome.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
