@@ -49,13 +49,19 @@ replaceOnce(formAnchor,formReplacement,'panel de precio logística')
 fs.writeFileSync(file,s)
 
 // El motor y la pantalla Para cortar deben consumir exactamente el mismo plan.
-// Si un preparador anterior ya hizo el cambio, no lo repetimos: el preflight final de 25.0.59 valida el estado resultante.
+// Normalizamos cualquier variante heredada del import y dejamos que el preflight final valide el resultado.
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
-const oldImport="import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'"
-const newImport="import {normalizeFigureKey} from '../lib/inventory'\nimport {pendingCutPlan} from '../lib/cutPlanning'"
-if(motor.includes(oldImport))motor=motor.replace(oldImport,newImport)
-if(motor.includes('pendingCutByDelivery(db).forEach'))motor=motor.replace('pendingCutByDelivery(db).forEach','pendingCutPlan(db).forEach')
+motor=motor.replace(/import\s*\{([^}]*)\}\s*from\s*['"]\.\.\/lib\/inventory['"]/g,(full,names)=>{
+  const clean=String(names).split(',').map(x=>x.trim()).filter(Boolean).filter(x=>x!=='pendingCutByDelivery')
+  return `import {${clean.join(',')}} from '../lib/inventory'`
+})
+if(!motor.includes("from '../lib/cutPlanning'")){
+  const anchor=/import\s*\{[^}]*\}\s*from\s*['"]\.\.\/lib\/inventory['"]/
+  if(!anchor.test(motor))throw new Error('v25.0.61: no encontré import de inventory en MotorDefinitivo')
+  motor=motor.replace(anchor,match=>match+"\nimport {pendingCutPlan} from '../lib/cutPlanning'")
+}
+motor=motor.replace(/\bpendingCutByDelivery\s*\(\s*db\s*\)/g,'pendingCutPlan(db)')
 fs.writeFileSync(motorFile,motor)
 
 const versionFile='src/version.js'
