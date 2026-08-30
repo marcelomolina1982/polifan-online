@@ -2,7 +2,7 @@ name: Validar build
 
 on:
   push:
-    branches: [main, app-v2-parallel]
+    branches: [main, app-v2-parallel, 'prebuild-v2-*']
   pull_request:
     branches: [main, app-v2-parallel]
 
@@ -24,3 +24,12 @@ jobs:
           node-version: 24
       - run: npm install
       - run: npm run build
+      - name: Smoke Render services
+        if: startsWith(github.ref, 'refs/heads/prebuild-v2-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          MOTOR_JSON="$(curl --retry 2 --retry-delay 3 --max-time 90 --fail --silent --show-error https://polifan-motor-1230-bench-v5.onrender.com/async-health)"
+          echo "$MOTOR_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok||j.durableJobs!==true||j.durableStore!=='supabase'||j.sparrowExecutable!==true)process.exit(1);console.log('Motor health OK · durable Supabase · Sparrow ejecutable')})"
+          VIA_JSON="$(curl --retry 2 --retry-delay 3 --max-time 90 --fail --silent --show-error https://viacargo-quote-probe2.onrender.com/health)"
+          echo "$VIA_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok)process.exit(1);console.log('Vía Cargo health OK')})"
