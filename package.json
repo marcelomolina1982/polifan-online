@@ -1,12 +1,12 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "25.0.61",
+  "version": "25.0.62",
   "description": "Modo operativo seguro",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.59.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.62.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
