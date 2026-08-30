@@ -24,10 +24,6 @@ if(!requestMatches[1].includes('shippingQuote:')){
   customer=customer.replace(requestCustomerPattern,`customer:{${inner}${shipping}},items:requestItems`)
 }
 
-const analyticsPattern=/metadata:\{method:data\.method,estimatedTotal,source:customerSource,specialFigure:specialQty\?specialFigure\.description\.trim\(\):null\}/
-if(!analyticsPattern.test(customer))throw new Error('finalize-v25.0.66: no se encontró metadata order_sent')
-customer=customer.replace(analyticsPattern,"metadata:{method:data.method,estimatedTotal,source:customerSource,specialFigure:specialQty?specialFigure.description.trim():null,shippingKind:shippingQuote?.kind||null,shippingPrice:Number.isFinite(Number(shippingQuote?.price))?Number(shippingQuote.price):null,shippingPending:shippingQuote?.kind==='manual'}")
-
 if(!customer.includes("const direct=!hasPostal?resolveLogisticsZone"))throw new Error('No quedó validación oficial por CP')
 if(!customer.includes("shippingPending:shippingQuote?.kind==='manual'"))throw new Error('No quedó persistencia de shippingPending')
 if(!customer.includes("['locality','district','province','postalCode','address','method']"))throw new Error('No quedó invalidación al cambiar método')
