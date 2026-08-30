@@ -7,14 +7,9 @@ function one(text,before,after,label){
   return text.replace(before,after)
 }
 
-// MOTOR: keep Vercel proxy, but if it returns 404/502/503/504 use Render directly.
-// This avoids a transient proxy failure becoming "Failed to fetch" on the phone.
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
-motor=one(
-  motor,
-  "  async function waitJob(jobId,originalStartedAt=Date.now()){",
-  `  async function fetchJobStatus(jobId){
+motor=one(motor,"  async function waitJob(jobId,originalStartedAt=Date.now()){",`  async function fetchJobStatus(jobId){
     const raw=String(jobId||'')
     const sep=raw.indexOf(':')
     const bare=sep>0?raw.slice(sep+1):raw
@@ -30,53 +25,25 @@ motor=one(
       throw error
     }
   }
-  async function waitJob(jobId,originalStartedAt=Date.now()){`,
-  'inserción fetchJobStatus'
-)
-motor=one(
-  motor,
-  "response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})",
-  "response=await fetchJobStatus(jobId)",
-  'consulta waitJob'
-)
-motor=motor.replaceAll(
-  "}catch(error){\n      clearActiveJob()\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])",
-  "}catch(error){\n      const activeNow=loadActiveJob();if(activeNow)saveActiveJob({...activeNow,lastError:error.message,lastErrorAt:Date.now()})\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])"
-)
+  async function waitJob(jobId,originalStartedAt=Date.now()){`,'inserción fetchJobStatus')
+motor=one(motor,"response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})","response=await fetchJobStatus(jobId)",'consulta waitJob')
+motor=motor.replaceAll("}catch(error){\n      clearActiveJob()\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])","}catch(error){\n      const activeNow=loadActiveJob();if(activeNow)saveActiveJob({...activeNow,lastError:error.message,lastErrorAt:Date.now()})\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])")
 fs.writeFileSync(motorFile,motor)
 
 const customerFile='src/pages/CustomerOrderBase.jsx'
 let customer=fs.readFileSync(customerFile,'utf8')
-customer=one(
-  customer,
-  "import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate } from '../lib/production'",
-  "import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate } from '../lib/production'\nimport { resolveLogisticsZone } from '../lib/logisticsZones'",
-  'import logisticsZones'
-)
-customer=one(
-  customer,
-  "  const [sending, setSending] = useState(false)",
-  `  const [sending, setSending] = useState(false)
+customer=one(customer,"import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate } from '../lib/production'","import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate } from '../lib/production'\nimport { resolveLogisticsZone } from '../lib/logisticsZones'",'import logisticsZones')
+customer=one(customer,"  const [sending, setSending] = useState(false)",`  const [sending, setSending] = useState(false)
   const [shippingQuote,setShippingQuote]=useState(null)
-  const [shippingStatus,setShippingStatus]=useState({state:'idle',remaining:0,message:''})`,
-  'shipping state'
-)
-customer=one(
-  customer,
-  "  useEffect(() => {trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })}, [customerSource])",
-  `  useEffect(()=>{
+  const [shippingStatus,setShippingStatus]=useState({state:'idle',remaining:0,message:''})`,'shipping state')
+customer=one(customer,"  useEffect(() => {trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })}, [customerSource])",`  useEffect(()=>{
     if(shippingStatus.state!=='loading')return
     const timer=window.setInterval(()=>setShippingStatus(current=>current.state==='loading'?{...current,remaining:Math.max(0,Number(current.remaining||0)-1)}:current),1000)
     return()=>window.clearInterval(timer)
   },[shippingStatus.state])
 
-  useEffect(() => {trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })}, [customerSource])`,
-  'shipping countdown effect'
-)
-customer=one(
-  customer,
-  "  function update(field, value) {setData(previous => ({ ...previous, [field]: value }))}",
-  `  function update(field, value) {
+  useEffect(() => {trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })}, [customerSource])`,'shipping countdown effect')
+customer=one(customer,"  function update(field, value) {setData(previous => ({ ...previous, [field]: value }))}",`  function update(field, value) {
     setData(previous => ({ ...previous, [field]: value }))
     if(['locality','district','province','postalCode','address'].includes(field)){
       setShippingQuote(null)
@@ -87,8 +54,7 @@ customer=one(
   async function quoteCustomerShipping(){
     if(data.method==='Retiro en el local'){
       const result={kind:'pickup',label:'Retiro en el local',price:0}
-      setShippingQuote(result)
-      setShippingStatus({state:'ready',remaining:0,message:'Retiro en el local'})
+      setShippingQuote(result);setShippingStatus({state:'ready',remaining:0,message:'Retiro en el local'})
       return result
     }
     if(!String(data.postalCode||'').trim()&&!String(data.locality||'').trim()){
@@ -101,89 +67,39 @@ customer=one(
       const direct=resolveLogisticsZone({locality:data.locality,district:data.district,province:data.province,postalCode:data.postalCode})
       if(direct){
         const result={kind:'logistics',label:'Logística GBA/CABA',zone:direct.id,price:Number(direct.price||0),destination:[data.locality,data.postalCode].filter(Boolean).join(' · ')}
-        setShippingQuote(result)
-        setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'})
-        setData(previous=>({...previous,method:'Logística GBA/CABA'}))
-        return result
+        setShippingQuote(result);setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'});setData(previous=>({...previous,method:'Logística GBA/CABA'}));return result
       }
       const query=[String(data.postalCode||'').trim(),String(data.locality||'').trim()].filter(Boolean).join(' ')
-      const destinationResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/destino',{
-        method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify({query})
-      })
+      const destinationResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/destino',{method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify({query})})
       const destination=await destinationResponse.json().catch(()=>({}))
       if(!destinationResponse.ok||!destination?.ok)throw new Error(destination?.error||'No encontramos ese destino automáticamente.')
       const officialLocal=resolveLogisticsZone({locality:destination.locality,district:data.district,province:destination.province,postalCode:destination.cp})
       if(officialLocal){
         const result={kind:'logistics',label:'Logística GBA/CABA',zone:officialLocal.id,price:Number(officialLocal.price||0),destination:destination.destination||[destination.locality,destination.cp,destination.province].filter(Boolean).join(' · ')}
-        setShippingQuote(result)
-        setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'})
-        setData(previous=>({...previous,method:'Logística GBA/CABA',locality:previous.locality||destination.locality,province:previous.province||destination.province,postalCode:previous.postalCode||destination.cp}))
-        return result
+        setShippingQuote(result);setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'});setData(previous=>({...previous,method:'Logística GBA/CABA',locality:previous.locality||destination.locality,province:previous.province||destination.province,postalCode:previous.postalCode||destination.cp}));return result
       }
-      const quoteResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/cotizar',{
-        method:'POST',cache:'no-store',headers:{'content-type':'application/json'},
-        body:JSON.stringify({destinationCp:String(destination.cp||data.postalCode||'').trim(),locality:destination.locality||data.locality,province:destination.province||data.province,quantity:Math.max(1,Number(total||1))})
-      })
+      const quoteResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/cotizar',{method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify({destinationCp:String(destination.cp||data.postalCode||'').trim(),locality:destination.locality||data.locality,province:destination.province||data.province,quantity:Math.max(1,Number(total||1))})})
       const quote=await quoteResponse.json().catch(()=>({}))
       if(!quoteResponse.ok||!quote?.ok)throw new Error(quote?.error||'Vía Cargo no pudo cotizar ese destino.')
       const result={kind:'viacargo',label:'Vía Cargo',price:Number(quote.price||0),priceText:quote.priceText||'',destination:quote.destination||destination.destination||'',service:quote.service||'Agencia → Agencia'}
-      setShippingQuote(result)
-      setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'})
-      setData(previous=>({...previous,method:'Vía Cargo',locality:previous.locality||destination.locality,province:previous.province||destination.province,postalCode:previous.postalCode||destination.cp}))
-      return result
+      setShippingQuote(result);setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'});setData(previous=>({...previous,method:'Vía Cargo',locality:previous.locality||destination.locality,province:previous.province||destination.province,postalCode:previous.postalCode||destination.cp}));return result
     }catch(error){
       const result={kind:'manual',label:'Cotización manual',price:null,error:error?.message||String(error)}
-      setShippingQuote(result)
-      setShippingStatus({state:'manual',remaining:0,message:'Te ayudamos personalmente con el envío'})
-      setData(previous=>({...previous,method:'Otro expreso'}))
-      return result
+      setShippingQuote(result);setShippingStatus({state:'manual',remaining:0,message:'Te ayudamos personalmente con el envío'});setData(previous=>({...previous,method:'Otro expreso'}));return result
     }
-  }`,
-  'quoteCustomerShipping'
-)
-customer=one(
-  customer,
-  "    if (!items.length&&!specialQty) return alert('Elegí al menos un producto o describí una figura especial.')",
-  `    if (!items.length&&!specialQty) return alert('Elegí al menos un producto o describí una figura especial.')
-    if(data.method!=='Retiro en el local'&&!shippingQuote)return alert('Primero tocá “Calcular envío” para conocer el costo o verificar si necesitamos cotizarlo personalmente.')`,
-  'send shipping gate'
-)
-customer=one(
-  customer,
-  "    const productionText=productionDate?`🛠️ *Producción disponible:* Desde ${fmtProductionDate(productionDate).toLowerCase()} en adelante`:'🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'",
-  `    const productionText=productionDate?\`🛠️ *Producción disponible:* Desde \${fmtProductionDate(productionDate).toLowerCase()} en adelante\`:'🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'
-    const shippingText=shippingQuote?.kind==='logistics'?\`🚚 *Envío:* Logística GBA/CABA · \${shippingQuote.zone} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='viacargo'?\`🚚 *Envío:* Vía Cargo · \${shippingQuote.service||'Agencia → Agencia'} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='manual'?'⚠️ *ENVÍO A COTIZAR MANUALMENTE*':data.method==='Retiro en el local'?'📍 *Entrega:* Retiro en el local':''`,
-  'shipping text for WhatsApp'
-)
+  }`,'quoteCustomerShipping')
+customer=one(customer,"    if (!items.length&&!specialQty) return alert('Elegí al menos un producto o describí una figura especial.')",`    if (!items.length&&!specialQty) return alert('Elegí al menos un producto o describí una figura especial.')
+    if(data.method!=='Retiro en el local'&&!shippingQuote)return alert('Primero tocá “Calcular envío” para conocer el costo o verificar si necesitamos cotizarlo personalmente.')`,'send shipping gate')
+customer=one(customer,"    const productionText=productionDate?`🛠️ *Producción disponible:* Desde ${fmtProductionDate(productionDate).toLowerCase()} en adelante`:'🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'",`    const productionText=productionDate?\`🛠️ *Producción disponible:* Desde \${fmtProductionDate(productionDate).toLowerCase()} en adelante\`:'🛠️ *Producción disponible:* Fecha a confirmar por nuestro equipo'
+    const shippingText=shippingQuote?.kind==='logistics'?\`🚚 *Envío:* Logística GBA/CABA · \${shippingQuote.zone} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='viacargo'?\`🚚 *Envío:* Vía Cargo · \${shippingQuote.service||'Agencia → Agencia'} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='manual'?'⚠️ *ENVÍO A COTIZAR MANUALMENTE*':data.method==='Retiro en el local'?'📍 *Entrega:* Retiro en el local':''`,'shipping text for WhatsApp')
 customer=one(customer,"productionText,'','*PRODUCTOS*'","productionText,shippingText,'','*PRODUCTOS*'",'message shipping insertion')
 customer=customer.replace("'El total es estimado y no incluye envío.'","shippingQuote?.kind==='manual'?'El total es estimado y el envío queda pendiente de cotización.':'El total de productos es estimado. El envío se informa por separado.'")
-
-const deliveryUi=`{data.method!=='Retiro en el local'&&<div className="customer-shipping-quote">
-          <div><small>🚚 ENVÍO</small><b>{shippingQuote?.kind==='manual'?'Necesitamos cotizarlo con vos':shippingQuote?'Envío calculado':'Calculá tu envío antes de enviar el pedido'}</b></div>
-          <button type="button" onClick={quoteCustomerShipping} disabled={shippingStatus.state==='loading'}>{shippingStatus.state==='loading'?'Cotizando…':'Calcular envío'}</button>
-          {shippingQuote?.kind==='logistics'&&<p><strong>{money(shippingQuote.price)}</strong> · Logística GBA/CABA · {shippingQuote.zone}<br/><span>{shippingQuote.destination}</span></p>}
-          {shippingQuote?.kind==='viacargo'&&<p><strong>{money(shippingQuote.price)}</strong> · Vía Cargo · {shippingQuote.service||'Agencia → Agencia'}<br/><span>{shippingQuote.destination}</span></p>}
-          {shippingQuote?.kind==='manual'&&<p className="manual"><strong>No pudimos calcular automáticamente el envío a tu localidad.</strong><br/>Podés continuar con tu pedido. Te vamos a derivar por WhatsApp para cotizarlo personalmente y no agregaremos ningún costo hasta que lo confirmemos con vos.</p>}
-        </div>}
-        `
-customer=one(customer,"{data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",deliveryUi+"{data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",'shipping UI block')
-customer=one(
-  customer,
-  '  return <div className="customer-page">',
-  `  return <div className="customer-page">
-    <style>{\`
-      .shipping-quote-overlay{position:fixed;inset:0;z-index:9999;background:rgba(247,249,252,.94);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(6px)}
-      .shipping-quote-card{max-width:430px;width:100%;background:#fff;border:1px solid #e7eaf0;border-radius:24px;padding:28px;text-align:center;box-shadow:0 24px 70px rgba(35,53,72,.16)}
-      .shipping-quote-spinner{width:54px;height:54px;margin:0 auto 16px;border-radius:50%;border:5px solid #f7cfe0;border-top-color:#e82d79;animation:shipSpin .8s linear infinite}
-      .shipping-quote-card h3{margin:0 0 8px;color:#263548}.shipping-quote-card p{margin:0;color:#768697}.shipping-quote-card strong{display:block;font-size:34px;margin-top:16px;color:#e82d79}
-      .customer-shipping-quote{grid-column:1/-1;border:1px solid #dfe5ed;background:#fff;border-radius:18px;padding:16px;display:grid;gap:12px}.customer-shipping-quote>div{display:flex;flex-direction:column}.customer-shipping-quote small{font-weight:800;color:#2d9ca8;letter-spacing:.08em}.customer-shipping-quote b{color:#263548}.customer-shipping-quote button{border:0;border-radius:14px;padding:14px 18px;background:linear-gradient(135deg,#e82d79,#ff5b9f);color:#fff;font-weight:800}.customer-shipping-quote p{margin:0;color:#39495d;line-height:1.45}.customer-shipping-quote p strong{font-size:24px;color:#263548}.customer-shipping-quote p span{color:#7d8999}.customer-shipping-quote .manual{background:#fff7eb;border:1px solid #f5d7a6;border-radius:14px;padding:13px;color:#6f521d}
-      @keyframes shipSpin{to{transform:rotate(360deg)}}
-    \`}</style>
-    {shippingStatus.state==='loading'&&<div className="shipping-quote-overlay" role="status" aria-live="polite"><div className="shipping-quote-card"><div className="shipping-quote-spinner"/><h3>Estamos cotizando tu envío</h3><p>No cierres esta ventana. Estamos buscando la opción correcta para tu localidad.</p><strong>{shippingStatus.remaining>0?shippingStatus.remaining+' s':'Unos segundos más…'}</strong><p>Normalmente demora entre 20 y 40 segundos.</p></div></div>}`,
-  'shipping overlay'
-)
+const deliveryUi=`{data.method!=='Retiro en el local'&&<div className="customer-shipping-quote"><div><small>🚚 ENVÍO</small><b>{shippingQuote?.kind==='manual'?'Necesitamos cotizarlo con vos':shippingQuote?'Envío calculado':'Calculá tu envío antes de enviar el pedido'}</b></div><button type="button" onClick={quoteCustomerShipping} disabled={shippingStatus.state==='loading'}>{shippingStatus.state==='loading'?'Cotizando…':'Calcular envío'}</button>{shippingQuote?.kind==='logistics'&&<p><strong>{money(shippingQuote.price)}</strong> · Logística GBA/CABA · {shippingQuote.zone}<br/><span>{shippingQuote.destination}</span></p>}{shippingQuote?.kind==='viacargo'&&<p><strong>{money(shippingQuote.price)}</strong> · Vía Cargo · {shippingQuote.service||'Agencia → Agencia'}<br/><span>{shippingQuote.destination}</span></p>}{shippingQuote?.kind==='manual'&&<p className="manual"><strong>No pudimos calcular automáticamente el envío a tu localidad.</strong><br/>Podés continuar con tu pedido. Te vamos a derivar por WhatsApp para cotizarlo personalmente y no agregaremos ningún costo hasta que lo confirmemos con vos.</p>}</div>}`
+customer=one(customer,"</div><label>Observaciones",deliveryUi+"</div><label>Observaciones",'shipping UI block')
+customer=one(customer,'  return <div className="customer-page">',`  return <div className="customer-page">
+    <style>{\`.shipping-quote-overlay{position:fixed;inset:0;z-index:9999;background:rgba(247,249,252,.94);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(6px)}.shipping-quote-card{max-width:430px;width:100%;background:#fff;border:1px solid #e7eaf0;border-radius:24px;padding:28px;text-align:center;box-shadow:0 24px 70px rgba(35,53,72,.16)}.shipping-quote-spinner{width:54px;height:54px;margin:0 auto 16px;border-radius:50%;border:5px solid #f7cfe0;border-top-color:#e82d79;animation:shipSpin .8s linear infinite}.shipping-quote-card h3{margin:0 0 8px;color:#263548}.shipping-quote-card p{margin:0;color:#768697}.shipping-quote-card strong{display:block;font-size:34px;margin-top:16px;color:#e82d79}.customer-shipping-quote{grid-column:1/-1;border:1px solid #dfe5ed;background:#fff;border-radius:18px;padding:16px;display:grid;gap:12px}.customer-shipping-quote>div{display:flex;flex-direction:column}.customer-shipping-quote small{font-weight:800;color:#2d9ca8;letter-spacing:.08em}.customer-shipping-quote b{color:#263548}.customer-shipping-quote button{border:0;border-radius:14px;padding:14px 18px;background:linear-gradient(135deg,#e82d79,#ff5b9f);color:#fff;font-weight:800}.customer-shipping-quote p{margin:0;color:#39495d;line-height:1.45}.customer-shipping-quote p strong{font-size:24px;color:#263548}.customer-shipping-quote p span{color:#7d8999}.customer-shipping-quote .manual{background:#fff7eb;border:1px solid #f5d7a6;border-radius:14px;padding:13px;color:#6f521d}@keyframes shipSpin{to{transform:rotate(360deg)}}\`}</style>
+    {shippingStatus.state==='loading'&&<div className="shipping-quote-overlay" role="status" aria-live="polite"><div className="shipping-quote-card"><div className="shipping-quote-spinner"/><h3>Estamos cotizando tu envío</h3><p>No cierres esta ventana. Estamos buscando la opción correcta para tu localidad.</p><strong>{shippingStatus.remaining>0?shippingStatus.remaining+' s':'Unos segundos más…'}</strong><p>Normalmente demora entre 20 y 40 segundos.</p></div></div>}`,'shipping overlay')
 fs.writeFileSync(customerFile,customer)
-
 if(!motor.includes('fetchJobStatus'))throw new Error('v25.0.66: falta fallback del Motor')
 if(!customer.includes('Estamos cotizando tu envío'))throw new Error('v25.0.66: falta overlay de cotización')
 if(!customer.includes('ENVÍO A COTIZAR MANUALMENTE'))throw new Error('v25.0.66: falta derivación manual')
