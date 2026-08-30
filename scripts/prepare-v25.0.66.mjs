@@ -39,14 +39,12 @@ motor=one(
   "response=await fetchJobStatus(jobId)",
   'consulta waitJob'
 )
-// Keep the active payload on network/status errors so reopening the page can resume/restart.
 motor=motor.replaceAll(
   "}catch(error){\n      clearActiveJob()\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])",
   "}catch(error){\n      const activeNow=loadActiveJob();if(activeNow)saveActiveJob({...activeNow,lastError:error.message,lastErrorAt:Date.now()})\n      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])"
 )
 fs.writeFileSync(motorFile,motor)
 
-// CUSTOMER CATALOG SHIPPING
 const customerFile='src/pages/CustomerOrderBase.jsx'
 let customer=fs.readFileSync(customerFile,'utf8')
 customer=one(
@@ -108,14 +106,12 @@ customer=one(
         setData(previous=>({...previous,method:'Logística GBA/CABA'}))
         return result
       }
-
       const query=[String(data.postalCode||'').trim(),String(data.locality||'').trim()].filter(Boolean).join(' ')
       const destinationResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/destino',{
         method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify({query})
       })
       const destination=await destinationResponse.json().catch(()=>({}))
       if(!destinationResponse.ok||!destination?.ok)throw new Error(destination?.error||'No encontramos ese destino automáticamente.')
-
       const officialLocal=resolveLogisticsZone({locality:destination.locality,district:data.district,province:destination.province,postalCode:destination.cp})
       if(officialLocal){
         const result={kind:'logistics',label:'Logística GBA/CABA',zone:officialLocal.id,price:Number(officialLocal.price||0),destination:destination.destination||[destination.locality,destination.cp,destination.province].filter(Boolean).join(' · ')}
@@ -124,19 +120,12 @@ customer=one(
         setData(previous=>({...previous,method:'Logística GBA/CABA',locality:previous.locality||destination.locality,province:previous.province||destination.province,postalCode:previous.postalCode||destination.cp}))
         return result
       }
-
       const quoteResponse=await fetch('https://viacargo-quote-probe2.onrender.com/api/cotizar',{
         method:'POST',cache:'no-store',headers:{'content-type':'application/json'},
-        body:JSON.stringify({
-          destinationCp:String(destination.cp||data.postalCode||'').trim(),
-          locality:destination.locality||data.locality,
-          province:destination.province||data.province,
-          quantity:Math.max(1,Number(total||1))
-        })
+        body:JSON.stringify({destinationCp:String(destination.cp||data.postalCode||'').trim(),locality:destination.locality||data.locality,province:destination.province||data.province,quantity:Math.max(1,Number(total||1))})
       })
       const quote=await quoteResponse.json().catch(()=>({}))
       if(!quoteResponse.ok||!quote?.ok)throw new Error(quote?.error||'Vía Cargo no pudo cotizar ese destino.')
-
       const result={kind:'viacargo',label:'Vía Cargo',price:Number(quote.price||0),priceText:quote.priceText||'',destination:quote.destination||destination.destination||'',service:quote.service||'Agencia → Agencia'}
       setShippingQuote(result)
       setShippingStatus({state:'ready',remaining:0,message:'Envío calculado'})
@@ -166,16 +155,8 @@ customer=one(
     const shippingText=shippingQuote?.kind==='logistics'?\`🚚 *Envío:* Logística GBA/CABA · \${shippingQuote.zone} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='viacargo'?\`🚚 *Envío:* Vía Cargo · \${shippingQuote.service||'Agencia → Agencia'} · \${money(shippingQuote.price)}\`:shippingQuote?.kind==='manual'?'⚠️ *ENVÍO A COTIZAR MANUALMENTE*':data.method==='Retiro en el local'?'📍 *Entrega:* Retiro en el local':''`,
   'shipping text for WhatsApp'
 )
-customer=one(
-  customer,
-  "productionText,'','*PRODUCTOS*'",
-  "productionText,shippingText,'','*PRODUCTOS*'",
-  'message shipping insertion'
-)
-customer=customer.replace(
-  "'El total es estimado y no incluye envío.'",
-  "shippingQuote?.kind==='manual'?'El total es estimado y el envío queda pendiente de cotización.':'El total de productos es estimado. El envío se informa por separado.'"
-)
+customer=one(customer,"productionText,'','*PRODUCTOS*'","productionText,shippingText,'','*PRODUCTOS*'",'message shipping insertion')
+customer=customer.replace("'El total es estimado y no incluye envío.'","shippingQuote?.kind==='manual'?'El total es estimado y el envío queda pendiente de cotización.':'El total de productos es estimado. El envío se informa por separado.'")
 
 const deliveryUi=`{data.method!=='Retiro en el local'&&<div className="customer-shipping-quote">
           <div><small>🚚 ENVÍO</small><b>{shippingQuote?.kind==='manual'?'Necesitamos cotizarlo con vos':shippingQuote?'Envío calculado':'Calculá tu envío antes de enviar el pedido'}</b></div>
@@ -185,12 +166,7 @@ const deliveryUi=`{data.method!=='Retiro en el local'&&<div className="customer-
           {shippingQuote?.kind==='manual'&&<p className="manual"><strong>No pudimos calcular automáticamente el envío a tu localidad.</strong><br/>Podés continuar con tu pedido. Te vamos a derivar por WhatsApp para cotizarlo personalmente y no agregaremos ningún costo hasta que lo confirmemos con vos.</p>}
         </div>}
         `
-customer=one(
-  customer,
-  "        {data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",
-  "        "+deliveryUi+"{data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",
-  'shipping UI block'
-)
+customer=one(customer,"{data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",deliveryUi+"{data.method==='Vía Cargo'&&<label>¿Cómo lo recibís?",'shipping UI block')
 customer=one(
   customer,
   '  return <div className="customer-page">',
@@ -200,11 +176,7 @@ customer=one(
       .shipping-quote-card{max-width:430px;width:100%;background:#fff;border:1px solid #e7eaf0;border-radius:24px;padding:28px;text-align:center;box-shadow:0 24px 70px rgba(35,53,72,.16)}
       .shipping-quote-spinner{width:54px;height:54px;margin:0 auto 16px;border-radius:50%;border:5px solid #f7cfe0;border-top-color:#e82d79;animation:shipSpin .8s linear infinite}
       .shipping-quote-card h3{margin:0 0 8px;color:#263548}.shipping-quote-card p{margin:0;color:#768697}.shipping-quote-card strong{display:block;font-size:34px;margin-top:16px;color:#e82d79}
-      .customer-shipping-quote{grid-column:1/-1;border:1px solid #dfe5ed;background:#fff;border-radius:18px;padding:16px;display:grid;gap:12px}
-      .customer-shipping-quote>div{display:flex;flex-direction:column}.customer-shipping-quote small{font-weight:800;color:#2d9ca8;letter-spacing:.08em}.customer-shipping-quote b{color:#263548}
-      .customer-shipping-quote button{border:0;border-radius:14px;padding:14px 18px;background:linear-gradient(135deg,#e82d79,#ff5b9f);color:#fff;font-weight:800}
-      .customer-shipping-quote p{margin:0;color:#39495d;line-height:1.45}.customer-shipping-quote p strong{font-size:24px;color:#263548}.customer-shipping-quote p span{color:#7d8999}
-      .customer-shipping-quote .manual{background:#fff7eb;border:1px solid #f5d7a6;border-radius:14px;padding:13px;color:#6f521d}
+      .customer-shipping-quote{grid-column:1/-1;border:1px solid #dfe5ed;background:#fff;border-radius:18px;padding:16px;display:grid;gap:12px}.customer-shipping-quote>div{display:flex;flex-direction:column}.customer-shipping-quote small{font-weight:800;color:#2d9ca8;letter-spacing:.08em}.customer-shipping-quote b{color:#263548}.customer-shipping-quote button{border:0;border-radius:14px;padding:14px 18px;background:linear-gradient(135deg,#e82d79,#ff5b9f);color:#fff;font-weight:800}.customer-shipping-quote p{margin:0;color:#39495d;line-height:1.45}.customer-shipping-quote p strong{font-size:24px;color:#263548}.customer-shipping-quote p span{color:#7d8999}.customer-shipping-quote .manual{background:#fff7eb;border:1px solid #f5d7a6;border-radius:14px;padding:13px;color:#6f521d}
       @keyframes shipSpin{to{transform:rotate(360deg)}}
     \`}</style>
     {shippingStatus.state==='loading'&&<div className="shipping-quote-overlay" role="status" aria-live="polite"><div className="shipping-quote-card"><div className="shipping-quote-spinner"/><h3>Estamos cotizando tu envío</h3><p>No cierres esta ventana. Estamos buscando la opción correcta para tu localidad.</p><strong>{shippingStatus.remaining>0?shippingStatus.remaining+' s':'Unos segundos más…'}</strong><p>Normalmente demora entre 20 y 40 segundos.</p></div></div>}`,
@@ -215,16 +187,9 @@ fs.writeFileSync(customerFile,customer)
 if(!motor.includes('fetchJobStatus'))throw new Error('v25.0.66: falta fallback del Motor')
 if(!customer.includes('Estamos cotizando tu envío'))throw new Error('v25.0.66: falta overlay de cotización')
 if(!customer.includes('ENVÍO A COTIZAR MANUALMENTE'))throw new Error('v25.0.66: falta derivación manual')
-
 const versionFile='src/version.js'
-let version=fs.readFileSync(versionFile,'utf8')
-version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.66'")
-  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.66'")
-  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · catálogo cotiza envío + Motor con fallback directo'")
+let version=fs.readFileSync(versionFile,'utf8').replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.66'").replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.66'").replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · catálogo cotiza envío + Motor con fallback directo'")
 fs.writeFileSync(versionFile,version)
-const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.66'"))
-const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.66'"))
-
+const swFile='public/sw.js';fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.66'"))
+const indexFile='index.html';fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.66'"))
 console.log('v25.0.66 PREDEPLOY OK · catálogo cotiza con espera visible y derivación manual · Motor usa fallback directo a Render')
