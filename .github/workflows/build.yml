@@ -7,7 +7,7 @@ on:
     branches: [main, app-v2-parallel]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validar-build-${{ github.ref }}
@@ -22,6 +22,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Detect missing lockfile
+        shell: bash
+        run: |
+          if [ ! -f package-lock.json ]; then echo "LOCKFILE_MISSING=1" >> "$GITHUB_ENV"; fi
       - name: Install dependencies
         run: npm install
       - name: Dependency snapshot
@@ -49,3 +53,13 @@ jobs:
           echo "$MOTOR_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok||j.durableJobs!==true||j.durableStore!=='supabase'||j.sparrowExecutable!==true)process.exit(1);console.log('Motor health OK · durable Supabase · Sparrow ejecutable')})"
           VIA_JSON="$(curl --retry 2 --retry-delay 3 --max-time 90 --fail --silent --show-error https://viacargo-quote-probe2.onrender.com/health)"
           echo "$VIA_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok)process.exit(1);console.log('Vía Cargo health OK')})"
+      - name: Persist lockfile on isolated prebuild
+        if: env.LOCKFILE_MISSING == '1' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/prebuild-v2-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore(deps): lock tested dependency graph [skip ci]"
+          git push origin HEAD:${GITHUB_REF_NAME}
