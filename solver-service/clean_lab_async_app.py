@@ -4,30 +4,70 @@ from flask import jsonify, request
 import json, os, threading, time, uuid
 import nest_sparrow as core
 
-# Render starts this service inside solver-service, but Sparrow runs each optimization
-# from a temporary working directory. A relative ./sparrow therefore disappears when
-# subprocess.run changes cwd. Freeze the executable path now, while cwd is solver-service.
+# Runtime productivo del motor 1230.
+# Importante: este servicio NO ejecuta benchmarks/self-tests al arrancar. Esas pruebas
+# consumían varios minutos de CPU en el mismo worker que atiende los cálculos reales.
 core.SPARROW_BIN = os.path.abspath(os.environ.get('SPARROW_BIN', './sparrow'))
 
-# Lab-only candidate ordering learned from the 2026-08-28 human-corrected plate.
-# This monkeypatches only ranking helpers; Sparrow + independent validation remain authoritative.
-import strip_fit_enhancement  # noqa: F401
-
-# Registra las rutas de benchmark dentro de la misma app Flask.
-import benchmark_routes  # noqa: F401
-import benchmark_replay_routes  # noqa: F401
-import benchmark_strategy_routes  # noqa: F401
-import residual_space_routes  # noqa: F401
-import real_state_benchmark  # noqa: F401
-import plate07_bbox_regression  # noqa: F401
+JOBS_DIR = os.environ.get('POLIFAN_JOBS_DIR', '/tmp/polifan-sparrow-jobs')
+os.makedirs(JOBS_DIR, exist_ok=True)
 
 _jobs = {}
+_running = set()
 _lock = threading.Lock()
 
 
-def _run_job(job_id, payload):
+def _job_path(job_id):
+    safe = ''.join(c for c in str(job_id) if c.isalnum() or c in ('-', '_'))
+    return os.path.join(JOBS_DIR, safe + '.json')
+
+
+def _write_job(job_id, data):
+    path = _job_path(job_id)
+    tmp = path + '.tmp'
+    payload = dict(data or {})
+    payload['jobId'] = job_id
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+    _jobs[job_id] = payload
+
+
+def _read_job(job_id):
+    cached = _jobs.get(job_id)
+    if cached:
+        return dict(cached)
+    path = _job_path(job_id)
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            _jobs[job_id] = data
+            return dict(data)
+    except Exception:
+        pass
+    return None
+
+
+def _public_job(job):
+    if not isinstance(job, dict):
+        return {}
+    # Nunca devolver al navegador el payload completo con los SVG.
+    return {k: v for k, v in job.items() if k != 'payload'}
+
+
+def _run_job(job_id, payload, recovered=False):
     started = time.time()
     try:
+        current = _read_job(job_id) or {}
+        current.update({
+            'status': 'running',
+            'startedAt': current.get('startedAt') or started,
+            'lastWorkerStartedAt': started,
+            'serverRecoveries': int(current.get('serverRecoveries') or 0) + (1 if recovered else 0),
+            'payload': payload,
+        })
+        _write_job(job_id, current)
         with app.test_request_context('/solve-v4', method='POST', json=payload):
             response = solve()
             status = 200
@@ -37,30 +77,51 @@ def _run_job(job_id, payload):
             data = body.get_json(silent=True) if hasattr(body, 'get_json') else body
             if not isinstance(data, dict):
                 data = {'ok': False, 'error': 'Respuesta inválida del solver'}
-            with _lock:
-                _jobs[job_id] = {
-                    'status': 'done' if data.get('ok') else 'error',
-                    'result': data,
-                    'httpStatus': status,
-                    'elapsedSeconds': round(time.time() - started, 2),
-                }
-    except Exception as exc:
-        with _lock:
-            _jobs[job_id] = {
-                'status': 'error',
-                'result': {'ok': False, 'error': str(exc)},
+            final = {
+                **current,
+                'status': 'done' if data.get('ok') else 'error',
+                'result': data,
+                'httpStatus': status,
+                'finishedAt': time.time(),
                 'elapsedSeconds': round(time.time() - started, 2),
             }
+            _write_job(job_id, final)
+    except Exception as exc:
+        current = _read_job(job_id) or {'payload': payload, 'startedAt': started}
+        current.update({
+            'status': 'error',
+            'result': {'ok': False, 'error': str(exc)},
+            'finishedAt': time.time(),
+            'elapsedSeconds': round(time.time() - started, 2),
+        })
+        _write_job(job_id, current)
+    finally:
+        with _lock:
+            _running.discard(job_id)
+
+
+def _launch(job_id, payload, recovered=False):
+    with _lock:
+        if job_id in _running:
+            return False
+        _running.add(job_id)
+    threading.Thread(target=_run_job, args=(job_id, payload, recovered), daemon=True).start()
+    return True
 
 
 @app.post('/solve-start')
 def solve_start():
     payload = request.get_json(silent=True) or {}
     job_id = uuid.uuid4().hex
-    with _lock:
-        _jobs[job_id] = {'status': 'running', 'startedAt': time.time()}
-    threading.Thread(target=_run_job, args=(job_id, payload), daemon=True).start()
-    return jsonify(ok=True, jobId=job_id, status='running')
+    initial = {
+        'status': 'running',
+        'startedAt': time.time(),
+        'serverRecoveries': 0,
+        'payload': payload,
+    }
+    _write_job(job_id, initial)
+    _launch(job_id, payload, recovered=False)
+    return jsonify(ok=True, jobId=job_id, status='running', persistentJob=True)
 
 
 @app.get('/solve-status')
@@ -68,81 +129,43 @@ def solve_status():
     job_id = str(request.args.get('id') or '').strip()
     if not job_id:
         return jsonify(ok=False, error='Falta id'), 400
-    with _lock:
-        job = dict(_jobs.get(job_id) or {})
+
+    job = _read_job(job_id)
     if not job:
-        return jsonify(ok=False, error='Trabajo no encontrado'), 404
+        return jsonify(ok=False, error='Trabajo no encontrado', retryable=False), 404
+
     if job.get('status') == 'running':
+        payload = job.get('payload') or {}
+        recoveries = int(job.get('serverRecoveries') or 0)
+        with _lock:
+            alive_here = job_id in _running
+        # Si el proceso de Render se reinició, el archivo del job permanece disponible
+        # dentro de la instancia. Reanudamos el MISMO job en el servidor en lugar de
+        # obligar al celular a crear IDs nuevos.
+        if not alive_here and payload:
+            if recoveries >= 4:
+                job.update({
+                    'status': 'error',
+                    'result': {'ok': False, 'error': 'El worker de Render se reinició repetidamente durante este cálculo.'},
+                })
+                _write_job(job_id, job)
+            else:
+                _launch(job_id, payload, recovered=True)
+                job = _read_job(job_id) or job
         elapsed = round(time.time() - float(job.get('startedAt') or time.time()), 2)
-        return jsonify(ok=True, jobId=job_id, status='running', elapsedSeconds=elapsed)
-    return jsonify(ok=True, jobId=job_id, **job)
+        return jsonify(ok=True, **_public_job(job), status='running', elapsedSeconds=elapsed, persistentJob=True)
+
+    return jsonify(ok=True, **_public_job(job), persistentJob=True)
 
 
 @app.get('/async-health')
 def async_health():
-    return jsonify(ok=True, asyncSolve=True, solver='best-effort-v4-batch-fill', directSvgBenchmark=True, jsonBenchmarkReplay=True, strategyBenchmark=True, residualSpaceDiagnostics=True, stripFitRanking=True, realStateBenchmark=True, simulatedAnnealingEscape=True, independentSACertification=True, maxCandidatePool=120,
-                   sparrowBinary=core.SPARROW_BIN, sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN, os.X_OK))
-
-
-def _smoke_kits():
-    shapes = [
-        '0,0 180,0 180,55 95,55 95,150 0,150',
-        '0,0 150,0 150,150 95,150 95,70 0,70',
-        '0,0 170,0 170,60 110,60 110,125 55,125 55,60 0,60',
-        '0,35 65,35 65,0 145,70 65,140 65,105 0,105',
-        '0,0 140,0 140,45 80,45 80,120 0,120',
-        '0,0 120,0 120,120 65,120 65,65 0,65',
-        '0,0 155,0 155,50 100,50 100,145 45,145 45,50 0,50',
-        '0,0 135,0 135,135 90,135 90,85 45,85 45,135 0,135',
-        '0,0 110,0 110,85 60,85 60,150 0,150',
-        '0,0 145,0 145,110 85,110 85,60 0,60',
-    ]
-    kits = []
-    for i in range(24):
-        pts = shapes[i % len(shapes)]
-        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="20cm" height="20cm" viewBox="0 0 200 200"><polygon points="{pts}" fill="none" stroke="black"/></svg>'
-        kits.append({'kitId':f'smoke-{i+1}','figure':f'smoke-{i+1}','date':'2026-08-24' if i < 4 else '2026-08-25','priority':i+1,'parts':[{'instanceId':f'smoke-{i+1}','name':f'smoke-{i+1}','role':'simple','sourceWidthCm':20,'sourceHeightCm':20,'svgText':svg}]})
-    return kits
-
-
-def _startup_selftest():
-    time.sleep(3)
-    started = time.time()
-    try:
-        kits = _smoke_kits()
-        payload = {'kits': kits, 'budgetSeconds': 120, 'urgentAnchorCount': 4}
-        with app.test_request_context('/solve-v4', method='POST', json=payload):
-            response = solve()
-        status = 200
-        body = response
-        if isinstance(response, tuple):
-            body, status = response[0], int(response[1])
-        data = body.get_json(silent=True) if hasattr(body, 'get_json') else body
-        summary = {
-            'marker': 'POLIFAN_SELFTEST_RESULT',
-            'httpStatus': status,
-            'ok': bool(isinstance(data, dict) and data.get('ok')),
-            'build': data.get('build') if isinstance(data, dict) else None,
-            'candidatePool': data.get('candidatePool') if isinstance(data, dict) else None,
-            'urgentAnchorsKept': data.get('urgentAnchorsKept') if isinstance(data, dict) else None,
-            'completeFigures': data.get('completeFigures') if isinstance(data, dict) else None,
-            'batchAccepts': data.get('batchAccepts') if isinstance(data, dict) else None,
-            'batchAdded': data.get('batchAdded') if isinstance(data, dict) else None,
-            'rescueRounds': data.get('rescueRounds') if isinstance(data, dict) else None,
-            'saEscapeRan': data.get('saEscapeRan') if isinstance(data, dict) else None,
-            'saIterations': data.get('saIterations') if isinstance(data, dict) else None,
-            'saSuccess': data.get('saSuccess') if isinstance(data, dict) else None,
-            'saCertified': data.get('saCertified') if isinstance(data, dict) else None,
-            'geometricOccupancyPct': data.get('geometricOccupancyPct') if isinstance(data, dict) else None,
-            'stripWidthMm': data.get('stripWidthMm') if isinstance(data, dict) else None,
-            'placements': len(data.get('placements') or []) if isinstance(data, dict) else 0,
-            'attemptCount': len(data.get('attempts') or []) if isinstance(data, dict) else 0,
-            'error': data.get('error') if isinstance(data, dict) else 'invalid response',
-            'elapsedSeconds': round(time.time() - started, 2),
-        }
-        print(json.dumps(summary, ensure_ascii=False), flush=True)
-    except Exception as exc:
-        print(json.dumps({'marker':'POLIFAN_SELFTEST_RESULT','ok':False,'error':str(exc),'elapsedSeconds':round(time.time()-started,2)}, ensure_ascii=False), flush=True)
-
-
-threading.Thread(target=_startup_selftest, daemon=True).start()
+    return jsonify(
+        ok=True,
+        asyncSolve=True,
+        persistentJobs=True,
+        startupBenchmarks=False,
+        solver='best-effort-v4-batch-fill',
+        sparrowBinary=core.SPARROW_BIN,
+        sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN, os.X_OK),
+    )
