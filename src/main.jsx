@@ -22,9 +22,12 @@ import './v2MobileTables'
 
 // V2 bundle: responsive mobile shell + validated 1230 mm nesting motor.
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
-if(window.location.hash==='#pedido'){
-  const query=window.location.search || ''
-  window.location.replace(`${NEW_CATALOG_URL}${query}`)
+const params=new URLSearchParams(window.location.search)
+const legacyCatalogLink=window.location.hash==='#pedido'||params.get('pedido')==='1'
+if(legacyCatalogLink){
+  params.delete('pedido')
+  const query=params.toString()
+  window.location.replace(`${NEW_CATALOG_URL}${query?`?${query}`:''}`)
 }else{
   createRoot(document.getElementById('root')).render(
     <React.StrictMode><AppV2 /></React.StrictMode>
