@@ -1,24 +1,27 @@
 from clean_lab_app import app
 from sa_runtime_wrapper import solve_v4_sa as solve
 from flask import jsonify, request
-import json, os, threading, time, uuid
+import base64, gzip, json, os, threading, time, uuid
+from urllib import error as urlerror, request as urlrequest
 import nest_sparrow as core
 
 # Runtime productivo del motor 1230.
-# Importante: este servicio NO ejecuta benchmarks/self-tests al arrancar. Esas pruebas
-# consumían varios minutos de CPU en el mismo worker que atiende los cálculos reales.
+# No ejecuta benchmarks/self-tests al arrancar. Los jobs se guardan localmente
+# y, si está configurado Supabase, también en almacenamiento durable.
 core.SPARROW_BIN = os.path.abspath(os.environ.get('SPARROW_BIN', './sparrow'))
 
 JOBS_DIR = os.environ.get('POLIFAN_JOBS_DIR', '/tmp/polifan-sparrow-jobs')
 os.makedirs(JOBS_DIR, exist_ok=True)
 
+SUPABASE_URL = str(os.environ.get('POLIFAN_SUPABASE_URL') or '').rstrip('/')
+SUPABASE_KEY = str(os.environ.get('POLIFAN_SUPABASE_PUBLISHABLE_KEY') or '')
+MOTOR_JOB_SECRET = str(os.environ.get('POLIFAN_MOTOR_JOB_SECRET') or '')
+DURABLE_CONFIGURED = bool(SUPABASE_URL and SUPABASE_KEY and MOTOR_JOB_SECRET)
+
 _jobs = {}
 _running = set()
 _lock = threading.Lock()
 
-# El frontend productivo puede consultar el estado directamente en Render como
-# respaldo del proxy de Vercel. Esto evita que un 404/503 transitorio del proxy
-# convierta un cálculo que sigue vivo en "Failed to fetch".
 _ALLOWED_ORIGINS = {
     'https://polifan-app-v2.vercel.app',
 }
@@ -47,21 +50,100 @@ def _job_path(job_id):
     return os.path.join(JOBS_DIR, safe + '.json')
 
 
-def _write_job(job_id, data):
+def _pack_job(data):
+    raw = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    packed = gzip.compress(raw, compresslevel=6)
+    return {
+        'encoding': 'gzip+base64',
+        'blob': base64.b64encode(packed).decode('ascii'),
+        'rawBytes': len(raw),
+        'packedBytes': len(packed),
+    }
+
+
+def _unpack_job(value):
+    if not isinstance(value, dict):
+        return None
+    if value.get('encoding') == 'gzip+base64' and value.get('blob'):
+        try:
+            raw = gzip.decompress(base64.b64decode(value['blob']))
+            data = json.loads(raw.decode('utf-8'))
+            return data if isinstance(data, dict) else None
+        except Exception as exc:
+            print('POLIFAN_DURABLE_DECODE_ERROR', type(exc).__name__, flush=True)
+            return None
+    return value if 'status' in value else None
+
+
+def _durable_rpc(name, body, timeout=12):
+    if not DURABLE_CONFIGURED:
+        return None
+    endpoint = f"{SUPABASE_URL}/rest/v1/rpc/{name}"
+    payload = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    req = urlrequest.Request(
+        endpoint,
+        data=payload,
+        method='POST',
+        headers={
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode('utf-8')
+            return json.loads(raw) if raw else None
+    except (urlerror.URLError, urlerror.HTTPError, TimeoutError, ValueError) as exc:
+        print('POLIFAN_DURABLE_RPC_ERROR', name, type(exc).__name__, flush=True)
+        return None
+
+
+def _durable_put(job_id, data):
+    if not DURABLE_CONFIGURED:
+        return False
+    packed = _pack_job(data)
+    result = _durable_rpc('motor_job_put', {
+        'p_secret': MOTOR_JOB_SECRET,
+        'p_job_id': job_id,
+        'p_data': packed,
+    })
+    return result is True
+
+
+def _durable_get(job_id):
+    if not DURABLE_CONFIGURED:
+        return None
+    value = _durable_rpc('motor_job_get', {
+        'p_secret': MOTOR_JOB_SECRET,
+        'p_job_id': job_id,
+    })
+    return _unpack_job(value)
+
+
+def _write_local_job(job_id, payload):
     path = _job_path(job_id)
     tmp = path + '.tmp'
-    payload = dict(data or {})
-    payload['jobId'] = job_id
     with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(payload, fh, ensure_ascii=False)
     os.replace(tmp, path)
     _jobs[job_id] = payload
 
 
+def _write_job(job_id, data):
+    payload = dict(data or {})
+    payload['jobId'] = job_id
+    _write_local_job(job_id, payload)
+    if DURABLE_CONFIGURED and not _durable_put(job_id, payload):
+        print('POLIFAN_DURABLE_WRITE_MISSED', job_id, flush=True)
+
+
 def _read_job(job_id):
     cached = _jobs.get(job_id)
     if cached:
         return dict(cached)
+
     path = _job_path(job_id)
     try:
         with open(path, 'r', encoding='utf-8') as fh:
@@ -71,13 +153,21 @@ def _read_job(job_id):
             return dict(data)
     except Exception:
         pass
+
+    durable = _durable_get(job_id)
+    if isinstance(durable, dict):
+        try:
+            _write_local_job(job_id, durable)
+        except Exception:
+            _jobs[job_id] = durable
+        print('POLIFAN_JOB_DURABLE_RECOVERED', job_id, flush=True)
+        return dict(durable)
     return None
 
 
 def _public_job(job):
     if not isinstance(job, dict):
         return {}
-    # Nunca devolver al navegador el payload completo con los SVG.
     return {k: v for k, v in job.items() if k != 'payload'}
 
 
@@ -150,7 +240,13 @@ def solve_start():
     _write_job(job_id, initial)
     _launch(job_id, payload, recovered=False)
     print('POLIFAN_JOB_START', job_id, 'kits='+str(len(payload.get('kits') or [])), flush=True)
-    return jsonify(ok=True, jobId=job_id, status='running', persistentJob=True)
+    return jsonify(
+        ok=True,
+        jobId=job_id,
+        status='running',
+        persistentJob=True,
+        durableJob=DURABLE_CONFIGURED,
+    )
 
 
 @app.get('/solve-status')
@@ -162,7 +258,7 @@ def solve_status():
     job = _read_job(job_id)
     if not job:
         print('POLIFAN_JOB_MISSING', job_id, flush=True)
-        return jsonify(ok=False, error='Trabajo no encontrado', retryable=False), 404
+        return jsonify(ok=False, error='Trabajo no encontrado', retryable=DURABLE_CONFIGURED), 404
 
     if job.get('status') == 'running':
         payload = job.get('payload') or {}
@@ -180,9 +276,16 @@ def solve_status():
                 _launch(job_id, payload, recovered=True)
                 job = _read_job(job_id) or job
         elapsed = round(time.time() - float(job.get('startedAt') or time.time()), 2)
-        return jsonify(ok=True, **_public_job(job), status='running', elapsedSeconds=elapsed, persistentJob=True)
+        return jsonify(
+            ok=True,
+            **_public_job(job),
+            status='running',
+            elapsedSeconds=elapsed,
+            persistentJob=True,
+            durableJob=DURABLE_CONFIGURED,
+        )
 
-    return jsonify(ok=True, **_public_job(job), persistentJob=True)
+    return jsonify(ok=True, **_public_job(job), persistentJob=True, durableJob=DURABLE_CONFIGURED)
 
 
 @app.get('/async-health')
@@ -191,6 +294,8 @@ def async_health():
         ok=True,
         asyncSolve=True,
         persistentJobs=True,
+        durableJobs=DURABLE_CONFIGURED,
+        durableStore='supabase' if DURABLE_CONFIGURED else 'local-only',
         directStatusCors=True,
         startupBenchmarks=False,
         solver='best-effort-v4-batch-fill',

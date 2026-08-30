@@ -1,4 +1,6 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "if [ \"$VERCEL_PROJECT_ID\" = \"prj_ZDDrywKjX6lBXYL8LsYDNrhJhT01\" ]; then [ \"$VERCEL_GIT_COMMIT_REF\" = \"app-v2-parallel\" ] && exit 1 || exit 0; fi; if [ \"$VERCEL_PROJECT_ID\" = \"prj_hw2SAOWuhkiLA1N8MGBejl6RRzgB\" ]; then [ \"$VERCEL_GIT_COMMIT_REF\" = \"motor-1230-residual-lab\" ] && exit 1 || exit 0; fi; if [ \"$VERCEL_PROJECT_ID\" = \"prj_BVH6xcl7iSdhFvUXp2XJJBvTLmJu\" ]; then [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ] && exit 1 || exit 0; fi; exit 0",
   "rewrites": [
     {
       "source": "/((?!assets/).*)",
