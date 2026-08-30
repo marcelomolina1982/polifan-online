@@ -153,8 +153,8 @@ customer=replaceOnce(
 )
 customer=replaceOnce(
   customer,
-  "data.method==='Vía Cargo'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',productionText,'','*PRODUCTOS*'",
-  "data.method==='Vía Cargo'?`🚚 *Modalidad:* ${data.agencyDelivery}`:'',productionText,shippingText,'','*PRODUCTOS*'",
+  "productionText,'','*PRODUCTOS*'",
+  "productionText,shippingText,'','*PRODUCTOS*'",
   'envío en mensaje de WhatsApp'
 )
 customer=replaceOnce(
