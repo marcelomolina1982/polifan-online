@@ -171,6 +171,9 @@ async function quoteViaCargo(input = {}) {
     const { products, agencyToAgency } = parseProducts(text)
     if (!agencyToAgency?.price) throw new Error('Vía Cargo no devolvió una tarifa Agencia → Agencia válida')
 
+    const legacyAgency = [{ name: agencyToAgency.name, price: agencyToAgency.priceText }]
+    const legacyDimensions = [packageData.width, packageData.height, packageData.length]
+
     return {
       ok: true,
       carrier: 'Vía Cargo',
@@ -195,6 +198,12 @@ async function quoteViaCargo(input = {}) {
       verified,
       products,
       elapsedMs: Date.now() - started,
+
+      // Compatibilidad temporal con el frontend V2 que todavía consume /quote.
+      // Se elimina sólo después de migrar el frontend a /api/cotizar en un único deploy de Vercel.
+      agencyToAgency: legacyAgency,
+      kg: packageData.kg,
+      dimensions: legacyDimensions,
     }
   } finally {
     if (page) await page.close().catch(() => {})
