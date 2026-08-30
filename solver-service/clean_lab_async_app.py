@@ -16,6 +16,31 @@ _jobs = {}
 _running = set()
 _lock = threading.Lock()
 
+# El frontend productivo puede consultar el estado directamente en Render como
+# respaldo del proxy de Vercel. Esto evita que un 404/503 transitorio del proxy
+# convierta un cálculo que sigue vivo en "Failed to fetch".
+_ALLOWED_ORIGINS = {
+    'https://polifan-app-v2.vercel.app',
+}
+
+
+@app.after_request
+def _cors_motor_response(response):
+    origin = str(request.headers.get('Origin') or '')
+    if origin in _ALLOWED_ORIGINS or origin.endswith('.vercel.app'):
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/solve-start', methods=['OPTIONS'])
+@app.route('/solve-status', methods=['OPTIONS'])
+def _motor_options():
+    return ('', 204)
+
 
 def _job_path(job_id):
     safe = ''.join(c for c in str(job_id) if c.isalnum() or c in ('-', '_'))
@@ -68,6 +93,7 @@ def _run_job(job_id, payload, recovered=False):
             'payload': payload,
         })
         _write_job(job_id, current)
+        print('POLIFAN_JOB_RUN', job_id, 'recovered='+str(bool(recovered)), flush=True)
         with app.test_request_context('/solve-v4', method='POST', json=payload):
             response = solve()
             status = 200
@@ -86,6 +112,7 @@ def _run_job(job_id, payload, recovered=False):
                 'elapsedSeconds': round(time.time() - started, 2),
             }
             _write_job(job_id, final)
+            print('POLIFAN_JOB_DONE', job_id, final['status'], final['elapsedSeconds'], flush=True)
     except Exception as exc:
         current = _read_job(job_id) or {'payload': payload, 'startedAt': started}
         current.update({
@@ -95,6 +122,7 @@ def _run_job(job_id, payload, recovered=False):
             'elapsedSeconds': round(time.time() - started, 2),
         })
         _write_job(job_id, current)
+        print('POLIFAN_JOB_ERROR', job_id, repr(exc), flush=True)
     finally:
         with _lock:
             _running.discard(job_id)
@@ -121,6 +149,7 @@ def solve_start():
     }
     _write_job(job_id, initial)
     _launch(job_id, payload, recovered=False)
+    print('POLIFAN_JOB_START', job_id, 'kits='+str(len(payload.get('kits') or [])), flush=True)
     return jsonify(ok=True, jobId=job_id, status='running', persistentJob=True)
 
 
@@ -132,6 +161,7 @@ def solve_status():
 
     job = _read_job(job_id)
     if not job:
+        print('POLIFAN_JOB_MISSING', job_id, flush=True)
         return jsonify(ok=False, error='Trabajo no encontrado', retryable=False), 404
 
     if job.get('status') == 'running':
@@ -139,9 +169,6 @@ def solve_status():
         recoveries = int(job.get('serverRecoveries') or 0)
         with _lock:
             alive_here = job_id in _running
-        # Si el proceso de Render se reinició, el archivo del job permanece disponible
-        # dentro de la instancia. Reanudamos el MISMO job en el servidor en lugar de
-        # obligar al celular a crear IDs nuevos.
         if not alive_here and payload:
             if recoveries >= 4:
                 job.update({
@@ -164,6 +191,7 @@ def async_health():
         ok=True,
         asyncSolve=True,
         persistentJobs=True,
+        directStatusCors=True,
         startupBenchmarks=False,
         solver='best-effort-v4-batch-fill',
         sparrowBinary=core.SPARROW_BIN,
