@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"app-v2-parallel\" ] && [ \"$VERCEL_PROJECT_ID\" != \"prj_ZDDrywKjX6lBXYL8LsYDNrhJhT01\" ]; then exit 0; fi; exit 1",
+  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"app-v2-parallel\" ]; then if [ \"$VERCEL_PROJECT_ID\" = \"prj_ZDDrywKjX6lBXYL8LsYDNrhJhT01\" ]; then exit 1; else exit 0; fi; fi; case \"$VERCEL_GIT_COMMIT_REF\" in motor-1230-residual-lab|prebuild-v2-*) exit 0 ;; esac; exit 1",
   "redirects": [
     {
       "source": "/",
