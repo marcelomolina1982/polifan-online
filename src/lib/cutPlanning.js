@@ -1,38 +1,44 @@
-import { normalizeFigureKey, stockRows } from './inventory'
+import { normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty } from './inventory'
 import { todayArgentinaISO } from './production'
 
 function orderDate(order){return String(order?.delivery||'').slice(0,10)}
 export function isActiveProductionOrder(order){return Boolean(order)&&!['Cancelado','Entregado'].includes(order.status)}
 
+export function productionStockSnapshot(db){
+  const raw=manualBalance(db)
+  const loose=looseComponentBalance(db)
+  const inCut=activeCutQty(db)
+  const labels={}
+  const rows={}
+  const names=new Set([...Object.keys(raw),...Object.keys(loose),...Object.keys(inCut)])
+
+  names.forEach(name=>{
+    const key=normalizeFigureKey(name)
+    if(!key)return
+    if(!labels[key])labels[key]=String(name).trim()
+    if(!rows[key])rows[key]={key,figure:labels[key],physical:0,inCut:0}
+    const paired=Math.min(Number(loose[name]?.tapa||0),Number(loose[name]?.base||0))
+    rows[key].physical+=Math.max(0,Number(raw[name]||0)+paired)
+    rows[key].inCut+=Math.max(0,Number(inCut[name]||0))
+  })
+
+  return Object.values(rows)
+}
+
 export function pendingCutPlan(db){
   const today=todayArgentinaISO()
-  const inventoryRows=stockRows(db)
+  const snapshot=productionStockSnapshot(db)
   const available={}
   const labels={}
   const activeOrders=(db.orders||[]).filter(isActiveProductionOrder)
-  const overdueOrders=activeOrders.filter(o=>orderDate(o)&&orderDate(o)<today)
 
-  inventoryRows.forEach(row=>{
-    const key=normalizeFigureKey(row.figure)
-    if(!key)return
-    // Lo que ya existe físicamente o ya está efectivamente en corte no debe volver a cortarse.
-    available[key]=(available[key]||0)+Math.max(0,Number(row.cut||0))+Math.max(0,Number(row.inCut||0))
-    if(!labels[key])labels[key]=row.figure
+  snapshot.forEach(row=>{
+    available[row.key]=(available[row.key]||0)+Number(row.physical||0)+Number(row.inCut||0)
+    if(!labels[row.key])labels[row.key]=row.figure
   })
 
-  // stockRows mantiene la compatibilidad histórica descontando pedidos vencidos del físico.
-  // Para planificar producción, un pedido vencido ACTIVO sigue pendiente: restauramos esa
-  // demanda antes de reservar todos los pedidos cronológicamente.
-  overdueOrders.forEach(order=>{
-    ;(order.items||[]).forEach(item=>{
-      if(!item?.figure||item.inventoryTracked===false||Number(item.qty||0)<=0)return
-      const key=normalizeFigureKey(item.figure)
-      if(!key)return
-      available[key]=(available[key]||0)+Number(item.qty||0)
-      if(!labels[key])labels[key]=String(item.figure).trim()
-    })
-  })
-
+  // La producción se decide por estado real del pedido, no por si la fecha ya pasó.
+  // Un pedido vencido activo se procesa primero; sólo sale al estar Entregado o Cancelado.
   const groups={}
   activeOrders
     .slice()
@@ -47,6 +53,7 @@ export function pendingCutPlan(db){
         const figureKey=normalizeFigureKey(item.figure)
         if(!figureKey)return
         const figure=labels[figureKey]||String(item.figure).trim()
+        if(!labels[figureKey])labels[figureKey]=figure
         const qty=Math.max(0,Number(item.qty||0))
         const before=Math.max(0,Number(available[figureKey]||0))
         const covered=Math.min(before,qty)
