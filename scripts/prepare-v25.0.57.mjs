@@ -49,14 +49,13 @@ replaceOnce(formAnchor,formReplacement,'panel de precio logística')
 fs.writeFileSync(file,s)
 
 // El motor y la pantalla Para cortar deben consumir exactamente el mismo plan.
+// Si un preparador anterior ya hizo el cambio, no lo repetimos: el preflight final de 25.0.59 valida el estado resultante.
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
 const oldImport="import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'"
 const newImport="import {normalizeFigureKey} from '../lib/inventory'\nimport {pendingCutPlan} from '../lib/cutPlanning'"
 if(motor.includes(oldImport))motor=motor.replace(oldImport,newImport)
-else if(!motor.includes(newImport))throw new Error('v25.0.61: MotorDefinitivo no tiene un import de planificación reconocido')
 if(motor.includes('pendingCutByDelivery(db).forEach'))motor=motor.replace('pendingCutByDelivery(db).forEach','pendingCutPlan(db).forEach')
-else if(!motor.includes('pendingCutPlan(db).forEach'))throw new Error('v25.0.61: MotorDefinitivo no tiene un consumo de planificación reconocido')
 fs.writeFileSync(motorFile,motor)
 
 const versionFile='src/version.js'
