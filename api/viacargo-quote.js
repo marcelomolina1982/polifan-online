@@ -1,3 +1,4 @@
+// Via Cargo proxy v3: valida CP + localidad + provincia
 export const config={maxDuration:60}
 
 const BASE='https://viacargo-quote-probe2.onrender.com'
