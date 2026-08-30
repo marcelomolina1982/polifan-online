@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: viacargo-quote-api
+    runtime: node
+    plan: free
+    branch: app-v2-parallel
+    buildCommand: cd viacargo-api && npm install && npm run install:chrome
+    startCommand: cd viacargo-api && npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: VIACARGO_ORIGIN_CP
+        value: 1609
+      - key: VIACARGO_DECLARED_VALUE
+        value: 100000
+      - key: CORS_ORIGIN
+        value: '*'
