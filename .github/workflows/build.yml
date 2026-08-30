@@ -28,6 +28,22 @@ jobs:
         run: npm ls --depth=0
       - name: Security audit
         run: npm audit --audit-level=high
+      - name: Verify retired sensitive endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in api/exact-restore.js api/legacy-recovery-operational.js api/nest.js api/solver-runtime.js; do
+            grep -q "status(410)" "$file"
+          done
+          if grep -R -q "restore-exact-20260825" api; then
+            echo "ERROR: quedó un token de restauración legado en API activa"
+            exit 1
+          fi
+          if grep -R -q "mcmndnxrbsdlaxpfidsn" api; then
+            echo "ERROR: quedó acceso al Supabase legado en API activa"
+            exit 1
+          fi
+          echo "Endpoints sensibles legados OK · retirados"
       - name: Build
         run: npm run build
       - name: Verify fresh Motor route
