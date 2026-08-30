@@ -29,6 +29,7 @@ const CostSettings=lazy(()=>import('./pages/CostSettings'))
 const Quotes=lazy(()=>import('./pages/Quotes'))
 
 const V2_CACHE='polifan-v2-section-cache'
+const PUBLIC_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 const stable=value=>{try{return JSON.stringify(value)}catch{return String(value)}}
 const changedKeys=(before,after)=>[...new Set([...Object.keys(before||{}),...Object.keys(after||{})])].filter(k=>stable(before?.[k])!==stable(after?.[k]))
 const recordSections=new Set(['orders','clients','movements','cutBatches','quotes','incomes','expenses','generatedSheets','customerReviews','customerPhotos','svgLibrary','customerCatalog','catalogCollections'])
@@ -51,8 +52,7 @@ function mergeArray(base,remote,wanted,key){
 }
 
 function CatalogAccess(){
-  const base=`${window.location.origin}/?pedido=1`
-  return <div className="panel v2-catalog-access"><div><small>CATÁLOGO PÚBLICO</small><h3>Compartí el catálogo y medí de dónde llegan los pedidos.</h3></div><button className="primary" onClick={()=>window.open(base,'_blank','noopener,noreferrer')}>Abrir catálogo ↗</button></div>
+  return <div className="panel v2-catalog-access"><div><small>CATÁLOGO PÚBLICO</small><h3>Compartí el catálogo y medí de dónde llegan los pedidos.</h3></div><button className="primary" onClick={()=>window.open(PUBLIC_CATALOG_URL,'_blank','noopener,noreferrer')}>Abrir catálogo ↗</button></div>
 }
 
 export default function AppV2(){
