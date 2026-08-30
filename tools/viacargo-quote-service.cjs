@@ -1,13 +1,17 @@
 if(process.env.PORT&&!process.env.npm_config_user_agent&&!/(^|[\\/])npm(?:-cli)?(?:\.js)?$|(^|[\\/])npx(?:-cli)?(?:\.js)?$|install\.m?js/.test(process.argv[1]||'')){
 const express=require('express');
 const puppeteer=require('puppeteer');
+const {execFileSync}=require('node:child_process');
 const app=express();
 app.use((req,res,next)=>{res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Headers','content-type');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');if(req.method==='OPTIONS')return res.sendStatus(204);next()});
 app.use(express.json());
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
 let browserPromise=null;
-async function getBrowser(){if(!browserPromise){browserPromise=puppeteer.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']}).then(browser=>{browser.on('disconnected',()=>{browserPromise=null});return browser}).catch(error=>{browserPromise=null;throw error})}return browserPromise}
+let chromeInstallAttempted=false;
+function installChrome(){if(chromeInstallAttempted)return;chromeInstallAttempted=true;console.log('VIACARGO_CHROME_INSTALL_START');execFileSync('npx',['puppeteer','browsers','install','chrome'],{stdio:'inherit',timeout:180000});console.log('VIACARGO_CHROME_INSTALL_DONE')}
+async function launchBrowser(){try{return await puppeteer.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']})}catch(error){if(/Could not find Chrome/i.test(error?.message||'')){installChrome();return await puppeteer.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']})}throw error}}
+async function getBrowser(){if(!browserPromise){browserPromise=launchBrowser().then(browser=>{browser.on('disconnected',()=>{browserPromise=null});return browser}).catch(error=>{browserPromise=null;throw error})}return browserPromise}
 async function selectAll(pg){await pg.keyboard.down('Control');await pg.keyboard.press('a');await pg.keyboard.up('Control')}
 function pkg(q){if(q<=6)return{kg:1,d:[30,20,20]};if(q<=12)return{kg:1,d:[40,30,30]};if(q<=24)return{kg:1,d:[50,40,30]};if(q<=36)return{kg:1,d:[50,40,40]};return{kg:2,d:[60,40,40]}}
 async function fillAutocomplete(pg,index,value){await pg.evaluate(i=>{const e=document.querySelectorAll('input')[i];if(!e)throw new Error('input '+i+' missing');e.focus()},index);await selectAll(pg);await pg.keyboard.type(String(value),{delay:8});await sleep(350);await pg.keyboard.press('ArrowDown');await pg.keyboard.press('Enter');await sleep(80)}
