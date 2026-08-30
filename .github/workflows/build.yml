@@ -1,12 +1,22 @@
 name: Validar build
+
 on:
   push:
-    branches: [main]
+    branches: [main, app-v2-parallel]
   pull_request:
-    branches: [main]
+    branches: [main, app-v2-parallel]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validar-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
