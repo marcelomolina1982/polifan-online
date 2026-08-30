@@ -5,6 +5,7 @@ const FORM_URL = process.env.VIACARGO_FORM_URL || 'https://formularios.viacargo.
 const DEFAULT_ORIGIN_CP = String(process.env.VIACARGO_ORIGIN_CP || '1609')
 const DECLARED_VALUE = Number(process.env.VIACARGO_DECLARED_VALUE || 100000)
 const CACHE_TTL_MS = Math.max(0, Number(process.env.VIACARGO_CACHE_TTL_MS || 300000))
+const CACHE_MAX_KEYS = Math.max(10, Number(process.env.VIACARGO_CACHE_MAX_KEYS || 200))
 
 let browserPromise = null
 let quoteQueue = Promise.resolve()
@@ -24,8 +25,52 @@ function parsePrice(text) {
   const raw = String(text || '').replace(/[^0-9.,]/g, '')
   if (!raw) return 0
   if (raw.includes(',') && raw.includes('.')) return Number(raw.replace(/\./g, '').replace(',', '.')) || 0
-  if (raw.includes(',')) return Number(raw.replace(',', '.')) || 0
+
+  const parseSingleSeparator = separator => {
+    const parts = raw.split(separator)
+    if (parts.length > 2) {
+      const thousands = parts.slice(1).every(part => part.length === 3)
+      return Number(thousands ? parts.join('') : `${parts.slice(0, -1).join('')}.${parts.at(-1)}`) || 0
+    }
+    if (parts.length === 2) {
+      const [left, right] = parts
+      if (right.length === 3 && left.length > 0) return Number(left + right) || 0
+      if (right.length >= 1 && right.length <= 2) return Number(`${left}.${right}`) || 0
+      return Number(left + right) || 0
+    }
+    return Number(raw) || 0
+  }
+
+  if (raw.includes(',')) return parseSingleSeparator(',')
+  if (raw.includes('.')) return parseSingleSeparator('.')
   return Number(raw) || 0
+}
+
+function parseOfficialDestination(destination) {
+  const match = String(destination || '').trim().match(/^(.+?)\s*\((\d{4})\)\s*-\s*(.+)$/)
+  if (!match) return { locality: '', cp: '', province: '' }
+  return { locality: match[1].trim(), cp: match[2], province: match[3].trim() }
+}
+
+function verifyDestination(destination, cp, locality, province) {
+  const official = parseOfficialDestination(destination)
+  const selectedCp = official.cp
+  const cpOk = selectedCp === String(cp).trim()
+  const localityOk = Boolean(official.locality) && normalize(official.locality) === normalize(locality)
+  const provinceOk = Boolean(official.province) && normalize(official.province) === normalize(province)
+  return { ok: cpOk && localityOk && provinceOk, cpOk, localityOk, provinceOk, selectedCp, official }
+}
+
+function verifyOrigin(origin, cp) {
+  const official = parseOfficialDestination(origin)
+  return { ok: official.cp === String(cp).trim(), selectedCp: official.cp, official }
+}
+
+function pruneCache(now = Date.now()) {
+  for (const [key, cached] of quoteCache) {
+    if (now - cached.savedAt >= CACHE_TTL_MS) quoteCache.delete(key)
+  }
+  while (quoteCache.size > CACHE_MAX_KEYS) quoteCache.delete(quoteCache.keys().next().value)
 }
 
 async function getBrowser() {
@@ -83,15 +128,6 @@ async function fillAutocomplete(page, index, value) {
   return inputValue(page, index)
 }
 
-function verifyDestination(destination, cp, locality, province) {
-  const d = normalize(destination)
-  const selectedCp = (String(destination).match(/\((\d{4})\)/) || [])[1] || ''
-  const cpOk = selectedCp === String(cp)
-  const localityOk = d.includes(normalize(locality))
-  const provinceOk = d.includes(normalize(province))
-  return { ok: cpOk && localityOk && provinceOk, cpOk, localityOk, provinceOk, selectedCp }
-}
-
 async function setInput(page, index, value) {
   await page.evaluate(i => document.querySelectorAll('input')[i]?.focus(), index)
   await selectAll(page)
@@ -126,6 +162,9 @@ async function runBrowserQuote({ destinationCp, locality, province, originCp, pa
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 25000 })
 
     const origin = await fillAutocomplete(page, 0, originCp)
+    const originVerified = verifyOrigin(origin, originCp)
+    if (!originVerified.ok) throw new Error(`Vía Cargo no confirmó correctamente el CP de origen (${origin || 'sin selección'}).`)
+
     const destination = await fillAutocomplete(page, 1, destinationCp)
     const verified = verifyDestination(destination, destinationCp, locality, province)
 
@@ -195,6 +234,7 @@ async function runBrowserQuote({ destinationCp, locality, province, originCp, pa
         length: packageData.length,
       },
       declaredValue: DECLARED_VALUE,
+      originVerified,
       verified,
       products,
       quotedAt: new Date().toISOString(),
@@ -221,11 +261,11 @@ async function quoteViaCargo(input = {}) {
 
   const args = { destinationCp, locality, province, originCp, packageData }
   const key = quoteKey(args)
+  pruneCache()
   const cached = quoteCache.get(key)
   if (cached && Date.now() - cached.savedAt < CACHE_TTL_MS) {
     return { ...cached.value, cached: true, elapsedMs: Date.now() - started }
   }
-  if (cached) quoteCache.delete(key)
 
   if (inFlight.has(key)) {
     const shared = await inFlight.get(key)
@@ -239,10 +279,11 @@ async function quoteViaCargo(input = {}) {
   try {
     const result = await work
     quoteCache.set(key, { savedAt: Date.now(), value: result })
+    pruneCache()
     return { ...result, cached: false, elapsedMs: Date.now() - started }
   } finally {
     inFlight.delete(key)
   }
 }
 
-module.exports = { quoteViaCargo, getBrowser }
+module.exports = { quoteViaCargo, getBrowser, parsePrice, parseOfficialDestination, verifyDestination, verifyOrigin }

@@ -3,22 +3,29 @@ const { quoteViaCargo, getBrowser } = require('./viacargo')
 
 const app = express()
 const port = Number(process.env.PORT || 10000)
+const allowedOrigins = String(process.env.CORS_ORIGIN || 'https://polifan-app-v2.vercel.app')
+  .split(',').map(value => value.trim()).filter(Boolean)
 
 app.use((req, res, next) => {
-  const allowedOrigin = process.env.CORS_ORIGIN || '*'
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
+  const origin = String(req.headers.origin || '')
+  if (origin && allowedOrigins.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Vary', 'Origin')
   res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-  if (req.method === 'OPTIONS') return res.sendStatus(204)
+  if (req.method === 'OPTIONS') return res.sendStatus(origin && !allowedOrigins.includes(origin) ? 403 : 204)
   next()
 })
 
 app.use(express.json({ limit: '32kb' }))
 
-app.get('/health', async (_req, res) => {
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'viacargo-quote-api', version: '1.1.0' })
+})
+
+app.get('/health/browser', async (_req, res) => {
   try {
     const browser = await getBrowser()
-    res.json({ ok: true, service: 'viacargo-quote-api', browserConnected: browser.isConnected() })
+    res.json({ ok: true, browserConnected: browser.isConnected() })
   } catch (error) {
     res.status(503).json({ ok: false, error: error?.message || String(error) })
   }
