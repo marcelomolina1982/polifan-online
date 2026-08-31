@@ -276,16 +276,23 @@ def solve_status():
                 _launch(job_id, payload, recovered=True)
                 job = _read_job(job_id) or job
         elapsed = round(time.time() - float(job.get('startedAt') or time.time()), 2)
-        return jsonify(
-            ok=True,
-            **_public_job(job),
-            status='running',
-            elapsedSeconds=elapsed,
-            persistentJob=True,
-            durableJob=DURABLE_CONFIGURED,
-        )
+        public = _public_job(job)
+        public.update({
+            'ok': True,
+            'status': 'running',
+            'elapsedSeconds': elapsed,
+            'persistentJob': True,
+            'durableJob': DURABLE_CONFIGURED,
+        })
+        return jsonify(public)
 
-    return jsonify(ok=True, **_public_job(job), persistentJob=True, durableJob=DURABLE_CONFIGURED)
+    public = _public_job(job)
+    public.update({
+        'ok': True,
+        'persistentJob': True,
+        'durableJob': DURABLE_CONFIGURED,
+    })
+    return jsonify(public)
 
 
 @app.get('/async-health')
