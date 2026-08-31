@@ -26,6 +26,17 @@
 .v2-shell .sidebar .nav-group button.active>span{transform:none!important}
 .v2-shell .sidebar .nav-group{width:100%!important}
 
+/* Tables: never let a sticky header float over result/detail text while the page scrolls. */
+.v2-shell .table-wrap thead,
+.v2-shell .table-wrap thead tr,
+.v2-shell .table-wrap thead th{
+  position:static!important;
+  top:auto!important;
+}
+.v2-shell .table-wrap thead th{
+  z-index:auto!important;
+}
+
 /* Tables: error/details text must never disappear behind a horizontal layout. */
 .v2-shell .table-wrap td .red-text,
 .v2-shell .table-wrap td small.red-text{
