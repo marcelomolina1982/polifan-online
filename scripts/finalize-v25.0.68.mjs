@@ -10,8 +10,6 @@ function one(text,before,after,label){
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
 
-// El certificador exige borde real de 3 mm en una placa 1230×580:
-// área útil = 1224×574. Sparrow debe resolver exactamente dentro de esa área.
 const payloadRx=/const payload=\{[^\n;]*kits:industrial\.kits[^\n;]*\}/g
 const payloadMatches=motor.match(payloadRx)||[]
 if(payloadMatches.length!==1)throw new Error(`finalize-v25.0.68: payload del solver aparece ${payloadMatches.length} veces`)
@@ -20,8 +18,6 @@ if(!/widthCm:[0-9.]+/.test(payload)||!/heightCm:[0-9.]+/.test(payload))throw new
 payload=payload.replace(/widthCm:[0-9.]+/, 'widthCm:122.4').replace(/heightCm:[0-9.]+/, 'heightCm:57.4')
 motor=motor.replace(payloadMatches[0],payload)
 
-// Las coordenadas del solver son relativas al área útil. Al componer la placa
-// completa, trasladamos todo +3 mm en X/Y para respetar el borde certificado.
 motor=one(
   motor,
   "const x=Number(p.xCm||0)*10,y=Number(p.yCm||0)*10,angle=Number(p.angle||0)",
@@ -29,8 +25,6 @@ motor=one(
   'offset de borde de 3 mm'
 )
 
-// Conservamos telemetría real del resultado. El ancla corta es intencional:
-// los preparadores anteriores agregan campos al plan y no debe romper el build.
 motor=one(
   motor,
   "targetDensityReached:Boolean(data.targetDensityReached)",
@@ -38,12 +32,9 @@ motor=one(
   'telemetría del motor'
 )
 
-// Texto coherente con la placa física/certificada actual.
 motor=motor.replaceAll('1220 × 580 mm','1230 × 580 mm')
 motor=motor.replaceAll('1214 mm útiles','1224 × 574 mm útiles')
 
-// En móvil la tabla ancha cortaba columnas y el botón rosa. Reemplazamos sólo
-// el resultado del motor por tarjetas fluidas; el resto de tablas de la app no se toca.
 const tableRx=/<div className="panel table-wrap"><table><thead><tr><th>Placa<\/th>[\s\S]*?<\/tbody><\/table><\/div>/
 const tableMatches=motor.match(tableRx)||[]
 if(tableMatches.length!==1)throw new Error(`finalize-v25.0.68: tabla de resultados aparece ${tableMatches.length} veces`)
@@ -51,7 +42,7 @@ const cards=`<div className="motor-plan-grid">
       {plans.map(plan=>{const ok=okStatus(plan.status);const density=Number(plan.density);const hasDensity=Number.isFinite(density)&&density>0;const used=Number(plan.stripWidthMm);const widthPct=Number.isFinite(used)&&used>0?Math.min(100,used/1230*100):null;const freeRight=Number.isFinite(used)&&used>0?Math.max(0,1230-used):null;return <section className="motor-plan-card" key={plan.id}>
         <div className="motor-plan-head"><div><b>Placa {plan.number}</b><small>Modo: {Number(plan.multiplier||1)===2?'DOBLE ×2':'SIMPLE ×1'} · entrega {plan.date}</small></div><b className={ok?'motor-cert-ok':'motor-cert-bad'}>{plan.status}</b></div>
         {plan.error&&<div className="motor-plan-error">{plan.error}</div>}
-        <div className="motor-plan-summary"><b>{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</b><span>{plan.deferred} quedan pendientes</span><p>{plan.summary.map(x=>\`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}\`).join(', ')||'-'}</p></div>
+        <div className="motor-plan-summary"><b>{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</b><span>{plan.deferred} quedan pendientes</span><p>{plan.summary.map(x=>x.figure+' × '+x.qty+(Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':'')).join(', ')||'-'}</p></div>
         <div className="motor-plan-stats">
           <div><small>Gap certificado</small><b>{plan.minGap} mm</b></div>
           <div><small>Conflictos</small><b className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</b></div>
@@ -68,7 +59,7 @@ const cards=`<div className="motor-plan-grid">
           {Number.isFinite(used)&&used>0&&<span><b>Ancho usado:</b> {used.toFixed(0)} / 1230 mm · libre derecho: {freeRight.toFixed(0)} mm</span>}
           {plan.runtimeSolver&&<span><b>Runtime solver:</b> {plan.runtimeSolver}</span>}
         </div>
-        <div className="motor-plan-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(\`pedido-${today()}-placa-${plan.number}\`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Registrar corte terminado</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</div>
+        <div className="motor-plan-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg('pedido-'+today()+'-placa-'+plan.number,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Registrar corte terminado</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</div>
       </section>})}
       {!plans.length&&<div className="panel">Tocá “Generar una placa”. Primero te pregunta SIMPLE o DOBLE y, si hay una recarga, retoma automáticamente el trabajo activo.</div>}
     </div>`
@@ -80,7 +71,6 @@ if(!motor.includes('attemptsCount:Array.isArray(data.attempts)'))throw new Error
 if(!motor.includes('className="motor-plan-grid"'))throw new Error('No quedó layout móvil de resultados')
 fs.writeFileSync(motorFile,motor)
 
-// Hotfix encapsulado del Motor: nada puede ensanchar la pantalla del celular.
 const cssFile='src/v2-mobile-hotfix.css'
 let css=fs.readFileSync(cssFile,'utf8')
 css+=`\n/* v25.0.69 · resultados del Motor sin overflow + telemetría legible */
