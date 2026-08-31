@@ -12,8 +12,6 @@ let motor=fs.readFileSync(motorFile,'utf8')
 
 // El certificador exige borde real de 3 mm en una placa 1230×580:
 // área útil = 1224×574. Sparrow debe resolver exactamente dentro de esa área.
-// Parcheamos sólo las dimensiones para no depender de otros campos que puedan
-// agregar los preparadores anteriores al payload.
 const payloadRx=/const payload=\{[^\n;]*kits:industrial\.kits[^\n;]*\}/g
 const payloadMatches=motor.match(payloadRx)||[]
 if(payloadMatches.length!==1)throw new Error(`finalize-v25.0.68: payload del solver aparece ${payloadMatches.length} veces`)
@@ -31,12 +29,12 @@ motor=one(
   'offset de borde de 3 mm'
 )
 
-// Conservamos telemetría real del resultado para que la interfaz no muestre
-// guiones cuando Sparrow sí devolvió motor, runtime, estrategia e intentos.
+// Conservamos telemetría real del resultado. El ancla corta es intencional:
+// los preparadores anteriores agregan campos al plan y no debe romper el build.
 motor=one(
   motor,
-  "partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached)",
-  "partialExtra:data.partialExtraAllowed?data.partialExtra:null,engineName:String(data.engine||data.source||'Sparrow'),selectionStrategy:String(data.selectionStrategy||''),runtimeSolver:String(data.runtimeSolver?.qualname||data.runtimeSolver?.name||data.runtimeSolver?.module||''),attemptsCount:Array.isArray(data.attempts)?data.attempts.length:0,requiredGapMm:3,motorGapMm:3,targetDensityReached:Boolean(data.targetDensityReached)",
+  "targetDensityReached:Boolean(data.targetDensityReached)",
+  "engineName:String(data.engine||data.source||'Sparrow'),selectionStrategy:String(data.selectionStrategy||''),runtimeSolver:String(data.runtimeSolver?.qualname||data.runtimeSolver?.name||data.runtimeSolver?.module||''),attemptsCount:Array.isArray(data.attempts)?data.attempts.length:0,requiredGapMm:3,motorGapMm:3,targetDensityReached:Boolean(data.targetDensityReached)",
   'telemetría del motor'
 )
 
