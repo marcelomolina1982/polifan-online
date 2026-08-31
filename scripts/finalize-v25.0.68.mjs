@@ -12,10 +12,15 @@ let motor=fs.readFileSync(motorFile,'utf8')
 
 // El certificador exige borde real de 3 mm en una placa 1230×580:
 // área útil = 1224×574. Sparrow debe resolver exactamente dentro de esa área.
-const payloadRx=/const payload=\{widthCm:[0-9.]+,heightCm:[0-9.]+,gapCm:\.3,targetDensity:75,kits:industrial\.kits\}/g
+// Parcheamos sólo las dimensiones para no depender de otros campos que puedan
+// agregar los preparadores anteriores al payload.
+const payloadRx=/const payload=\{[^\n;]*kits:industrial\.kits[^\n;]*\}/g
 const payloadMatches=motor.match(payloadRx)||[]
 if(payloadMatches.length!==1)throw new Error(`finalize-v25.0.68: payload del solver aparece ${payloadMatches.length} veces`)
-motor=motor.replace(payloadRx,"const payload={widthCm:122.4,heightCm:57.4,gapCm:.3,targetDensity:75,kits:industrial.kits}")
+let payload=payloadMatches[0]
+if(!/widthCm:[0-9.]+/.test(payload)||!/heightCm:[0-9.]+/.test(payload))throw new Error('finalize-v25.0.68: payload sin dimensiones reconocibles')
+payload=payload.replace(/widthCm:[0-9.]+/, 'widthCm:122.4').replace(/heightCm:[0-9.]+/, 'heightCm:57.4')
+motor=motor.replace(payloadMatches[0],payload)
 
 // Las coordenadas del solver son relativas al área útil. Al componer la placa
 // completa, trasladamos todo +3 mm en X/Y para respetar el borde certificado.
@@ -35,7 +40,7 @@ motor=one(
   'descarga visible junto a la placa'
 )
 
-if(!motor.includes('widthCm:122.4,heightCm:57.4'))throw new Error('No quedó área útil 1224×574')
+if(!motor.includes('widthCm:122.4')||!motor.includes('heightCm:57.4'))throw new Error('No quedó área útil 1224×574')
 if(!motor.includes('const x=3+Number(p.xCm||0)*10,y=3+Number(p.yCm||0)*10'))throw new Error('No quedó offset de borde')
 fs.writeFileSync(motorFile,motor)
 
