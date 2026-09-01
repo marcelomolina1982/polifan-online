@@ -41,7 +41,11 @@ export default async function handler(req,res){
   const incoming={...raw};delete incoming._accessToken
   try{
     const hydrated=await hydratePayload(incoming,token)
-    const payload={...hydrated,gapCm:.3,widthCm:123,heightCm:58,requiredGapMm:3,edgeMarginMm:3,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V1.13 / V5 1230',clientBuild:'sparrow-v1.13-v5-1230-certified-2026-08-29'}
+    // La placa física es 1230×580 mm. El SVG final suma un offset de 6 mm en X/Y,
+    // por eso Sparrow solo puede acomodar piezas dentro de 1218×568 mm.
+    // No sobrescribir estas medidas con 123×58: ese era el motivo por el que
+    // Residual Fill encontraba piezas que luego el certificador marcaba fuera de placa.
+    const payload={...hydrated,gapCm:.3,widthCm:121.8,heightCm:56.8,requiredGapMm:3,edgeMarginMm:0,budgetSeconds:Number(incoming.budgetSeconds||240),urgentAnchorCount:Number(incoming.urgentAnchorCount||4),clientEngineVersion:'Sparrow V1.13 / V5 1230 safe-area',clientBuild:'sparrow-v1.13-v5-safe-1218x568-2026-09-01'}
     try{await fetchTimed(BASE+'/health',{headers:{accept:'application/json'}},30000)}catch{}
     const r=await fetchTimed(BASE+'/solve-start',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)},30000)
     const text=await r.text();let body={};try{body=JSON.parse(text||'{}')}catch{}
