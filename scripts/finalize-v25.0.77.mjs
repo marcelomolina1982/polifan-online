@@ -30,13 +30,14 @@ fs.writeFileSync(appFile,app)
 
 /* Editar un pedido no debe quedar bloqueado porque otra sesión modificó la ficha
    maestra de Clientes. En edición guardamos exclusivamente orders; al crear un
-   pedido nuevo se mantiene el alta/actualización normal de clients. */
+   pedido nuevo se mantiene el alta/actualización normal de clients. El regex
+   tolera metadatos agregados por pasos anteriores del build. */
 const orderFormFile='src/pages/OrderForm.jsx'
 let orderForm=fs.readFileSync(orderFormFile,'utf8')
-const oldOrderSave="const saved=await onSave({...db,orders,clients});if(saved?.ok===false)return"
-const newOrderSave="const saved=await onSave(editing?{...db,orders,_onlyKeys:['orders']}:{...db,orders,clients,_onlyKeys:['orders','clients']});if(saved?.ok===false)return"
-if(!orderForm.includes(oldOrderSave))throw new Error('v25.0.78: no se encontró guardado conjunto orders+clients')
-orderForm=orderForm.replace(oldOrderSave,newOrderSave)
+const orderSaveRx=/const saved=await onSave\(\{\.\.\.db,orders,clients(?:,[^}]*)?\}\);if\(saved\?\.ok===false\)return/
+const orderSaveMatches=orderForm.match(new RegExp(orderSaveRx.source,'g'))||[]
+if(orderSaveMatches.length!==1)throw new Error(`v25.0.78: guardado orders+clients aparece ${orderSaveMatches.length} veces`)
+orderForm=orderForm.replace(orderSaveRx,"const saved=await onSave(editing?{...db,orders,_onlyKeys:['orders']}:{...db,orders,clients,_onlyKeys:['orders','clients']});if(saved?.ok===false)return")
 if(!orderForm.includes("editing?{...db,orders,_onlyKeys:['orders']}"))throw new Error('v25.0.78: no quedó guardado independiente de edición')
 fs.writeFileSync(orderFormFile,orderForm)
 
