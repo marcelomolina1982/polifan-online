@@ -58,12 +58,15 @@ fs.writeFileSync(webFile,web)
 
 const cssFile='src/v2-mobile-hotfix.css'
 let css=fs.readFileSync(cssFile,'utf8')
-css+=`\n/* v25.0.71 · solicitudes web: modal visible y totales de envío */
-.web-request-modal-backdrop{align-items:flex-start!important;overflow-y:auto!important;padding:58px 18px 24px!important;box-sizing:border-box!important}
-.web-request-modal{margin:0 auto!important;max-height:calc(100vh - 82px)!important;overflow:auto!important;overscroll-behavior:contain!important}
+css+=`\n/* v25.0.72 · solicitudes web: editor totalmente contenido en pantalla */
+.web-request-modal-backdrop{position:fixed!important;inset:0!important;width:100vw!important;max-width:100vw!important;display:flex!important;justify-content:center!important;align-items:flex-start!important;overflow-x:hidden!important;overflow-y:auto!important;padding:64px 18px 24px!important;box-sizing:border-box!important;z-index:9999!important}
+.web-request-modal{position:relative!important;left:auto!important;right:auto!important;top:auto!important;transform:none!important;width:min(920px,calc(100% - 24px))!important;max-width:min(920px,calc(100% - 24px))!important;min-width:0!important;margin:0 auto!important;max-height:calc(100vh - 88px)!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;box-sizing:border-box!important}
+.web-request-modal .panel-heading,.web-request-modal .customer-grid,.web-request-modal .web-request-customer-grid,.web-request-modal .web-request-product-grid,.web-request-modal .web-request-modal-actions{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+.web-request-modal .customer-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+.web-request-modal input,.web-request-modal select,.web-request-modal textarea{min-width:0!important;width:100%!important;box-sizing:border-box!important}
 .request-summary-cards{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-@media(max-width:900px){.request-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:760px){.web-request-modal-backdrop{padding:54px 8px 14px!important}.web-request-modal{max-height:calc(100vh - 68px)!important;width:100%!important}.request-summary-cards{grid-template-columns:1fr 1fr!important}}
+@media(max-width:900px){.web-request-modal{width:calc(100% - 16px)!important;max-width:calc(100% - 16px)!important}.web-request-modal .customer-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.request-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:760px){.web-request-modal-backdrop{padding:54px 6px 12px!important}.web-request-modal{width:100%!important;max-width:100%!important;max-height:calc(100vh - 66px)!important}.web-request-modal .customer-grid{grid-template-columns:1fr!important}.request-summary-cards{grid-template-columns:1fr 1fr!important}}
 `
 fs.writeFileSync(cssFile,css)
 
@@ -81,14 +84,14 @@ if(!fs.readFileSync(dataFile,'utf8').includes('export async function patchV2Sect
 
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
-version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.71'")
-  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.71'")
-  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Solicitudes web con envío + presupuesto estable'")
+version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.72'")
+  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.72'")
+  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Solicitudes web completas + editor contenido'")
 fs.writeFileSync(versionFile,version)
 
 const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.71'"))
+fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.72'"))
 const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.71'"))
+fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.72'"))
 
-console.log('v25.0.71 FINALIZE OK · envío visible · total final · presupuesto con shipping · modal corregido · CAS import restaurado')
+console.log('v25.0.72 FINALIZE OK · envío visible · presupuesto estable · editor sin corte horizontal')
