@@ -28,14 +28,26 @@ app=app.replace(oldMissing,newMissing)
 if(!app.includes("liveOrderPages=new Set(['orders','new','sheetplanner'])"))throw new Error('v25.0.77: no quedó refresco operativo de orders')
 fs.writeFileSync(appFile,app)
 
+/* Editar un pedido no debe quedar bloqueado porque otra sesión modificó la ficha
+   maestra de Clientes. En edición guardamos exclusivamente orders; al crear un
+   pedido nuevo se mantiene el alta/actualización normal de clients. */
+const orderFormFile='src/pages/OrderForm.jsx'
+let orderForm=fs.readFileSync(orderFormFile,'utf8')
+const oldOrderSave="const saved=await onSave({...db,orders,clients});if(saved?.ok===false)return"
+const newOrderSave="const saved=await onSave(editing?{...db,orders,_onlyKeys:['orders']}:{...db,orders,clients,_onlyKeys:['orders','clients']});if(saved?.ok===false)return"
+if(!orderForm.includes(oldOrderSave))throw new Error('v25.0.78: no se encontró guardado conjunto orders+clients')
+orderForm=orderForm.replace(oldOrderSave,newOrderSave)
+if(!orderForm.includes("editing?{...db,orders,_onlyKeys:['orders']}"))throw new Error('v25.0.78: no quedó guardado independiente de edición')
+fs.writeFileSync(orderFormFile,orderForm)
+
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
-version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.77'")
-  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.77'")
-  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · centro operativo + borde seguro Motor + pedidos vivos'")
+version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.78'")
+  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.78'")
+  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · pedidos vivos + edición concurrente segura'")
 fs.writeFileSync(versionFile,version)
 const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.77-live-orders'"))
+fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.78-order-edit-cas'"))
 const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.77-live-orders'"))
-console.log('v25.0.77 FINALIZE OK · Motor seguro + Pedidos/Nuevo/Motor refrescan orders desde servidor')
+fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.78-order-edit-cas'"))
+console.log('v25.0.78 FINALIZE OK · Motor seguro + pedidos vivos + edición de pedidos independiente de clients')
