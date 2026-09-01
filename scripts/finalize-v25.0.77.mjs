@@ -40,14 +40,35 @@ orderForm=orderForm.slice(0,saveStart)+patchedOrderSave+orderForm.slice(saveEnd)
 if(!orderForm.includes("editing?{...db,orders,_onlyKeys:['orders']}"))throw new Error('v25.0.78: no quedó guardado independiente de edición')
 fs.writeFileSync(orderFormFile,orderForm)
 
+/* Solicitudes web: los indicadores de catálogo y SVG sólo son válidos si la
+   pantalla carga las secciones que realmente comprueba. */
+const dataFile='src/lib/v2Data.js'
+let data=fs.readFileSync(dataFile,'utf8')
+const oldWebSections="  webrequests:['quotes','orders'],"
+const newWebSections="  webrequests:['quotes','orders','customerCatalog','svgLibrary'],"
+if(!data.includes(oldWebSections))throw new Error('v25.0.79: no se encontró carga original de Solicitudes web')
+data=data.replace(oldWebSections,newWebSections)
+if(!data.includes(newWebSections))throw new Error('v25.0.79: Solicitudes web no quedó con catálogo + SVG')
+fs.writeFileSync(dataFile,data)
+
+/* Legibilidad global real, tanto escritorio como móvil. Se aumenta la base sin
+   forzar anchos, para que tablas y formularios mantengan su comportamiento. */
+const cssFile='src/v2-mobile-hotfix.css'
+let css=fs.readFileSync(cssFile,'utf8')
+const readabilityMarker='/* v25.0.79 · legibilidad global PC + móvil */'
+if(css.includes(readabilityMarker))throw new Error('v25.0.79: bloque de legibilidad duplicado')
+css+=`\n${readabilityMarker}\n.v2-shell .content>main{font-size:16px!important;line-height:1.45!important}\n.v2-shell .panel,.v2-shell .v2-card,.v2-shell .notice,.v2-shell .delivery-estimate-box{font-size:16px!important}\n.v2-shell table{font-size:15px!important}\n.v2-shell th,.v2-shell td{font-size:15px!important;line-height:1.4!important}\n.v2-shell input,.v2-shell select,.v2-shell textarea,.v2-shell button{font-size:15px!important;line-height:1.3!important}\n.v2-shell label{font-size:15px!important;line-height:1.35!important}\n.v2-shell small,.v2-shell .block{font-size:13.5px!important;line-height:1.35!important}\n.v2-shell .sidebar nav button,.v2-shell .sidebar .nav-group button{font-size:15px!important}\n.v2-shell h1{font-size:clamp(30px,3vw,42px)!important;line-height:1.08!important}\n.v2-shell h2{font-size:24px!important;line-height:1.15!important}\n.v2-shell h3{font-size:19px!important;line-height:1.2!important}\n.v2-shell .request-tabs button,.v2-shell .request-actions button,.v2-shell .web-request-modal-actions button{font-size:15px!important}\n@media(max-width:760px){.v2-shell .content>main,.v2-shell .panel,.v2-shell .v2-card{font-size:16px!important}.v2-shell input,.v2-shell select,.v2-shell textarea,.v2-shell button{font-size:16px!important}.v2-shell table,.v2-shell th,.v2-shell td{font-size:14.5px!important}.v2-shell small,.v2-shell .block{font-size:13.5px!important}}\n`
+fs.writeFileSync(cssFile,css)
+if(!css.includes(readabilityMarker)||!css.includes('.v2-shell table{font-size:15px!important}'))throw new Error('v25.0.79: no quedó bloque global de legibilidad')
+
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
-version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.78'")
-  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.78'")
-  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · pedidos vivos + edición concurrente segura'")
+version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.79'")
+  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.79'")
+  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · tipografía legible + solicitudes verificadas'")
 fs.writeFileSync(versionFile,version)
 const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.78-order-edit-cas'"))
+fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.79-readability-webchecks'"))
 const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.78-order-edit-cas'"))
-console.log('v25.0.78 FINALIZE OK · edición de pedidos guarda orders sin bloquearse por clients')
+fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.79-readability-webchecks'"))
+console.log('v25.0.79 FINALIZE OK · pedidos seguros + tipografía global legible + Solicitudes web con catálogo/SVG reales')
