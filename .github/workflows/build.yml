@@ -1,16 +1,73 @@
 name: Validar build
+
 on:
   push:
-    branches: [main]
+    branches: [main, app-v2-parallel, 'prebuild-v2-*']
   pull_request:
-    branches: [main]
+    branches: [main, app-v2-parallel]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validar-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build
+          node-version: 24
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Dependency snapshot
+        run: npm ls --depth=0
+      - name: Security audit
+        run: npm audit --audit-level=high
+      - name: Verify retired sensitive endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in api/exact-restore.js api/legacy-recovery-operational.js api/nest.js api/solver-runtime.js; do
+            grep -q "status(410)" "$file"
+          done
+          if grep -R -q "restore-exact-20260825" api; then
+            echo "ERROR: quedó un token de restauración legado en API activa"
+            exit 1
+          fi
+          if grep -R -q "mcmndnxrbsdlaxpfidsn" api; then
+            echo "ERROR: quedó acceso al Supabase legado en API activa"
+            exit 1
+          fi
+          echo "Endpoints sensibles legados OK · retirados"
+      - name: Build
+        run: npm run build
+      - name: Verify fresh Motor route
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q "/api/nest-status-v5?id=" dist
+          if grep -R -q "motor-1230-v4" dist; then
+            echo "ERROR: quedó una referencia productiva al Motor V4"
+            exit 1
+          fi
+          echo "Motor frontend OK · proxy V5 presente · V4 ausente"
+      - name: Verify canonical public catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q "tu-vida-en-tinta-catalogo-v2.vercel.app" dist
+          echo "Catálogo público OK · destino canónico presente"
+      - name: Smoke Render services
+        if: startsWith(github.ref, 'refs/heads/prebuild-v2-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          MOTOR_JSON="$(curl --retry 2 --retry-delay 3 --max-time 90 --fail --silent --show-error https://polifan-motor-1230-bench-v5.onrender.com/async-health)"
+          echo "$MOTOR_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok||j.durableJobs!==true||j.durableStore!=='supabase'||j.sparrowExecutable!==true)process.exit(1);console.log('Motor health OK · durable Supabase · Sparrow ejecutable')})"
+          VIA_JSON="$(curl --retry 2 --retry-delay 3 --max-time 90 --fail --silent --show-error https://viacargo-quote-probe2.onrender.com/health)"
+          echo "$VIA_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok)process.exit(1);console.log('Vía Cargo health OK')})"

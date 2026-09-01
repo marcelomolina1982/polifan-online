@@ -149,7 +149,8 @@ export default function App(){
         }
         if(attempt<3){await new Promise(resolve=>setTimeout(resolve,250*attempt));continue}break
       }
-      if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break}
+      if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break
+      }
       const confirmed={...emptyState(),...merged};serverRevisionRef.current=result.data[0]?.updated_at||updatedAt;serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
     }
     savingRef.current=false;setSaving(false);alert('No se pudo guardar en Supabase. Ningún dato más nuevo fue sobrescrito: '+(lastError?.message||'error de sincronización'));return{ok:false,error:lastError||new Error('Error de sincronización')}

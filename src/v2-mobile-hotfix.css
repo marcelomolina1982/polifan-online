@@ -1,0 +1,81 @@
+/* Final mobile overrides: loaded last so dashboard-specific CSS cannot restore desktop sizing. */
+
+/* Navigation pills: keep icon and title perfectly aligned at every zoom/viewport. */
+.v2-shell .sidebar nav button,
+.v2-shell .sidebar .nav-group button{
+  width:100%!important;
+  box-sizing:border-box!important;
+  display:grid!important;
+  grid-template-columns:22px minmax(0,1fr)!important;
+  align-items:center!important;
+  justify-items:start!important;
+  column-gap:10px!important;
+  line-height:1.2!important;
+}
+.v2-shell .sidebar nav button>span,
+.v2-shell .sidebar .nav-group button>span{
+  width:22px!important;
+  min-width:22px!important;
+  height:22px!important;
+  display:grid!important;
+  place-items:center!important;
+  line-height:1!important;
+  transform:none!important;
+}
+.v2-shell .sidebar nav button.active>span,
+.v2-shell .sidebar .nav-group button.active>span{transform:none!important}
+.v2-shell .sidebar .nav-group{width:100%!important}
+
+/* Tables: never let a sticky header float over result/detail text while the page scrolls. */
+.v2-shell .table-wrap thead,
+.v2-shell .table-wrap thead tr,
+.v2-shell .table-wrap thead th{
+  position:static!important;
+  top:auto!important;
+}
+.v2-shell .table-wrap thead th{
+  z-index:auto!important;
+}
+
+/* Tables: error/details text must never disappear behind a horizontal layout. */
+.v2-shell .table-wrap td .red-text,
+.v2-shell .table-wrap td small.red-text{
+  white-space:normal!important;
+  overflow-wrap:anywhere!important;
+  word-break:break-word!important;
+  line-height:1.45!important;
+}
+.v2-shell .table-wrap td:has(> .red-text){min-width:260px!important;white-space:normal!important}
+
+@media(max-width:760px){
+  .v2-shell,.v2-shell .content,.v2-shell .content>main{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+  .studio-dashboard,.studio-grid-main,.studio-grid-lower,.studio-metrics,.studio-launchpad>div{width:100%!important;max-width:100%!important;min-width:0!important;grid-template-columns:minmax(0,1fr)!important}
+  .studio-topline{width:100%!important;max-width:100%!important;min-width:0!important;gap:14px!important}
+  .studio-topline>div:first-child{width:100%!important;max-width:100%!important;min-width:0!important}
+  .studio-topline h1{font-size:32px!important;line-height:1.02!important;overflow-wrap:anywhere}
+  .studio-top-actions{width:100%!important;display:grid!important;grid-template-columns:1fr 1fr!important}
+  .studio-top-actions button{width:100%!important;min-width:0!important;padding-inline:10px!important}
+  .studio-command{width:100%!important;max-width:100%!important;min-width:0!important;grid-template-columns:minmax(0,1fr)!important}
+  .studio-search{width:100%!important;max-width:100%!important;min-width:0!important}
+  .studio-search input{min-width:0!important;width:100%!important}
+  .studio-live{display:none!important}
+  .studio-capacity,.studio-priority,.studio-flow,.studio-agenda{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;padding:16px!important;border-radius:18px!important;overflow:hidden!important}
+  .studio-capacity-body{width:100%!important;max-width:100%!important;min-width:0!important;grid-template-columns:minmax(0,1fr)!important;gap:14px!important;justify-items:center!important}
+  .studio-ring{width:126px!important;height:126px!important}
+  .studio-capacity-copy{width:100%!important;max-width:100%!important;min-width:0!important;text-align:center!important}
+  .studio-capacity-copy>strong{font-size:34px!important}
+  .studio-capacity-copy>div{width:100%!important;grid-template-columns:1fr 1fr!important}
+  .studio-priority-list>button,.studio-agenda-list button{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}
+  .studio-metrics{gap:10px!important}
+  .studio-metrics button{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}
+  .studio-stage-track{width:100%!important;max-width:100%!important;overflow-x:auto!important}
+  .studio-launchpad>div{gap:10px!important}
+  .studio-launchpad button{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}
+  .v2-shell .sidebar nav button,.v2-shell .sidebar .nav-group button{min-height:46px!important}
+  .v2-shell .table-wrap td:has(> .red-text){min-width:220px!important}
+}
+@media(max-width:390px){
+  .studio-top-actions{grid-template-columns:1fr!important}
+  .studio-capacity-copy>div{grid-template-columns:1fr!important}
+  .studio-topline h1{font-size:29px!important}
+}

@@ -8,7 +8,7 @@ from shapely.ops import unary_union
 from shapely.affinity import rotate, translate
 from shapely.geometry import box
 
-PLATE_W=1220.0
+PLATE_W=1230.0
 PLATE_H=580.0
 PLATE_AREA=PLATE_W*PLATE_H
 FINE_ANGLES=[float(a) for a in range(0,360,5)]

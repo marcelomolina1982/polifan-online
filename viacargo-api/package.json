@@ -1,0 +1,16 @@
+{
+  "name": "viacargo-quote-api",
+  "version": "1.1.0",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/unit.test.cjs",
+    "install:chrome": "npx puppeteer browsers install chrome"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "puppeteer": "^24.16.0"
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: viacargo-quote-api
+    runtime: node
+    plan: free
+    branch: app-v2-parallel
+    buildCommand: cd viacargo-api && npm install && npm run install:chrome
+    startCommand: cd viacargo-api && npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: VIACARGO_ORIGIN_CP
+        value: 1609
+      - key: VIACARGO_DECLARED_VALUE
+        value: 100000
+      - key: VIACARGO_CACHE_TTL_MS
+        value: 300000
+      - key: VIACARGO_CACHE_MAX_KEYS
+        value: 200
+      - key: CORS_ORIGIN
+        value: https://polifan-app-v2.vercel.app,https://polifan-app-v2-marcelomolina1982s-projects.vercel.app
