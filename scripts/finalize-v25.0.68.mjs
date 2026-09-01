@@ -71,6 +71,31 @@ if(!motor.includes('attemptsCount:Array.isArray(data.attempts)'))throw new Error
 if(!motor.includes('className="motor-plan-grid"'))throw new Error('No quedó layout móvil de resultados')
 fs.writeFileSync(motorFile,motor)
 
+const orderFile='src/pages/OrderForm.jsx'
+let order=fs.readFileSync(orderFile,'utf8')
+order=one(
+  order,
+  "  const standardQty=pricedRegularItems.filter(({product})=>!hasCustomCatalogPrice(product)).reduce((sum,{item})=>sum+Number(item.qty||0),0)\n  const standardUnitPrice=standardQty?pricePerUnit(standardQty):0\n  const standardTotal=standardQty*standardUnitPrice\n  const specialTotal=pricedRegularItems.filter(({product})=>hasCustomCatalogPrice(product)).reduce((sum,{item,product})=>sum+customCatalogPrice(product,item.qty),0)\n  const regularTotal=standardTotal+specialTotal\n  const validManualItems=(form.manualItems||[]).filter(i=>String(i.figure||'').trim()&&Number(i.qty)>0&&Number(i.unitPrice)>=0)\n  const manualQty=validManualItems.reduce((a,i)=>a+Number(i.qty||0),0)\n  const manualTotal=validManualItems.reduce((a,i)=>a+Number(i.qty||0)*Number(i.unitPrice||0),0)\n  const total=regularTotal+manualTotal",
+  "  const standardQty=pricedRegularItems.filter(({product})=>!hasCustomCatalogPrice(product)).reduce((sum,{item})=>sum+Number(item.qty||0),0)\n  const validManualItems=(form.manualItems||[]).filter(i=>String(i.figure||'').trim()&&Number(i.qty)>0&&(i.promoCaramelera||Number(i.unitPrice)>=0))\n  const promoManualQty=validManualItems.filter(i=>i.promoCaramelera).reduce((a,i)=>a+Number(i.qty||0),0)\n  const promoQty=standardQty+promoManualQty\n  const standardUnitPrice=promoQty?pricePerUnit(promoQty):0\n  const standardTotal=standardQty*standardUnitPrice\n  const specialTotal=pricedRegularItems.filter(({product})=>hasCustomCatalogPrice(product)).reduce((sum,{item,product})=>sum+customCatalogPrice(product,item.qty),0)\n  const regularTotal=standardTotal+specialTotal\n  const manualQty=validManualItems.reduce((a,i)=>a+Number(i.qty||0),0)\n  const manualTotal=validManualItems.reduce((a,i)=>a+Number(i.qty||0)*(i.promoCaramelera?standardUnitPrice:Number(i.unitPrice||0)),0)\n  const total=regularTotal+manualTotal",
+  'precio promo de carameleras manuales'
+)
+order=one(
+  order,
+  "    const manual=validManualItems.map(i=>({figure:String(i.figure).trim(),qty:Number(i.qty),unitPrice:Number(i.unitPrice),subtotal:Number(i.qty)*Number(i.unitPrice),inventoryTracked:false,manualItem:true}))",
+  "    const manual=validManualItems.map(i=>{const itemQty=Number(i.qty);const unitPrice=i.promoCaramelera?standardUnitPrice:Number(i.unitPrice||0);return {figure:String(i.figure).trim(),qty:itemQty,unitPrice,subtotal:itemQty*unitPrice,inventoryTracked:false,manualItem:true,promoCaramelera:Boolean(i.promoCaramelera)}})",
+  'guardado de carameleras manuales'
+)
+order=one(
+  order,
+  "        {(form.manualItems||[]).map((it,ix)=><div className=\"item-row manual-sale-row\" key={ix}><input placeholder=\"Descripción\" value={it.figure||''} onChange={e=>updateManual(ix,'figure',e.target.value)}/><input type=\"number\" min=\"1\" value={it.qty||1} onChange={e=>updateManual(ix,'qty',e.target.value)}/><input type=\"number\" min=\"0\" placeholder=\"Precio unitario\" value={it.unitPrice??''} onChange={e=>updateManual(ix,'unitPrice',e.target.value)}/><b>{money((Number(it.qty)||0)*(Number(it.unitPrice)||0))}</b><button type=\"button\" className=\"danger smallbtn\" onClick={()=>setForm(f=>({...f,manualItems:(f.manualItems||[]).filter((_,i)=>i!==ix)}))}>×</button></div>)}\n        <button type=\"button\" className=\"ghost\" onClick={()=>setForm(f=>({...f,manualItems:[...(f.manualItems||[]),{figure:'',qty:1,unitPrice:'',inventoryTracked:false,manualItem:true}]}))}>＋ Agregar producto manual</button>",
+  "        {(form.manualItems||[]).map((it,ix)=><div className=\"item-row manual-sale-row\" key={ix}><div style={{display:'grid',gap:6}}><input placeholder=\"Descripción\" value={it.figure||''} onChange={e=>updateManual(ix,'figure',e.target.value)}/><label style={{display:'flex',alignItems:'center',gap:7,fontSize:12,fontWeight:700,color:'#5d6878'}}><input type=\"checkbox\" checked={Boolean(it.promoCaramelera)} onChange={e=>updateManual(ix,'promoCaramelera',e.target.checked)}/> Caramelera · sumar a promo</label></div><input type=\"number\" min=\"1\" value={it.qty||1} onChange={e=>updateManual(ix,'qty',e.target.value)}/><input type=\"number\" min=\"0\" placeholder={it.promoCaramelera?'Precio por promo':'Precio unitario'} value={it.promoCaramelera?standardUnitPrice:(it.unitPrice??'')} disabled={Boolean(it.promoCaramelera)} onChange={e=>updateManual(ix,'unitPrice',e.target.value)}/><b>{money((Number(it.qty)||0)*(it.promoCaramelera?standardUnitPrice:(Number(it.unitPrice)||0)))}</b><button type=\"button\" className=\"danger smallbtn\" onClick={()=>setForm(f=>({...f,manualItems:(f.manualItems||[]).filter((_,i)=>i!==ix)}))}>×</button></div>)}\n        <button type=\"button\" className=\"ghost\" onClick={()=>setForm(f=>({...f,manualItems:[...(f.manualItems||[]),{figure:'',qty:1,unitPrice:'',promoCaramelera:false,inventoryTracked:false,manualItem:true}]}))}>＋ Agregar producto manual</button>",
+  'selector caramelera en productos manuales'
+)
+order=order.replace("unitPrice:standardQty===qty&&qty?standardUnitPrice:null","unitPrice:standardQty===qty&&promoQty?standardUnitPrice:null")
+if(!order.includes('Caramelera · sumar a promo'))throw new Error('No quedó selector de caramelera manual')
+if(!order.includes('promoManualQty'))throw new Error('No quedó cómputo de promo manual')
+fs.writeFileSync(orderFile,order)
+
 const cssFile='src/v2-mobile-hotfix.css'
 let css=fs.readFileSync(cssFile,'utf8')
 css+=`\n/* v25.0.69 · resultados del Motor sin overflow + telemetría legible */
@@ -85,14 +110,14 @@ fs.writeFileSync(cssFile,css)
 
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
-version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.69'")
-  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.69'")
-  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Motor móvil corregido + telemetría real'")
+version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.70'")
+  .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.70'")
+  .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · Promo manual de carameleras + Motor certificado'")
 fs.writeFileSync(versionFile,version)
 
 const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.69'"))
+fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.70'"))
 const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.69'"))
+fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.70'"))
 
-console.log('v25.0.69 FINALIZE OK · Motor responsive · sin 0.0% falso · telemetría real · placa 1230×580')
+console.log('v25.0.70 FINALIZE OK · Motor responsive + productos manuales marcables como caramelera para promo')
