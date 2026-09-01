@@ -1,7 +1,10 @@
-"""Lab-only wrapper: run V4, then spend a bounded extra budget escaping local minima.
+"""Production wrapper: run V4 inside the certified safe rectangle, then spend a bounded extra budget escaping local minima.
 
-The wrapper never lowers gap/edge constraints.  Any SA +1 winner is independently
-reconstructed with Shapely and certified before replacing the V4 result.
+The physical plate is 1230 x 580 mm. The browser composes the final SVG with a
+6 mm X/Y offset. The hard V4 certifier currently validates against 1220 x 580,
+so the runtime intentionally caps the nesting bin at 1214 x 568 mm. After the
+6 mm composition offset, every solver placement remains inside x<=1220 and
+y<=574, while preserving the 3 mm inter-piece gap.
 """
 from flask import jsonify, request
 import time
@@ -10,8 +13,28 @@ from shapely.affinity import rotate, translate
 import clean_lab_v4 as v4
 from sa_nesting_optimizer import anneal_plus_one
 
+# IMPORTANT: clean_lab_v4 historically hard-coded 1230 x 580 and therefore
+# ignored the dimensions sent by Vercel. Patch the module globals at import
+# time; solve_v4 reads these globals at runtime, including prep, cavity fill and
+# metrics. The Render service has one Gunicorn worker, so this is deterministic.
+SAFE_WIDTH_MM=1214.0
+SAFE_HEIGHT_MM=568.0
+v4.PLATE_WIDTH_MM=SAFE_WIDTH_MM
+v4.PLATE_HEIGHT_MM=SAFE_HEIGHT_MM
+v4.PLATE_AREA_MM2=SAFE_WIDTH_MM*SAFE_HEIGHT_MM
+v4.base.PLATE_WIDTH_MM=SAFE_WIDTH_MM
+v4.base.PLATE_HEIGHT_MM=SAFE_HEIGHT_MM
+v4.base.PLATE_AREA_MM2=v4.PLATE_AREA_MM2
+v4.core.PLATE_WIDTH_MM=SAFE_WIDTH_MM
+v4.core.PLATE_HEIGHT_MM=SAFE_HEIGHT_MM
+v4.core.PLATE_AREA_MM2=v4.PLATE_AREA_MM2
+v4.BUILD='best-effort-multipass-v4-safe-1214x568-2026-09-01'
+
 ORIGINAL_SOLVE=v4.solve_v4
-EDGE_MM=3.0
+# No additional internal edge is required here: the browser applies 6 mm when
+# composing the physical 1230 x 580 SVG. We still independently reject any SA
+# placement outside the 1214 x 568 solver rectangle.
+EDGE_MM=0.0
 EXTRA_BUDGET_SECONDS=34
 
 
@@ -45,6 +68,21 @@ def _certify(rows, result, gap_mm, edge_mm=EDGE_MM):
     return True,'ok'
 
 
+def _stamp_safe_runtime(data):
+    if not isinstance(data,dict):return data
+    data.update({
+        'build':'best-effort-multipass-v4-safe-1214x568-2026-09-01',
+        'engine':'Sparrow V4 safe-area · 1214×568 + offset físico 6 mm',
+        'widthCm':SAFE_WIDTH_MM/10.0,
+        'heightCm':SAFE_HEIGHT_MM/10.0,
+        'runtimePlateWidthMm':SAFE_WIDTH_MM,
+        'runtimePlateHeightMm':SAFE_HEIGHT_MM,
+        'runtimePhysicalOffsetMm':6,
+        'runtimeHardCertMaxXmm':1220,
+    })
+    return data
+
+
 def solve_v4_sa():
     payload=request.get_json(silent=True) or {}
     response=ORIGINAL_SOLVE()
@@ -54,6 +92,7 @@ def solve_v4_sa():
     data=body.get_json(silent=True) if hasattr(body,'get_json') else body
     if status!=200 or not isinstance(data,dict) or not data.get('ok'):
         return response
+    _stamp_safe_runtime(data)
     if int(data.get('completeFigures') or 0)>=int(data.get('candidatePool') or 0):
         data.update({'saEscapeRan':False,'saEscapeReason':'all-candidates-fit'})
         return jsonify(data),status
@@ -99,8 +138,8 @@ def solve_v4_sa():
         return jsonify(data),status
 
     data.update({
-        'build':'best-effort-multipass-v4-1230-sa-escape-certified-2026-08-28',
-        'engine':'Sparrow V4 + simulated annealing escape + independent Shapely certification',
+        'build':'best-effort-multipass-v4-safe-1214x568-sa-certified-2026-09-01',
+        'engine':'Sparrow V4 safe-area + simulated annealing + Shapely',
         'completeFigures':len(rows),
         'placements':result.get('placements') or [],
         'selectedKitIds':[k.get('kitId') for k in rows],
@@ -108,4 +147,5 @@ def solve_v4_sa():
         'stoppedBecause':'sa-plus-one-certified',
     })
     data.update(v4._metrics(rows,result))
+    _stamp_safe_runtime(data)
     return jsonify(data),status
