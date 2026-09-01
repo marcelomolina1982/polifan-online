@@ -1,12 +1,12 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "25.0.74",
+  "version": "25.0.75",
   "description": "Modo operativo seguro",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/finalize-v25.0.74.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/finalize-v25.0.75.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs"
   },
