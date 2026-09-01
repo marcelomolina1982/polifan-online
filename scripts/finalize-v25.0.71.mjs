@@ -68,8 +68,14 @@ css+=`\n/* v25.0.71 · solicitudes web: modal visible y totales de envío */
 fs.writeFileSync(cssFile,css)
 
 const appFile='src/AppV2.jsx'
-const app=fs.readFileSync(appFile,'utf8')
-if(!app.includes("import {loadV2Sections,patchV2Sections,pageSections,pageNeedsFullCatalog} from './lib/v2Data'"))throw new Error('AppV2 no importa patchV2Sections')
+let app=fs.readFileSync(appFile,'utf8')
+if(!/import\s*\{[^}]*\bpatchV2Sections\b[^}]*\}\s*from\s*['\"]\.\/lib\/v2Data['\"]/.test(app)){
+  const rx=/import\s*\{([^}]*)\}\s*from\s*['\"]\.\/lib\/v2Data['\"]/
+  if(!rx.test(app))throw new Error('AppV2 perdió el import de v2Data')
+  app=app.replace(rx,(_,names)=>`import {${names.trim().replace(/,\s*$/, '')},patchV2Sections} from './lib/v2Data'`)
+  fs.writeFileSync(appFile,app)
+}
+if(!/import\s*\{[^}]*\bpatchV2Sections\b[^}]*\}\s*from\s*['\"]\.\/lib\/v2Data['\"]/.test(fs.readFileSync(appFile,'utf8')))throw new Error('No se pudo restaurar patchV2Sections en AppV2')
 const dataFile='src/lib/v2Data.js'
 if(!fs.readFileSync(dataFile,'utf8').includes('export async function patchV2Sections'))throw new Error('v2Data no exporta patchV2Sections')
 
@@ -85,4 +91,4 @@ fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']
 const indexFile='index.html'
 fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.71'"))
 
-console.log('v25.0.71 FINALIZE OK · envío visible · total final · presupuesto con shipping · modal corregido')
+console.log('v25.0.71 FINALIZE OK · envío visible · total final · presupuesto con shipping · modal corregido · CAS import restaurado')
