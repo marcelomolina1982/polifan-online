@@ -1,10 +1,7 @@
 import './finalize-v25.0.76.mjs'
 import fs from 'node:fs'
 
-/* Motor: el solver no puede usar el borde físico como espacio disponible.
-   Dejamos 6 mm de guarda real en los cuatro lados. El certificador sigue
-   exigiendo 3 mm, por lo que cualquier variación geométrica queda absorbida
-   antes de llegar al borde de la placa. */
+/* Motor: el solver no puede usar el borde físico como espacio disponible. */
 const motorFile='src/pages/MotorDefinitivo.jsx'
 let motor=fs.readFileSync(motorFile,'utf8')
 if(!motor.includes('widthCm:122.4'))throw new Error('v25.0.77: no se encontró ancho útil anterior 122.4')
@@ -15,10 +12,7 @@ motor=motor.replaceAll('1224 × 568 mm útiles · margen vertical reforzado 6 mm
 if(!motor.includes('widthCm:121.8')||!motor.includes('const x=6+Number(p.xCm||0)*10,y=6+Number(p.yCm||0)*10'))throw new Error('v25.0.77: no quedó área segura del motor')
 fs.writeFileSync(motorFile,motor)
 
-/* Los pedidos son datos operativos vivos. El cache local sigue sirviendo para
-   el resto de los módulos, pero Pedidos / Nuevo pedido / Generar placas deben
-   refrescar la sección orders al entrar para no ocultar altas o recuperaciones
-   hechas por otra sesión o directamente en la base. */
+/* Pedidos operativos vivos. */
 const appFile='src/AppV2.jsx'
 let app=fs.readFileSync(appFile,'utf8')
 const oldMissing="const missing=full?keys:keys.filter(k=>!loadedRef.current.has(k))"
@@ -28,16 +22,15 @@ app=app.replace(oldMissing,newMissing)
 if(!app.includes("liveOrderPages=new Set(['orders','new','sheetplanner'])"))throw new Error('v25.0.77: no quedó refresco operativo de orders')
 fs.writeFileSync(appFile,app)
 
-/* Editar un pedido no debe quedar bloqueado porque otra sesión modificó la ficha
-   maestra de Clientes. En edición guardamos exclusivamente orders; al crear un
-   pedido nuevo se mantiene el alta/actualización normal de clients. El regex
-   tolera metadatos agregados por pasos anteriores del build. */
+/* Edición concurrente: el archivo fuente real llega al finalizer con el guardado
+   simple orders+clients. En edición se persiste sólo orders para que cambios de
+   otra sesión en clients no bloqueen el pedido; en altas se conservan ambos. */
 const orderFormFile='src/pages/OrderForm.jsx'
 let orderForm=fs.readFileSync(orderFormFile,'utf8')
-const orderSaveRx=/const saved=await onSave\(\{\.\.\.db,orders,clients(?:,[^}]*)?\}\);if\(saved\?\.ok===false\)return/
-const orderSaveMatches=orderForm.match(new RegExp(orderSaveRx.source,'g'))||[]
-if(orderSaveMatches.length!==1)throw new Error(`v25.0.78: guardado orders+clients aparece ${orderSaveMatches.length} veces`)
-orderForm=orderForm.replace(orderSaveRx,"const saved=await onSave(editing?{...db,orders,_onlyKeys:['orders']}:{...db,orders,clients,_onlyKeys:['orders','clients']});if(saved?.ok===false)return")
+const oldOrderSave="const saved=await onSave({...db,orders,clients});if(saved?.ok===false)return"
+const patchedOrderSave="const saved=await onSave(editing?{...db,orders,_onlyKeys:['orders']}:{...db,orders,clients,_onlyKeys:['orders','clients']});if(saved?.ok===false)return"
+if(orderForm.includes(oldOrderSave))orderForm=orderForm.replace(oldOrderSave,patchedOrderSave)
+else if(!orderForm.includes("editing?{...db,orders,_onlyKeys:['orders']}"))throw new Error('v25.0.78: no se encontró ni quedó aplicado el guardado de edición')
 if(!orderForm.includes("editing?{...db,orders,_onlyKeys:['orders']}"))throw new Error('v25.0.78: no quedó guardado independiente de edición')
 fs.writeFileSync(orderFormFile,orderForm)
 
