@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/finalize-customer-journey-lab.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/finalize-customer-journey-predeploy.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs"
