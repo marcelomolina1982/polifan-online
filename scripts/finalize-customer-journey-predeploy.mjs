@@ -67,4 +67,77 @@ fs.writeFileSync(file,src)
 if(!src.includes("whatsappConfirmedStatus:'simulated-private'"))throw new Error('journey predeploy: no quedó activación segura de pedidos nuevos')
 if(!data.includes("sheetplanner:['orders','movements'"))throw new Error('journey predeploy: Generar placas sigue sin movements')
 if(!src.includes("liveProductionKeys=target==='sheetplanner'"))throw new Error('journey predeploy: Generar placas no refresca producción real')
-console.log('CUSTOMER JOURNEY PREDEPLOY OK · pedidos nuevos aislados · pendientes de placas con orders/movements/cutBatches frescos')
+
+// Centro operativo: control visual del Journey y previsualización de los dos
+// únicos WhatsApp. Sigue sin enviar mensajes reales.
+const opsFile='src/pages/OperationsHub.jsx'
+let ops=fs.readFileSync(opsFile,'utf8')
+const reactOld="import React,{useEffect,useMemo} from 'react'"
+const reactNew="import React,{useEffect,useMemo,useState} from 'react'"
+if(!ops.includes(reactOld)&&!ops.includes(reactNew))throw new Error('journey control: no se encontró import React de Centro operativo')
+if(ops.includes(reactOld))ops=ops.replace(reactOld,reactNew)
+const journeyImportOld="import {JOURNEY_EVENTS} from '../lib/customerJourney'"
+const journeyImportNew="import {JOURNEY_EVENTS,eventForFinalAction,journeyMessage,trackingUrl} from '../lib/customerJourney'"
+if(!ops.includes(journeyImportOld)&&!ops.includes(journeyImportNew))throw new Error('journey control: no se encontró import de Customer Journey')
+if(ops.includes(journeyImportOld))ops=ops.replace(journeyImportOld,journeyImportNew)
+
+const exportOld='export default function OperationsHub({db,onSave,go}){'
+const helper=`const JOURNEY_REVIEW_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/opiniones'
+function journeyTime(value){
+  if(!value)return 'Pendiente'
+  const date=new Date(value)
+  return Number.isNaN(date.getTime())?'Pendiente':date.toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'})
+}
+function messageWithLinks(text){
+  return String(text||'').split(/(https?:\\/\\/[^\\s]+)/g).map((part,index)=>/^https?:\\/\\//.test(part)?<a key={index} href={part} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,textDecoration:'underline'}}>{part}</a>:<React.Fragment key={index}>{part}</React.Fragment>)
+}
+function JourneyControl({order,onClose}){
+  if(!order)return null
+  const journey=order.journey||{},enabled=journey.enabled===true,current=effectiveJourneyEvent(order),finalEvent=eventForFinalAction(order)
+  const currentIndex=current===JOURNEY_EVENTS.PACKING?2:[JOURNEY_EVENTS.DISPATCHED,JOURNEY_EVENTS.READY_PICKUP].includes(current)?3:current===JOURNEY_EVENTS.PRODUCTION_CUT?1:0
+  const steps=[
+    {label:'Pedido agendado',at:journey.confirmedAt},
+    {label:'En producción / corte',at:journey.productionAt,detail:journey.cutCompletedAt?'Corte confirmado '+journeyTime(journey.cutCompletedAt):''},
+    {label:'Para embalar',at:journey.packingAt},
+    {label:finalEvent===JOURNEY_EVENTS.READY_PICKUP?'Listo para retirar':'Despachado',at:journey.finalAt}
+  ]
+  const firstMessage=enabled?journeyMessage(order,JOURNEY_EVENTS.CONFIRMED):''
+  const finalMessage=enabled?journeyMessage(order,finalEvent,{reviewUrl:JOURNEY_REVIEW_URL}):''
+  const publicTracking=enabled?trackingUrl(order):''
+  return <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(15,23,42,.58)',display:'grid',placeItems:'center',padding:18}} onMouseDown={e=>{if(e.target===e.currentTarget)onClose?.()}}>
+    <div style={{width:'min(760px,96vw)',maxHeight:'90vh',overflow:'auto',background:'#fff',borderRadius:18,padding:18,boxShadow:'0 24px 70px rgba(0,0,0,.3)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}><div><small>CONTROL CUSTOMER JOURNEY</small><h3 style={{margin:'3px 0'}}>Pedido #{order.number} · {order.client}</h3><span className="block">Estado actual: <b>{enabled?journeyStageLabel(current):'Seguimiento no activado para este pedido'}</b></span></div><button className="ghost" onClick={onClose}>Cerrar ×</button></div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8,margin:'16px 0'}}>{steps.map((step,index)=><div key={step.label} style={{border:index<=currentIndex&&enabled?'2px solid #7c3aed':'1px solid #e5e7eb',borderRadius:12,padding:10,background:index<currentIndex&&enabled?'#f5f3ff':'#fff'}}><small>PASO {index+1}</small><b className="block" style={{marginTop:3}}>{index<currentIndex&&enabled?'✓ ':''}{step.label}</b><small className="block">{enabled?journeyTime(step.at):'—'}</small>{step.detail&&<small className="block">{step.detail}</small>}</div>)}</div>
+      {enabled&&<><div className="notice" style={{marginBottom:12}}><b>Enlaces de control</b><span>{publicTracking?<><a href={publicTracking} target="_blank" rel="noopener noreferrer">Abrir seguimiento del cliente ↗</a><br/></>:<>El pedido todavía no tiene enlace público de seguimiento generado.<br/></>}<a href={JOURNEY_REVIEW_URL} target="_blank" rel="noopener noreferrer">Abrir Opiniones del catálogo ↗</a></span></div>
+      <div style={{display:'grid',gap:12}}><div style={{border:'1px solid #e5e7eb',borderRadius:14,padding:14}}><div style={{display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><b>WhatsApp 1 · Confirmación</b><span className="status-text ok">SIMULADO · NO ENVIADO</span></div><small className="block" style={{margin:'5px 0 10px'}}>Adjunto previsto: <b>pedido.jpg</b></small><div style={{whiteSpace:'pre-wrap',lineHeight:1.5,background:'#f8fafc',borderRadius:10,padding:12}}>{messageWithLinks(firstMessage)}</div></div>
+      <div style={{border:'1px solid #e5e7eb',borderRadius:14,padding:14}}><div style={{display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><b>WhatsApp 2 · {finalEvent===JOURNEY_EVENTS.READY_PICKUP?'Listo para retirar':'Despacho'}</b><span className="status-text ok">{journeyIsFinal(order)?'SIMULADO FINAL · NO ENVIADO':'VISTA PREVIA · NO ENVIADO'}</span></div><div style={{whiteSpace:'pre-wrap',lineHeight:1.5,background:'#f8fafc',borderRadius:10,padding:12,marginTop:10}}>{messageWithLinks(finalMessage)}</div></div></div></>}
+      {!enabled&&<div className="notice"><b>Pedido anterior al Customer Journey</b><span>Por seguridad, los pedidos históricos no se activan automáticamente.</span></div>}
+    </div>
+  </div>
+}
+
+${exportOld}`
+if(!ops.includes('function JourneyControl({order,onClose})')){
+  if(!ops.includes(exportOld))throw new Error('journey control: no se encontró OperationsHub')
+  ops=ops.replace(exportOld,helper)
+}
+const stateAnchor="  const today=todayArgentinaISO(),end=addDaysIso(today,7)"
+if(!ops.includes("const [journeyPreview,setJourneyPreview]=useState(null)")){
+  if(!ops.includes(stateAnchor))throw new Error('journey control: no se encontró estado inicial de Centro operativo')
+  ops=ops.replace(stateAnchor,"  const [journeyPreview,setJourneyPreview]=useState(null)\n"+stateAnchor)
+}
+const actionNeedle="</button></div>})}</div>)}{!Object.keys(dispatch).length"
+const actionReplacement="</button><button className=\"ghost\" style={{width:'100%',marginTop:8}} onClick={()=>setJourneyPreview(o)}>Ver seguimiento</button></div>})}</div>)}{!Object.keys(dispatch).length"
+if(!ops.includes('onClick={()=>setJourneyPreview(o)}>Ver seguimiento</button>')){
+  if(!ops.includes(actionNeedle))throw new Error('journey control: no se encontró acción de despacho')
+  ops=ops.replace(actionNeedle,actionReplacement)
+}
+const closeAnchor='  </>\n}'
+if(!ops.includes('<JourneyControl order={journeyPreview}')){
+  if(!ops.includes(closeAnchor))throw new Error('journey control: no se encontró cierre de Centro operativo')
+  ops=ops.replace(closeAnchor,"    {journeyPreview&&<JourneyControl order={journeyPreview} onClose={()=>setJourneyPreview(null)}/>}\n"+closeAnchor)
+}
+fs.writeFileSync(opsFile,ops)
+if(!ops.includes('Ver seguimiento</button>')||!ops.includes('WhatsApp 1 · Confirmación')||!ops.includes('WhatsApp 2 ·'))throw new Error('journey control: validación visual incompleta')
+
+console.log('CUSTOMER JOURNEY PREDEPLOY OK · pedidos nuevos aislados · pendientes frescos · control visual + WhatsApp simulado')
