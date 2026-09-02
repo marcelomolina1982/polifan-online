@@ -32,8 +32,12 @@ const importOld="import React,{useEffect,useMemo,useState} from 'react'"
 const importNew="import React,{useEffect,useMemo,useRef,useState} from 'react'"
 if(!motor.includes(importOld))throw new Error('v25.0.81: no se encontró import de MotorDefinitivo')
 motor=motor.replace(importOld,importNew)
+const storageAnchor="function loadSavedPlans(){\n  try{return JSON.parse(localStorage.getItem(LAB_STORAGE)||'[]')||[]}\n  catch{return []}\n}"
+if(!motor.includes(storageAnchor))throw new Error('v25.0.81: no se encontró almacenamiento de placas')
+motor=motor.replace(storageAnchor,storageAnchor+"\nlet runtimePlans=null\nfunction loadRuntimePlans(){return runtimePlans||loadSavedPlans()}")
+motor=motor.replace('const [plans,setPlans]=useState(loadSavedPlans)','const [plans,setPlans]=useState(loadRuntimePlans)')
 const modeOld="  const [choosingMode,setChoosingMode]=useState(false)\n\n  useEffect(()=>{if(plans.length)savePlans(plans)},[plans])\n  useEffect(()=>{\n    const active=loadActiveJob()\n    if(active?.jobId){resumeActiveJob(active)}\n  },[])"
-const modeNew="  const [choosingMode,setChoosingMode]=useState(false)\n  const resumeRef=useRef('')\n\n  useEffect(()=>{if(plans.length)savePlans(plans)},[plans])\n  useEffect(()=>{\n    const active=loadActiveJob()\n    if(!active?.jobId||resumeRef.current===active.jobId)return\n    if(!(db.svgLibrary||[]).length||!(db.orders||[]).length)return\n    resumeRef.current=active.jobId\n    resumeActiveJob(active)\n  },[db.svgLibrary,db.orders])"
+const modeNew="  const [choosingMode,setChoosingMode]=useState(false)\n  const resumeRef=useRef('')\n\n  useEffect(()=>{runtimePlans=plans;if(plans.length)savePlans(plans)},[plans])\n  useEffect(()=>{\n    const active=loadActiveJob()\n    if(!active?.jobId||resumeRef.current===active.jobId)return\n    if(!(db.svgLibrary||[]).length||!(db.orders||[]).length)return\n    resumeRef.current=active.jobId\n    resumeActiveJob(active)\n  },[db.svgLibrary,db.orders])"
 if(!motor.includes(modeOld))throw new Error('v25.0.81: no se encontró recuperación anterior del motor')
 motor=motor.replace(modeOld,modeNew)
 fs.writeFileSync(motorFile,motor)
@@ -56,5 +60,5 @@ fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']
 const indexFile='index.html'
 fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.81-navigation-motor-resume'"))
 
-if(!app.includes('navigationRef=useRef(0)')||!app.includes('onWheel={e=>')||!motor.includes("const resumeRef=useRef('')"))throw new Error('v25.0.81: validación final incompleta')
-console.log('v25.0.81 FINALIZE OK · navegación sin boot repetido + sidebar wheel + recuperación segura del motor')
+if(!app.includes('navigationRef=useRef(0)')||!app.includes('onWheel={e=>')||!motor.includes("const resumeRef=useRef('')")||!motor.includes('useState(loadRuntimePlans)'))throw new Error('v25.0.81: validación final incompleta')
+console.log('v25.0.81 FINALIZE OK · navegación + sidebar wheel + placa terminada persistente + recuperación segura del motor')
