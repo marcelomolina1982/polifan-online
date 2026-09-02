@@ -1,4 +1,4 @@
-import { todayArgentinaISO } from './production'
+import { todayArgentinaISO } from './production.js'
 
 
 export function normalizeFigureKey(value){
