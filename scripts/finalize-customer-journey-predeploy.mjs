@@ -5,7 +5,7 @@ const runtimeFile='scripts/.customer-journey-lab-runtime.mjs'
 let lab=fs.readFileSync(sourceFile,'utf8')
 
 // Reparaciones privadas del finalizer del laboratorio para que sobreviva a la
-// cadena real de prepare/finalize sin depender de imports textualmente idénticos.
+// cadena real de prepare/finalize sin depender de imports o saves idénticos.
 const broken="{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(' · ')}"
 const fixed="{(b.items||[]).map(i=>String(i.figure)+(i.component&&i.component!=='complete'?' · '+i.component:'')+' × '+(Number(i.qty)*(Number(b.multiplier)||1))).join(' · ')}"
 if(!lab.includes(broken))throw new Error('journey predeploy: no se encontró expresión de piezas a reparar')
@@ -20,6 +20,11 @@ const oldCutImport=`  src=mustReplace(src,"import {today} from '../lib/format'",
 const newCutImport=`  src=mustReplace(src,/^(import React[^\\n]*\\n)/m,match=>match+"import {advanceOperationalJourney} from '../lib/customerJourneyOperational'\\n",'import operativo en CutBatches')`
 if(!lab.includes(oldCutImport))throw new Error('journey predeploy: no se encontró parche de import de En corte')
 lab=lab.replace(oldCutImport,newCutImport)
+
+const oldCancel=`  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})",'reconciliación al cancelar corte')`
+const newCancel=`  src=src.replace(/(async function cancel\\(batch\\)\\{[\\s\\S]*?const cutBatches=[^\\n]+\\n)\\s*await onSave\\([^\\n]+\\)/,(full,prefix)=>prefix+"    const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})")`
+if(!lab.includes(oldCancel))throw new Error('journey predeploy: no se encontró parche de cancelación de corte')
+lab=lab.replace(oldCancel,newCancel)
 
 fs.writeFileSync(runtimeFile,lab)
 try{await import('./.customer-journey-lab-runtime.mjs')}finally{try{fs.unlinkSync(runtimeFile)}catch{}}
@@ -37,7 +42,6 @@ fs.writeFileSync(dataFile,data)
 
 const file='src/AppV2.jsx'
 let src=fs.readFileSync(file,'utf8')
-
 const liveOld="const liveOrderPages=new Set(['orders','new','sheetplanner']);const missing=full?keys:keys.filter(k=>(k==='orders'&&liveOrderPages.has(target))||!loadedRef.current.has(k))"
 const liveNew="const liveOrderPages=new Set(['orders','new','sheetplanner']);const liveProductionKeys=target==='sheetplanner'?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||(k==='orders'&&liveOrderPages.has(target))||!loadedRef.current.has(k))"
 if(!src.includes(liveOld)&&!src.includes(liveNew))throw new Error('journey predeploy: no se encontró política live de Generar placas')
