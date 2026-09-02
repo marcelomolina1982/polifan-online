@@ -96,3 +96,66 @@
   .studio-capacity-copy>div{grid-template-columns:1fr!important}
   .studio-topline h1{font-size:29px!important}
 }
+
+/* UI acumulada 01/09: contraste real en Pedidos para cortar. */
+.v2-shell .delivery-group .delivery-head h3{
+  color:#111827!important;
+  opacity:1!important;
+  text-shadow:none!important;
+}
+.v2-shell .delivery-group .delivery-head>div>span{
+  color:#6b7280!important;
+  opacity:1!important;
+}
+
+/* UI acumulada 01/09: el menú Imprimir debe flotar por encima de la tabla y de Finanzas. */
+.v2-shell .table-wrap:has(.print-center[open]){
+  overflow:visible!important;
+  position:relative!important;
+  z-index:5000!important;
+}
+.v2-shell tr:has(.print-center[open]),
+.v2-shell td:has(.print-center[open]),
+.v2-shell .row-actions:has(.print-center[open]){
+  overflow:visible!important;
+  position:relative!important;
+  z-index:6000!important;
+}
+.v2-shell .print-center{
+  position:relative!important;
+}
+.v2-shell .print-center[open]{
+  z-index:7000!important;
+}
+.v2-shell .print-center .print-menu{
+  position:absolute!important;
+  top:calc(100% + 6px)!important;
+  right:0!important;
+  left:auto!important;
+  z-index:8000!important;
+  min-width:230px!important;
+  max-width:min(290px,calc(100vw - 28px))!important;
+  padding:10px!important;
+  border-radius:12px!important;
+  background:#fff!important;
+  box-shadow:0 14px 40px rgba(15,23,42,.22)!important;
+  border:1px solid rgba(148,163,184,.35)!important;
+}
+.v2-shell .print-center .print-menu button{
+  width:100%!important;
+  white-space:normal!important;
+}
+@media(max-width:760px){
+  .v2-shell .print-center .print-menu{
+    position:fixed!important;
+    top:auto!important;
+    right:14px!important;
+    left:14px!important;
+    bottom:18px!important;
+    width:auto!important;
+    max-width:none!important;
+    max-height:70vh!important;
+    overflow:auto!important;
+    z-index:10000!important;
+  }
+}
