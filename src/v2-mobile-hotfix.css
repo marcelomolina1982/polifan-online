@@ -73,6 +73,23 @@
   .studio-launchpad button{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}
   .v2-shell .sidebar nav button,.v2-shell .sidebar .nav-group button{min-height:46px!important}
   .v2-shell .table-wrap td:has(> .red-text){min-width:220px!important}
+
+  /* Screenshot-driven readability pass for the mobile dashboard. */
+  .v2-shell .studio-card-label>span,
+  .v2-shell .studio-card-label button,
+  .v2-shell .studio-launchpad>span{font-size:14px!important;line-height:1.25!important}
+  .v2-shell .studio-agenda-list>button>span b{font-size:17px!important;line-height:1.25!important}
+  .v2-shell .studio-agenda-list>button>span small{font-size:14px!important;line-height:1.3!important}
+  .v2-shell .studio-agenda-list time b{font-size:17px!important}
+  .v2-shell .studio-agenda-list time span{font-size:11px!important}
+  .v2-shell .studio-agenda-list em{font-size:13.5px!important;padding:6px 10px!important}
+  .v2-shell .studio-launchpad b{font-size:17px!important;line-height:1.2!important}
+  .v2-shell .studio-launchpad small{font-size:14px!important;line-height:1.3!important}
+  .v2-shell .studio-stage-track button b{font-size:15px!important}
+  .v2-shell .studio-stage-track button small{font-size:12px!important}
+  .v2-shell .studio-priority-list b{font-size:16px!important}
+  .v2-shell .studio-priority-list em{font-size:13px!important}
+  .v2-shell .studio-priority-list small{font-size:12px!important}
 }
 @media(max-width:390px){
   .studio-top-actions{grid-template-columns:1fr!important}
