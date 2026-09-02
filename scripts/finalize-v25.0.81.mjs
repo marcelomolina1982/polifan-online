@@ -9,10 +9,10 @@ const refsNew="const loadedRef=useRef(new Set(cached.keys||[])),baselineRef=useR
 if(!app.includes(refsOld))throw new Error('v25.0.81: no se encontró bloque de refs de navegación')
 app=app.replace(refsOld,refsNew)
 
-const goOld="function go(id){if(id==='new'){try{localStorage.removeItem('polifan-order-draft-v1')}catch{}setEditingOrder(null)}setPage(id);setMobileOpen(false);ensurePage(id,false)}"
 const goNew="async function go(id){const navigation=++navigationRef.current;if(id==='new'){try{localStorage.removeItem('polifan-order-draft-v1')}catch{}setEditingOrder(null)}setMobileOpen(false);await ensurePage(id,false);if(navigation!==navigationRef.current)return;setPage(id)}"
-if(!app.includes(goOld))throw new Error('v25.0.81: no se encontró navegación V2 original')
-app=app.replace(goOld,goNew)
+const goRx=/function go\(id\)\{[\s\S]*?\}\n  function openQuoteAsOrder/
+if(!goRx.test(app))throw new Error('v25.0.81: no se encontró navegación V2')
+app=app.replace(goRx,goNew+'\n  function openQuoteAsOrder')
 
 const asideOld="<aside className={'sidebar '+(mobileOpen?'open':'')}>"
 const asideNew="<aside className={'sidebar '+(mobileOpen?'open':'')} onWheel={e=>{const el=e.currentTarget;if(el.scrollHeight>el.clientHeight){e.preventDefault();el.scrollTop+=e.deltaY}}}>"
@@ -50,7 +50,6 @@ version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.81'")
   .replace(/APP_VERSION_LABEL='[^']*'/,"APP_VERSION_LABEL='v25.0.81'")
   .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · navegación fluida + trabajo de placas persistente'")
 fs.writeFileSync(versionFile,version)
-
 const swFile='public/sw.js'
 fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.81-navigation-motor-resume'"))
 const indexFile='index.html'
