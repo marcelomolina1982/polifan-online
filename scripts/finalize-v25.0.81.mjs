@@ -13,6 +13,7 @@ const goNew="async function go(id){const navigation=++navigationRef.current;if(i
 const goRx=/function go\(id\)\{[\s\S]*?\}\n  function openQuoteAsOrder/
 if(!goRx.test(app))throw new Error('v25.0.81: no se encontró navegación V2')
 app=app.replace(goRx,goNew+'\n  function openQuoteAsOrder')
+app=app.replace('async async function go','async function go')
 
 const asideOld="<aside className={'sidebar '+(mobileOpen?'open':'')}>"
 const asideNew="<aside className={'sidebar '+(mobileOpen?'open':'')} onWheel={e=>{const el=e.currentTarget;if(el.scrollHeight>el.clientHeight){e.preventDefault();el.scrollTop+=e.deltaY}}}>"
