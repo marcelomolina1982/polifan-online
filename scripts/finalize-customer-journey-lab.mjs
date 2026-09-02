@@ -1,0 +1,105 @@
+import fs from 'node:fs'
+import './finalize-v25.0.81.mjs'
+
+function mustReplace(text,pattern,replacement,label){
+  const next=typeof pattern==='string'?text.replace(pattern,replacement):text.replace(pattern,replacement)
+  if(next===text)throw new Error(`journey lab: no se encontró ${label}`)
+  return next
+}
+
+{
+  const file='src/pages/MotorDefinitivo.jsx'
+  let src=fs.readFileSync(file,'utf8')
+  src=mustReplace(src,"import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'","import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'\nimport {advanceOperationalJourney} from '../lib/customerJourneyOperational'",'import operativo en MotorDefinitivo')
+  const replacement=`  async function registerPlan(plan){
+    if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
+    const multiplier=Number(plan.multiplier||1)
+    const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
+    const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]
+    const now=new Date().toISOString()
+    const deliveryDates=[...new Set((plan.units||[]).map(u=>String(u.date||'').slice(0,10)).filter(Boolean))]
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),deliveryDates,name:\`Placa automática Sparrow \${plan.date||today()}\`,status:'En corte',sentToCutAt:now,journeyManaged:true,notes:\`Sparrow + V1.7 · \${plan.units.length} diseños · \${multiplier===2?'placa doble':'placa simple'} · ocupación \${Number(plan.density||0).toFixed(1)}% · ancho usado \${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación \${plan.minGap} mm\`,multiplier,items,createdAt:now}
+    const cutBatches=[...(db.cutBatches||[]),batch]
+    const journey=advanceOperationalJourney({...db,cutBatches},now)
+    const result=await onSave({...db,orders:journey.orders,cutBatches})
+    if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
+  }
+
+  return <>`
+  src=mustReplace(src,/  async function registerPlan\(plan\)\{[\s\S]*?\n  \}\n\n  return <>/,replacement,'registerPlan de MotorDefinitivo')
+  fs.writeFileSync(file,src)
+}
+
+{
+  const file='src/pages/CutBatches.jsx'
+  let src=fs.readFileSync(file,'utf8')
+  src=mustReplace(src,"import {today} from '../lib/format'","import {today} from '../lib/format'\nimport {advanceOperationalJourney} from '../lib/customerJourneyOperational'",'import operativo en CutBatches')
+  src=mustReplace(src,"const pending=(db.cutBatches||[]).filter(b=>b.status==='En corte' && String(b.name||'').startsWith('Placa automática Sparrow'))","const pending=[] // Customer Journey LAB: Sparrow espera confirmación manual del corte",'auto-finalización Sparrow')
+  src=mustReplace(src,/  async function finish\(batch\)\{[\s\S]*?\n  \}\n\n  async function cancel\(batch\)\{/,`  async function finish(batch){
+    if(!confirm('¿Confirmar que esta placa terminó de cortarse y sumar sus piezas al inventario?'))return
+    const now=new Date().toISOString()
+    const movements=inventoryMovements(batch,1,'Placa terminada')
+    const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Terminada',finishedAt:now}:b)
+    const next={...db,movements:[...(db.movements||[]),...movements],cutBatches}
+    const journey=advanceOperationalJourney(next,now)
+    await onSave({...next,orders:journey.orders})
+  }
+
+  async function cancel(batch){`,'confirmación manual de corte')
+  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    await onSave({...next,orders:journey.orders})",'reconciliación al cancelar corte')
+  src=mustReplace(src,'Las placas automáticas de Sparrow pasan a Terminadas al ingresar y suman su producción al inventario. Después podés modificarlas o anularlas y el stock se corrige automáticamente.','Las placas automáticas de Sparrow quedan En corte hasta que confirmes que terminaron. Recién ahí suman su producción al inventario y comienza el reloj operativo del pedido.','texto de En corte')
+  fs.writeFileSync(file,src)
+}
+
+{
+  const file='src/pages/OperationsHub.jsx'
+  let src=fs.readFileSync(file,'utf8')
+  src=mustReplace(src,"import React,{useMemo} from 'react'","import React,{useEffect,useMemo} from 'react'",'useEffect en Centro operativo')
+  src=mustReplace(src,"import {pendingCutPlan} from '../lib/cutPlanning'","import {pendingCutPlan} from '../lib/cutPlanning'\nimport {advanceOperationalJourney,effectiveJourneyEvent,finalActionLabel,journeyIsFinal,journeyStageLabel,markJourneyFinal} from '../lib/customerJourneyOperational'\nimport {JOURNEY_EVENTS} from '../lib/customerJourney'",'imports Customer Journey en Centro operativo')
+  src=mustReplace(src,'export default function OperationsHub({db,go}){','export default function OperationsHub({db,onSave,go}){','onSave en Centro operativo')
+
+  const anchor=`  const upcomingByDate=useMemo(()=>{
+    const map=new Map()
+    upcoming.forEach(o=>{
+      if(!map.has(o.delivery))map.set(o.delivery,[])
+      map.get(o.delivery).push(o)
+    })
+    return [...map.entries()].map(([date,orders])=>({date,orders,pieces:orders.reduce((s,o)=>s+orderPieces(o),0),ready:orders.filter(o=>String(o.status||'').toLowerCase().includes('listo')).length}))
+  },[upcoming])
+`
+  const addition=anchor+`
+  useEffect(()=>{
+    let alive=true,busy=false
+    async function syncJourney(){
+      if(busy)return
+      const result=advanceOperationalJourney(db,new Date().toISOString())
+      if(!alive||!result.changed)return
+      busy=true
+      try{await onSave?.({...db,orders:result.orders})}finally{busy=false}
+    }
+    syncJourney()
+    const timer=setInterval(syncJourney,60000)
+    return()=>{alive=false;clearInterval(timer)}
+  },[db.orders,db.movements,db.cutBatches,onSave])
+
+  async function confirmFinalAction(order){
+    const label=finalActionLabel(order)
+    if(!confirm(\`¿Confirmar \${label.toLowerCase()} para el pedido #\${order.number}?\`))return
+    const now=new Date().toISOString()
+    const orders=(db.orders||[]).map(row=>row.id===order.id?markJourneyFinal(row,now):row)
+    await onSave?.({...db,orders})
+  }
+`
+  src=mustReplace(src,anchor,addition,'sincronización de etapas en Centro operativo')
+
+  const start='      <div className="dispatch-grid">'
+  const end='    </section>\n\n    <section className="panel">\n      <div className="panel-heading"><div><h3>Próximos 7 días</h3>'
+  const i=src.indexOf(start),j=src.indexOf(end,i)
+  if(i<0||j<0)throw new Error('journey lab: no se encontró bloque Despachos de hoy')
+  const dispatch=`      <div className="dispatch-grid">{Object.entries(dispatch).map(([type,orders])=><div className="dispatch-card" key={type}><h4>{type}</h4><b>{orders.length} pedido{orders.length===1?'':'s'}</b>{orders.map(o=>{const stage=effectiveJourneyEvent(o);const final=journeyIsFinal(o);const ready=stage===JOURNEY_EVENTS.PACKING;return <div className="dispatch-order" key={o.id} style={{display:'block'}}><div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center'}}><span><b>#{o.number} · {o.client}</b><small>{orderPieces(o)} piezas · {o.locality||o.province||''}</small><small className="block">Seguimiento: <b>{journeyStageLabel(stage)}</b></small></span><Badge status={o.status}/></div><button className={final?'ghost':'primary'} disabled={!ready&& !final} style={{width:'100%',marginTop:10,padding:'14px 16px',fontSize:16,fontWeight:900}} onClick={()=>!final&&confirmFinalAction(o)}>{final?'✓ '+finalActionLabel(o)+' CONFIRMADO':ready?finalActionLabel(o):'AÚN NO LISTO PARA DESPACHAR'}</button></div>})}</div>)}{!Object.keys(dispatch).length&&<div className="dash-empty"><b>No hay despachos para hoy.</b></div>}</div>
+`
+  src=src.slice(0,i)+dispatch+src.slice(j)
+  fs.writeFileSync(file,src)
+}
+
+console.log('CUSTOMER JOURNEY LAB V2 OK · 4 pasos · WhatsApp sólo inicio/final · corte manual · embalaje +3 h · despacho desde Centro operativo')
