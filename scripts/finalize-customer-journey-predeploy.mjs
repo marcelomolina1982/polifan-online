@@ -1,5 +1,14 @@
 import fs from 'node:fs'
-import './finalize-customer-journey-lab.mjs'
+
+const sourceFile='scripts/finalize-customer-journey-lab.mjs'
+const runtimeFile='scripts/.customer-journey-lab-runtime.mjs'
+let lab=fs.readFileSync(sourceFile,'utf8')
+const broken="{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(' · ')}"
+const fixed="{(b.items||[]).map(i=>String(i.figure)+(i.component&&i.component!=='complete'?' · '+i.component:'')+' × '+(Number(i.qty)*(Number(b.multiplier)||1))).join(' · ')}"
+if(!lab.includes(broken))throw new Error('journey predeploy: no se encontró expresión de piezas a reparar')
+lab=lab.replace(broken,fixed)
+fs.writeFileSync(runtimeFile,lab)
+try{await import('./.customer-journey-lab-runtime.mjs')}finally{try{fs.unlinkSync(runtimeFile)}catch{}}
 
 const file='src/AppV2.jsx'
 let src=fs.readFileSync(file,'utf8')
