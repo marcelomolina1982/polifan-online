@@ -68,12 +68,13 @@ function mustReplace(text,pattern,replacement,label){
   const cancelEnd=src.indexOf('\n  function edit(batch){',cancelStart)
   if(cancelStart<0||cancelEnd<0)throw new Error('journey lab: no se encontró bloque de cancelación de placa')
   let cancelBlock=src.slice(cancelStart,cancelEnd)
-  const cancelSavePos=cancelBlock.lastIndexOf('await onSave(')
-  if(cancelSavePos<0)throw new Error('journey lab: no se encontró guardado de cancelación de placa')
-  const cancelSaveLineEnd=cancelBlock.indexOf('\n',cancelSavePos)
+  const cancelAwaitPos=cancelBlock.lastIndexOf('await onSave(')
+  if(cancelAwaitPos<0)throw new Error('journey lab: no se encontró guardado de cancelación de placa')
+  const cancelLineStart=cancelBlock.lastIndexOf('\n',cancelAwaitPos)+1
+  const cancelSaveLineEnd=cancelBlock.indexOf('\n',cancelAwaitPos)
   const cancelSaveEnd=cancelSaveLineEnd<0?cancelBlock.length:cancelSaveLineEnd
-  const cancelSave="const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    const saved=await onSave({...next,orders:journey.orders})\n    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)"
-  cancelBlock=cancelBlock.slice(0,cancelSavePos)+cancelSave+cancelBlock.slice(cancelSaveEnd)
+  const cancelSave="    const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    const saved=await onSave({...next,orders:journey.orders})\n    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)"
+  cancelBlock=cancelBlock.slice(0,cancelLineStart)+cancelSave+cancelBlock.slice(cancelSaveEnd)
   src=src.slice(0,cancelStart)+cancelBlock+src.slice(cancelEnd)
   if(!src.includes("const saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no quedó reconciliación de cancelación')
 
