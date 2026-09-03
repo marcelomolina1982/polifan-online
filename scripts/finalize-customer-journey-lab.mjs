@@ -63,7 +63,20 @@ function mustReplace(text,pattern,replacement,label){
   }
 
   async function cancel(batch){`,'confirmación manual de corte')
-  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    const saved=await onSave({...next,orders:journey.orders})\n    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)",'reconciliación al cancelar corte')
+
+  const cancelStart=src.indexOf('  async function cancel(batch){')
+  const cancelEnd=src.indexOf('\n  function edit(batch){',cancelStart)
+  if(cancelStart<0||cancelEnd<0)throw new Error('journey lab: no se encontró bloque de cancelación de placa')
+  let cancelBlock=src.slice(cancelStart,cancelEnd)
+  const cancelSavePos=cancelBlock.lastIndexOf('await onSave(')
+  if(cancelSavePos<0)throw new Error('journey lab: no se encontró guardado de cancelación de placa')
+  const cancelSaveLineEnd=cancelBlock.indexOf('\n',cancelSavePos)
+  const cancelSaveEnd=cancelSaveLineEnd<0?cancelBlock.length:cancelSaveLineEnd
+  const cancelSave="const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    const saved=await onSave({...next,orders:journey.orders})\n    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)"
+  cancelBlock=cancelBlock.slice(0,cancelSavePos)+cancelSave+cancelBlock.slice(cancelSaveEnd)
+  src=src.slice(0,cancelStart)+cancelBlock+src.slice(cancelEnd)
+  if(!src.includes("const saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no quedó reconciliación de cancelación')
+
   src=mustReplace(src,'Las placas automáticas de Sparrow pasan a Terminadas al ingresar y suman su producción al inventario. Después podés modificarlas o anularlas y el stock se corrige automáticamente.','Las placas automáticas de Sparrow quedan En corte hasta que confirmes que terminaron. Recién ahí suman su producción al inventario y comienza el reloj operativo del pedido.','texto de En corte')
 
   const tableStart='    <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Piezas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>'
