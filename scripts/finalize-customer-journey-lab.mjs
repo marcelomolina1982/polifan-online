@@ -34,22 +34,61 @@ function mustReplace(text,pattern,replacement,label){
   const file='src/pages/CutBatches.jsx'
   let src=fs.readFileSync(file,'utf8')
   src=mustReplace(src,"import {today} from '../lib/format'","import {today} from '../lib/format'\nimport {advanceOperationalJourney} from '../lib/customerJourneyOperational'",'import operativo en CutBatches')
-  src=mustReplace(src,"  const autoFinishRef=useRef(false)","  const autoFinishRef=useRef(false)\n  const [displayBatches,setDisplayBatches]=useState(()=>db.cutBatches||[])\n  useEffect(()=>setDisplayBatches(db.cutBatches||[]),[db.cutBatches])",'estado visual sincronizado de placas')
+  src=mustReplace(src,"  const autoFinishRef=useRef(false)","  const autoFinishRef=useRef(false)\n  const [displayBatches,setDisplayBatches]=useState(()=>db.cutBatches||[])\n  const [saving,setSaving]=useState(false)\n  useEffect(()=>setDisplayBatches(db.cutBatches||[]),[db.cutBatches])",'estado visual sincronizado de placas')
   src=mustReplace(src,"const pending=(db.cutBatches||[]).filter(b=>b.status==='En corte' && String(b.name||'').startsWith('Placa automática Sparrow'))","const pending=[] // Customer Journey LAB: Sparrow espera confirmación manual del corte",'auto-finalización Sparrow')
 
-  const editingStart=src.indexOf('    if(editing){')
-  const editingEnd=src.indexOf('    }else{',editingStart)
-  if(editingStart<0||editingEnd<0)throw new Error('journey lab: no se encontró bloque de edición de placa')
-  let editingBlock=src.slice(editingStart,editingEnd)
-  const savePos=editingBlock.lastIndexOf('saved=await onSave(')
-  if(savePos<0)throw new Error('journey lab: no se encontró guardado de modificación de placa')
-  const saveLineEnd=editingBlock.indexOf('\n',savePos)
-  const saveEnd=saveLineEnd<0?editingBlock.length:saveLineEnd
-  const editSave="const next={...db,movements,cutBatches}\n      const journey=advanceOperationalJourney(next,new Date().toISOString())\n      saved=await onSave({...next,orders:journey.orders})"
-  editingBlock=editingBlock.slice(0,savePos)+editSave+editingBlock.slice(saveEnd)
-  src=src.slice(0,editingStart)+editingBlock+src.slice(editingEnd)
-  if(!src.includes("saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no quedó reconciliación de modificación de placa')
-  src=mustReplace(src,"    if(saved?.ok===false)return\n    setEditing(null);setForm(blank())","    if(saved?.ok===false)return\n    if(saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)\n    setEditing(null);setForm(blank())",'refresco inmediato tras modificar placa')
+  const safeSave=`  async function save(e){
+    e.preventDefault()
+    if(saving)return
+    if(!String(form.name||'').trim()){alert('La placa necesita un nombre antes de guardar.');return}
+    setSaving(true)
+    try{
+      let saved=null
+      if(editing){
+        const current=(db.cutBatches||[]).find(b=>b.id===editing)
+        if(!current){alert('No encontramos la placa que estabas modificando. Volvé a abrirla e intentá otra vez.');return}
+        const nextBatch={...current,name:form.name,notes:form.notes,multiplier:Number(form.multiplier)||1,items:form.items.filter(i=>i.figure&&Number(i.qty)>0).map(i=>({...i,qty:Number(i.qty)}))}
+        let movements=[...(db.movements||[])]
+        if(current.status==='Terminada'){
+          const oldMultiplier=Number(current.multiplier)||1
+          const rows=new Set([...(current.items||[]).map(i=>(i.component||'complete')+'|'+i.figure),...(nextBatch.items||[]).map(i=>(i.component||'complete')+'|'+i.figure)])
+          for(const row of rows){
+            const [component,figure]=row.split('|')
+            const oldItem=(current.items||[]).find(i=>(i.component||'complete')===component&&i.figure===figure)
+            const newItem=(nextBatch.items||[]).find(i=>(i.component||'complete')===component&&i.figure===figure)
+            const oldQty=Number(oldItem?.qty||0)*oldMultiplier
+            const newQty=Number(newItem?.qty||0)*nextBatch.multiplier
+            const delta=newQty-oldQty
+            if(!delta)continue
+            const movement=movementForItem(nextBatch,{figure,component,qty:Math.abs(delta)},delta>0?1:-1,'Corrección por modificación de placa')
+            if(movement)movements.push(movement)
+          }
+        }
+        const cutBatches=(db.cutBatches||[]).map(b=>b.id===editing?nextBatch:b)
+        const next={...db,movements,cutBatches}
+        const journey=advanceOperationalJourney(next,new Date().toISOString())
+        saved=await onSave({...next,orders:journey.orders})
+        if(saved?.ok===false)return
+        setDisplayBatches(saved?.data?.cutBatches||cutBatches)
+      }else{
+        const batch={id:crypto.randomUUID(),number:String(nextNumber).padStart(3,'0'),date:form.date,name:form.name,notes:form.notes,multiplier:Number(form.multiplier)||1,items:form.items.filter(i=>i.figure&&Number(i.qty)>0).map(i=>({...i,qty:Number(i.qty)})),status:'En corte',createdAt:new Date().toISOString()}
+        const cutBatches=[...(db.cutBatches||[]),batch]
+        saved=await onSave({...db,cutBatches})
+        if(saved?.ok===false)return
+        setDisplayBatches(saved?.data?.cutBatches||cutBatches)
+      }
+      setEditing(null)
+      setForm(blank())
+    }catch(error){
+      console.error('No se pudo guardar la placa',error)
+      alert('No se pudo guardar la modificación: '+String(error?.message||error||'Error inesperado'))
+    }finally{
+      setSaving(false)
+    }
+  }
+
+  async function finish(batch){`
+  src=mustReplace(src,/  async function save\(e\)\{[\s\S]*?\n  \}\n\n  async function finish\(batch\)\{/,safeSave,'guardado completo y seguro de placa')
 
   src=mustReplace(src,/  async function finish\(batch\)\{[\s\S]*?\n  \}\n\n  async function cancel\(batch\)\{/,`  async function finish(batch){
     if(!confirm('¿Confirmar que esta placa terminó de cortarse y sumar sus piezas al inventario?'))return
@@ -79,6 +118,7 @@ function mustReplace(text,pattern,replacement,label){
   if(!src.includes("const saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no quedó reconciliación de cancelación')
 
   src=mustReplace(src,'Las placas automáticas de Sparrow pasan a Terminadas al ingresar y suman su producción al inventario. Después podés modificarlas o anularlas y el stock se corrige automáticamente.','Las placas automáticas de Sparrow quedan En corte hasta que confirmes que terminaron. Recién ahí suman su producción al inventario y comienza el reloj operativo del pedido.','texto de En corte')
+  src=mustReplace(src,"<button className=\"primary\">{editing?'Guardar modificación':'Guardar placa'}</button>","<button type=\"submit\" className=\"primary\" disabled={saving}>{saving?'Guardando…':editing?'Guardar modificación':'Guardar placa'}</button>",'botón de guardado visible')
 
   const tableStart='    <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Piezas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>'
   const tableEnd='    </tbody></table></div>'
@@ -150,4 +190,4 @@ function mustReplace(text,pattern,replacement,label){
   fs.writeFileSync(file,src)
 }
 
-console.log('CUSTOMER JOURNEY LAB V2 OK · 4 pasos · WhatsApp sólo inicio/final · corte manual · embalaje +3 h · despacho desde Centro operativo · modificación de placa reconciliada en vista, pendientes, inventario y Journey')
+console.log('CUSTOMER JOURNEY LAB V2 OK · guardado de placa explícito · errores visibles · En corte no toca inventario · 4 pasos · corte manual · embalaje +3 h · despacho desde Centro operativo')
