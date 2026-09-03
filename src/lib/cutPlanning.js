@@ -1,4 +1,4 @@
-import { normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty } from './inventory'
+import { normalizeFigureKey, physicalStockBalance, activeCutQty } from './inventory'
 import { todayArgentinaISO } from './production'
 
 function orderDate(order){return String(order?.delivery||'').slice(0,10)}
@@ -9,20 +9,18 @@ export function isActiveProductionOrder(order,today=todayArgentinaISO()){
 }
 
 export function productionStockSnapshot(db){
-  const raw=manualBalance(db)
-  const loose=looseComponentBalance(db)
+  const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
   const labels={}
   const rows={}
-  const names=new Set([...Object.keys(raw),...Object.keys(loose),...Object.keys(inCut)])
+  const names=new Set([...Object.keys(physical),...Object.keys(inCut)])
 
   names.forEach(name=>{
     const key=normalizeFigureKey(name)
     if(!key)return
     if(!labels[key])labels[key]=String(name).trim()
     if(!rows[key])rows[key]={key,figure:labels[key],physical:0,inCut:0}
-    const paired=Math.min(Number(loose[name]?.tapa||0),Number(loose[name]?.base||0))
-    rows[key].physical+=Math.max(0,Number(raw[name]||0)+paired)
+    rows[key].physical+=Math.max(0,Number(physical[name]||0))
     rows[key].inCut+=Math.max(0,Number(inCut[name]||0))
   })
 
