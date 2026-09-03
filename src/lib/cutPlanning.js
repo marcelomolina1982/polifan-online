@@ -2,7 +2,11 @@ import { normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty 
 import { todayArgentinaISO } from './production'
 
 function orderDate(order){return String(order?.delivery||'').slice(0,10)}
-export function isActiveProductionOrder(order){return Boolean(order)&&!['Cancelado','Entregado'].includes(order.status)}
+export function isActiveProductionOrder(order,today=todayArgentinaISO()){
+  if(!order||['Cancelado','Entregado'].includes(order.status))return false
+  const date=orderDate(order)
+  return !date||date>=today
+}
 
 export function productionStockSnapshot(db){
   const raw=manualBalance(db)
@@ -30,15 +34,15 @@ export function pendingCutPlan(db){
   const snapshot=productionStockSnapshot(db)
   const available={}
   const labels={}
-  const activeOrders=(db.orders||[]).filter(isActiveProductionOrder)
+  const activeOrders=(db.orders||[]).filter(order=>isActiveProductionOrder(order,today))
 
   snapshot.forEach(row=>{
     available[row.key]=(available[row.key]||0)+Number(row.physical||0)+Number(row.inCut||0)
     if(!labels[row.key])labels[row.key]=row.figure
   })
 
-  // La producción se decide por estado real del pedido, no por si la fecha ya pasó.
-  // Un pedido vencido activo se procesa primero; sólo sale al estar Entregado o Cancelado.
+  // Producción operativa: sólo entregas de hoy en adelante.
+  // El inventario disponible se reserva cronológicamente; una pieza sólo cubre un pedido.
   const groups={}
   activeOrders
     .slice()
@@ -46,7 +50,7 @@ export function pendingCutPlan(db){
     .forEach(order=>{
       const date=orderDate(order)
       const key=date||'sin-fecha'
-      if(!groups[key])groups[key]={key,date,overdue:Boolean(date&&date<today),orders:[],rows:{},audit:{}}
+      if(!groups[key])groups[key]={key,date,overdue:false,orders:[],rows:{},audit:{}}
       groups[key].orders.push(order.number)
       ;(order.items||[]).forEach(item=>{
         if(!item?.figure||item.inventoryTracked===false||Number(item.qty||0)<=0)return
