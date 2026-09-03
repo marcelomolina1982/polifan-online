@@ -34,7 +34,14 @@ function mustReplace(text,pattern,replacement,label){
   const file='src/pages/CutBatches.jsx'
   let src=fs.readFileSync(file,'utf8')
   src=mustReplace(src,"import {today} from '../lib/format'","import {today} from '../lib/format'\nimport {advanceOperationalJourney} from '../lib/customerJourneyOperational'",'import operativo en CutBatches')
+  src=mustReplace(src,"  const autoFinishRef=useRef(false)","  const autoFinishRef=useRef(false)\n  const [displayBatches,setDisplayBatches]=useState(()=>db.cutBatches||[])\n  useEffect(()=>setDisplayBatches(db.cutBatches||[]),[db.cutBatches])",'estado visual sincronizado de placas')
   src=mustReplace(src,"const pending=(db.cutBatches||[]).filter(b=>b.status==='En corte' && String(b.name||'').startsWith('Placa automática Sparrow'))","const pending=[] // Customer Journey LAB: Sparrow espera confirmación manual del corte",'auto-finalización Sparrow')
+
+  const oldEditSave="      saved=await onSave({...db,movements,cutBatches})"
+  const newEditSave="      const next={...db,movements,cutBatches}\n      const journey=advanceOperationalJourney(next,new Date().toISOString())\n      saved=await onSave({...next,orders:journey.orders})"
+  src=mustReplace(src,oldEditSave,newEditSave,'reconciliación al modificar placa')
+  src=mustReplace(src,"    if(saved?.ok===false)return\n    setEditing(null);setForm(blank())","    if(saved?.ok===false)return\n    if(saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)\n    setEditing(null);setForm(blank())",'refresco inmediato tras modificar placa')
+
   src=mustReplace(src,/  async function finish\(batch\)\{[\s\S]*?\n  \}\n\n  async function cancel\(batch\)\{/,`  async function finish(batch){
     if(!confirm('¿Confirmar que esta placa terminó de cortarse y sumar sus piezas al inventario?'))return
     const now=new Date().toISOString()
@@ -42,11 +49,12 @@ function mustReplace(text,pattern,replacement,label){
     const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Terminada',finishedAt:now}:b)
     const next={...db,movements:[...(db.movements||[]),...movements],cutBatches}
     const journey=advanceOperationalJourney(next,now)
-    await onSave({...next,orders:journey.orders})
+    const saved=await onSave({...next,orders:journey.orders})
+    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)
   }
 
   async function cancel(batch){`,'confirmación manual de corte')
-  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    await onSave({...next,orders:journey.orders})",'reconciliación al cancelar corte')
+  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\n    const saved=await onSave({...next,orders:journey.orders})\n    if(saved?.ok!==false&&saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)",'reconciliación al cancelar corte')
   src=mustReplace(src,'Las placas automáticas de Sparrow pasan a Terminadas al ingresar y suman su producción al inventario. Después podés modificarlas o anularlas y el stock se corrige automáticamente.','Las placas automáticas de Sparrow quedan En corte hasta que confirmes que terminaron. Recién ahí suman su producción al inventario y comienza el reloj operativo del pedido.','texto de En corte')
 
   const tableStart='    <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Piezas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>'
@@ -54,15 +62,15 @@ function mustReplace(text,pattern,replacement,label){
   const ti=src.indexOf(tableStart),tj=src.indexOf(tableEnd,ti)
   if(ti<0||tj<0)throw new Error('journey lab: no se encontró tabla de En corte')
   const compact=`    <div className="panel" style={{display:'grid',gap:10}}>
-      {(db.cutBatches||[]).slice().reverse().map(b=><article key={b.id} style={{border:'1px solid #e5e7eb',borderRadius:14,padding:14,display:'grid',gap:10,minWidth:0}}>
+      {(displayBatches||[]).slice().reverse().map(b=><article key={b.id} style={{border:'1px solid #e5e7eb',borderRadius:14,padding:14,display:'grid',gap:10,minWidth:0}}>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
           <div style={{minWidth:0,flex:'1 1 260px'}}><b>#{b.number} · {b.name}</b><small className="block">{b.date} · Corte {(Number(b.multiplier)||1)===2?'doble':'simple'}</small>{b.notes&&<small className="block" style={{marginTop:4}}>{b.notes}</small>}</div>
           <span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')} style={{flex:'0 0 auto'}}>{b.status}</span>
         </div>
-        <div style={{fontSize:13,lineHeight:1.45,overflowWrap:'anywhere'}}>{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(' · ')}</div>
+        <div style={{fontSize:13,lineHeight:1.45,overflowWrap:'anywhere'}}>{(b.items||[]).map(i=>\`${i.figure}\${(i.component&&i.component!=='complete')?\` · \${i.component}\`:''} × \${Number(i.qty)*(Number(b.multiplier)||1)}\`).join(' · ')}</div>
         <div className="row-actions" style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-start'}}>{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar corte</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</div>
       </article>)}
-      {!(db.cutBatches||[]).length&&<div className="dash-empty"><b>Todavía no hay placas registradas.</b></div>}
+      {!(displayBatches||[]).length&&<div className="dash-empty"><b>Todavía no hay placas registradas.</b></div>}
     </div>`
   src=src.slice(0,ti)+compact+src.slice(tj+tableEnd.length)
   fs.writeFileSync(file,src)
@@ -119,4 +127,4 @@ function mustReplace(text,pattern,replacement,label){
   fs.writeFileSync(file,src)
 }
 
-console.log('CUSTOMER JOURNEY LAB V2 OK · 4 pasos · WhatsApp sólo inicio/final · corte manual · embalaje +3 h · despacho desde Centro operativo · acciones de corte siempre visibles')
+console.log('CUSTOMER JOURNEY LAB V2 OK · 4 pasos · WhatsApp sólo inicio/final · corte manual · embalaje +3 h · despacho desde Centro operativo · modificación de placa reconciliada en vista, pendientes, inventario y Journey')
