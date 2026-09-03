@@ -37,9 +37,18 @@ function mustReplace(text,pattern,replacement,label){
   src=mustReplace(src,"  const autoFinishRef=useRef(false)","  const autoFinishRef=useRef(false)\n  const [displayBatches,setDisplayBatches]=useState(()=>db.cutBatches||[])\n  useEffect(()=>setDisplayBatches(db.cutBatches||[]),[db.cutBatches])",'estado visual sincronizado de placas')
   src=mustReplace(src,"const pending=(db.cutBatches||[]).filter(b=>b.status==='En corte' && String(b.name||'').startsWith('Placa automática Sparrow'))","const pending=[] // Customer Journey LAB: Sparrow espera confirmación manual del corte",'auto-finalización Sparrow')
 
-  const oldEditSave="      saved=await onSave({...db,movements,cutBatches})"
-  const newEditSave="      const next={...db,movements,cutBatches}\n      const journey=advanceOperationalJourney(next,new Date().toISOString())\n      saved=await onSave({...next,orders:journey.orders})"
-  src=mustReplace(src,oldEditSave,newEditSave,'reconciliación al modificar placa')
+  const editingStart=src.indexOf('    if(editing){')
+  const editingEnd=src.indexOf('    }else{',editingStart)
+  if(editingStart<0||editingEnd<0)throw new Error('journey lab: no se encontró bloque de edición de placa')
+  let editingBlock=src.slice(editingStart,editingEnd)
+  const savePos=editingBlock.lastIndexOf('saved=await onSave(')
+  if(savePos<0)throw new Error('journey lab: no se encontró guardado de modificación de placa')
+  const saveLineEnd=editingBlock.indexOf('\n',savePos)
+  const saveEnd=saveLineEnd<0?editingBlock.length:saveLineEnd
+  const editSave="const next={...db,movements,cutBatches}\n      const journey=advanceOperationalJourney(next,new Date().toISOString())\n      saved=await onSave({...next,orders:journey.orders})"
+  editingBlock=editingBlock.slice(0,savePos)+editSave+editingBlock.slice(saveEnd)
+  src=src.slice(0,editingStart)+editingBlock+src.slice(editingEnd)
+  if(!src.includes("saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no quedó reconciliación de modificación de placa')
   src=mustReplace(src,"    if(saved?.ok===false)return\n    setEditing(null);setForm(blank())","    if(saved?.ok===false)return\n    if(saved?.data?.cutBatches)setDisplayBatches(saved.data.cutBatches)\n    setEditing(null);setForm(blank())",'refresco inmediato tras modificar placa')
 
   src=mustReplace(src,/  async function finish\(batch\)\{[\s\S]*?\n  \}\n\n  async function cancel\(batch\)\{/,`  async function finish(batch){
