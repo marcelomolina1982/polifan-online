@@ -89,7 +89,7 @@ function mustReplace(text,pattern,replacement,label){
           <div style={{minWidth:0,flex:'1 1 260px'}}><b>#{b.number} · {b.name}</b><small className="block">{b.date} · Corte {(Number(b.multiplier)||1)===2?'doble':'simple'}</small>{b.notes&&<small className="block" style={{marginTop:4}}>{b.notes}</small>}</div>
           <span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')} style={{flex:'0 0 auto'}}>{b.status}</span>
         </div>
-        <div style={{fontSize:13,lineHeight:1.45,overflowWrap:'anywhere'}}>{(b.items||[]).map(i=>\`${i.figure}\${(i.component&&i.component!=='complete')?\` · \${i.component}\`:''} × \${Number(i.qty)*(Number(b.multiplier)||1)}\`).join(' · ')}</div>
+        <div style={{fontSize:13,lineHeight:1.45,overflowWrap:'anywhere'}}>{(b.items||[]).map(i=>String(i.figure)+(i.component&&i.component!=='complete'?' · '+i.component:'')+' × '+(Number(i.qty)*(Number(b.multiplier)||1))).join(' · ')}</div>
         <div className="row-actions" style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-start'}}>{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar corte</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</div>
       </article>)}
       {!(displayBatches||[]).length&&<div className="dash-empty"><b>Todavía no hay placas registradas.</b></div>}
