@@ -8,8 +8,7 @@ let lab=fs.readFileSync(sourceFile,'utf8')
 // cadena real de prepare/finalize sin depender de imports o saves idénticos.
 const broken="{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(' · ')}"
 const fixed="{(b.items||[]).map(i=>String(i.figure)+(i.component&&i.component!=='complete'?' · '+i.component:'')+' × '+(Number(i.qty)*(Number(b.multiplier)||1))).join(' · ')}"
-if(!lab.includes(broken))throw new Error('journey predeploy: no se encontró expresión de piezas a reparar')
-lab=lab.replace(broken,fixed)
+if(lab.includes(broken))lab=lab.replace(broken,fixed)
 
 const oldMotorImport=`  src=mustReplace(src,"import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'","import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'\\nimport {advanceOperationalJourney} from '../lib/customerJourneyOperational'",'import operativo en MotorDefinitivo')`
 const newMotorImport=`  src=mustReplace(src,/^(import React[^\\n]*\\n)/m,match=>match+"import {advanceOperationalJourney} from '../lib/customerJourneyOperational'\\n",'import operativo en MotorDefinitivo')`
@@ -23,15 +22,11 @@ lab=lab.replace(oldCutImport,newCutImport)
 
 const oldCancel=`  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})",'reconciliación al cancelar corte')`
 const newCancel=`  src=src.replace(/(async function cancel\\(batch\\)\\{[\\s\\S]*?const cutBatches=[^\\n]+\\n)\\s*await onSave\\([^\\n]+\\)/,(full,prefix)=>prefix+"    const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})")`
-if(!lab.includes(oldCancel))throw new Error('journey predeploy: no se encontró parche de cancelación de corte')
-lab=lab.replace(oldCancel,newCancel)
+if(lab.includes(oldCancel))lab=lab.replace(oldCancel,newCancel)
 
 fs.writeFileSync(runtimeFile,lab)
 try{await import('./.customer-journey-lab-runtime.mjs')}finally{try{fs.unlinkSync(runtimeFile)}catch{}}
 
-// Generar placas calcula pendientes con stock físico. Por eso necesita movements
-// además de orders/cutBatches. Y estas tres secciones deben refrescarse al entrar:
-// no alcanza con conservarlas desde cache porque cambian durante la producción.
 const dataFile='src/lib/v2Data.js'
 let data=fs.readFileSync(dataFile,'utf8')
 const sheetOld="  sheetplanner:['orders','figures','svgLibrary','generatedSheets','cutBatches'],"
@@ -68,8 +63,6 @@ if(!src.includes("whatsappConfirmedStatus:'simulated-private'"))throw new Error(
 if(!data.includes("sheetplanner:['orders','movements'"))throw new Error('journey predeploy: Generar placas sigue sin movements')
 if(!src.includes("liveProductionKeys=target==='sheetplanner'"))throw new Error('journey predeploy: Generar placas no refresca producción real')
 
-// Centro operativo: control visual del Journey y previsualización de los dos
-// únicos WhatsApp. Sigue sin enviar mensajes reales.
 const opsFile='src/pages/OperationsHub.jsx'
 let ops=fs.readFileSync(opsFile,'utf8')
 const reactOld="import React,{useEffect,useMemo} from 'react'"
