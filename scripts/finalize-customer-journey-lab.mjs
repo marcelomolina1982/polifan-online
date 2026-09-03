@@ -88,7 +88,11 @@ function mustReplace(text,pattern,replacement,label){
   }
 
   async function finish(batch){`
-  src=mustReplace(src,/  async function save\(e\)\{[\s\S]*?\n  \}\n\n  async function finish\(batch\)\{/,safeSave,'guardado completo y seguro de placa')
+  const saveStart=src.indexOf('  async function save(e){')
+  const finishAnchor='  async function finish(batch){'
+  const finishStart=src.indexOf(finishAnchor,saveStart)
+  if(saveStart<0||finishStart<0)throw new Error('journey lab: no se encontraron los límites del guardado de placa')
+  src=src.slice(0,saveStart)+safeSave+src.slice(finishStart+finishAnchor.length)
 
   src=mustReplace(src,/  async function finish\(batch\)\{[\s\S]*?\n  \}\n\n  async function cancel\(batch\)\{/,`  async function finish(batch){
     if(!confirm('¿Confirmar que esta placa terminó de cortarse y sumar sus piezas al inventario?'))return
@@ -133,7 +137,7 @@ function mustReplace(text,pattern,replacement,label){
         <div style={{fontSize:13,lineHeight:1.45,overflowWrap:'anywhere'}}>{(b.items||[]).map(i=>String(i.figure)+(i.component&&i.component!=='complete'?' · '+i.component:'')+' × '+(Number(i.qty)*(Number(b.multiplier)||1))).join(' · ')}</div>
         <div className="row-actions" style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-start'}}>{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar corte</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</div>
       </article>)}
-      {!(displayBatches||[]).length&&<div className="dash-empty"><b>Todavía no hay placas registradas.</b></div>}
+      {!(displayBatches||[]).length&&<div className="dash-empty"><b>Todavía no hay placas registradas.</b></div>
     </div>`
   src=src.slice(0,ti)+compact+src.slice(tj+tableEnd.length)
   fs.writeFileSync(file,src)
