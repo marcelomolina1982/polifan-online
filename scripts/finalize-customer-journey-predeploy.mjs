@@ -20,6 +20,13 @@ const newCutImport=`  src=mustReplace(src,/^(import React[^\\n]*\\n)/m,match=>ma
 if(!lab.includes(oldCutImport))throw new Error('journey predeploy: no se encontró parche de import de En corte')
 lab=lab.replace(oldCutImport,newCutImport)
 
+// La cadena histórica de prepare puede decorar la llamada onSave de edición.
+// Reemplazamos estructuralmente dentro de if(editing) en vez de exigir una línea exacta.
+const editPatchRx=/  const oldEditSave=[\s\S]*?src=mustReplace\(src,oldEditSave,newEditSave,'reconciliación al modificar placa'\)/
+const editPatchNew=`  src=src.replace(/(if\\(editing\\)\\{[\\s\\S]*?const cutBatches=[^\\n]+\\n)\\s*saved=await onSave\\([^\\n]+\\)/,(full,prefix)=>prefix+"      const next={...db,movements,cutBatches}\\n      const journey=advanceOperationalJourney(next,new Date().toISOString())\\n      saved=await onSave({...next,orders:journey.orders})")
+  if(!src.includes("saved=await onSave({...next,orders:journey.orders})"))throw new Error('journey lab: no se pudo reconciliar modificación de placa')`
+if(editPatchRx.test(lab))lab=lab.replace(editPatchRx,editPatchNew)
+
 const oldCancel=`  src=mustReplace(src,"await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})","const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})",'reconciliación al cancelar corte')`
 const newCancel=`  src=src.replace(/(async function cancel\\(batch\\)\\{[\\s\\S]*?const cutBatches=[^\\n]+\\n)\\s*await onSave\\([^\\n]+\\)/,(full,prefix)=>prefix+"    const next={...db,movements:[...(db.movements||[]),...reversals],cutBatches}\\n    const journey=advanceOperationalJourney(next,new Date().toISOString())\\n    await onSave({...next,orders:journey.orders})")`
 if(lab.includes(oldCancel))lab=lab.replace(oldCancel,newCancel)
