@@ -9,6 +9,7 @@ export function isActiveProductionOrder(order,today=todayArgentinaISO()){
 }
 
 export function productionStockSnapshot(db){
+  // Fuente de verdad operativa: exactamente el mismo saldo físico que Inventario.
   const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
   const labels={}
