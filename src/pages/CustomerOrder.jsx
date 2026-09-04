@@ -3,6 +3,12 @@ import CustomerOrderBase from './CustomerOrderBase'
 import {supabase} from '../supabase'
 
 const CACHE_KEY='tvet_catalog_public_cache_v2'
+const formatDispatchDate=value=>{
+  if(!value)return ''
+  const date=new Date(`${value}T12:00:00`)
+  if(Number.isNaN(date.getTime()))return ''
+  return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date)
+}
 export default function CustomerOrder(){
   const [catalogState,setCatalogState]=useState({customerCatalog:[],catalogCollections:[]})
   const [special,setSpecial]=useState('')
@@ -26,13 +32,16 @@ export default function CustomerOrder(){
     refresh(true)
     const onVisible=()=>{if(document.visibilityState==='visible')refresh(false)}
     const onOnline=()=>refresh(false)
-    window.addEventListener('focus',()=>refresh(false));window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)
+    const onFocus=()=>refresh(false)
+    window.addEventListener('focus',onFocus);window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onVisible)
     // Sin polling periódico: Realtime avisa cuando el catálogo cambia y recién ahí se vuelve a descargar.
     const channel=supabase.channel('catalog-public-sync-v4').on('postgres_changes',{event:'*',schema:'public',table:'public_catalog',filter:'id=eq.main'},()=>refresh(true)).subscribe()
-    return()=>{mounted=false;window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}
+    return()=>{mounted=false;window.removeEventListener('focus',onFocus);window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onVisible);supabase.removeChannel(channel)}
   },[])
   const products=catalogState.customerCatalog||[]
   const collections=catalogState.catalogCollections||[]
+  const dispatchDate=catalogState.customerSettings?.estimatedDispatchDate||''
+  const formattedDispatchDate=formatDispatchDate(dispatchDate)
   const newestIds=useMemo(()=>{const limit=Date.now()-15*24*60*60*1000;return new Set(products.filter(p=>p.createdAt&&new Date(p.createdAt).getTime()>=limit).map(p=>p.id))},[products])
   function showSet(ids,label){
     setSpecial(label)
@@ -62,7 +71,8 @@ export default function CustomerOrder(){
     document.addEventListener('click',clear);return()=>document.removeEventListener('click',clear)
   },[])
   return <div className="catalog-enhanced">
-    <style>{`.catalog-news-marquee{overflow:hidden;background:#5b35b5;color:#fff;padding:11px 0;font-weight:800;cursor:pointer;border:0;width:100%;letter-spacing:.3px}.catalog-news-marquee span{display:inline-block;white-space:nowrap;padding-left:100%;animation:catalogTicker 13s linear infinite}@keyframes catalogTicker{from{transform:translateX(0)}to{transform:translateX(-100%)}}@media(prefers-reduced-motion:reduce){.catalog-news-marquee span{animation:none;padding-left:0}}`}</style>
+    <style>{`.catalog-dispatch-notice{margin:0;padding:16px 18px;background:linear-gradient(135deg,#efe9ff,#fff);border-bottom:2px solid #5b35b5;text-align:center;color:#2b174f}.catalog-dispatch-notice strong{display:block;font-size:1.05rem;margin-bottom:4px}.catalog-dispatch-notice b{color:#5b35b5}.catalog-news-marquee{overflow:hidden;background:#5b35b5;color:#fff;padding:11px 0;font-weight:800;cursor:pointer;border:0;width:100%;letter-spacing:.3px}.catalog-news-marquee span{display:inline-block;white-space:nowrap;padding-left:100%;animation:catalogTicker 13s linear infinite}@keyframes catalogTicker{from{transform:translateX(0)}to{transform:translateX(-100%)}}@media(prefers-reduced-motion:reduce){.catalog-news-marquee span{animation:none;padding-left:0}}`}</style>
+    {formattedDispatchDate&&<div className="catalog-dispatch-notice" role="status" aria-live="polite"><strong>📦 Fecha estimada de despacho</strong><span>Los pedidos realizados actualmente se despacharán aproximadamente desde el <b>{formattedDispatchDate}</b>.</span></div>}
     <button className="catalog-news-marquee" type="button" onClick={showNewest}><span>✨ NUEVAS FIGURAS DISPONIBLES · MIRÁ LAS NOVEDADES DE LOS ÚLTIMOS 15 DÍAS · ✨ NUEVAS FIGURAS DISPONIBLES</span></button>
     <CustomerOrderBase key={catalogState.__updatedAt||'catalog-live'} publicCatalogState={catalogState}/>
   </div>
