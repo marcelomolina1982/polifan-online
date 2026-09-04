@@ -11,14 +11,24 @@ const publicCatalogPayload=db=>({
   customerPhotos:db.customerPhotos||[],
   chatbotSettings:db.chatbotSettings||{}
 })
+const formatDispatchDate=value=>{
+  if(!value)return ''
+  const date=new Date(`${value}T12:00:00`)
+  if(Number.isNaN(date.getTime()))return ''
+  return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date)
+}
 
 export default function CatalogAdmin({db,onSave}){
   const [name,setName]=useState('')
   const [searchByCollection,setSearchByCollection]=useState({})
   const [draftByCollection,setDraftByCollection]=useState({})
+  const [dispatchDate,setDispatchDate]=useState(db.customerSettings?.estimatedDispatchDate||'')
+  const [savingDispatchDate,setSavingDispatchDate]=useState(false)
   const collections=db.catalogCollections||[]
   const products=db.customerCatalog||[]
   const productIds=useMemo(()=>new Set(products.map(p=>p.id)),[products])
+
+  useEffect(()=>setDispatchDate(db.customerSettings?.estimatedDispatchDate||''),[db.customerSettings?.estimatedDispatchDate])
 
   async function publishPublicCatalog(next){
     const data=publicCatalogPayload(next)
@@ -47,6 +57,25 @@ export default function CatalogAdmin({db,onSave}){
     return()=>{active=false}
   },[])
 
+  async function saveDispatchDate(){
+    if(!dispatchDate)return alert('Elegí una fecha de despacho antes de guardar.')
+    setSavingDispatchDate(true)
+    try{
+      const result=await persist({...db,customerSettings:{...(db.customerSettings||{}),estimatedDispatchDate:dispatchDate}})
+      if(result?.ok===false)return
+      alert('Fecha estimada de despacho actualizada en el catálogo público.')
+    }finally{setSavingDispatchDate(false)}
+  }
+  async function clearDispatchDate(){
+    if(!confirm('¿Quitar el aviso de fecha estimada de despacho del catálogo público?'))return
+    setSavingDispatchDate(true)
+    try{
+      const result=await persist({...db,customerSettings:{...(db.customerSettings||{}),estimatedDispatchDate:''}})
+      if(result?.ok===false)return
+      setDispatchDate('')
+      alert('Aviso de fecha de despacho quitado.')
+    }finally{setSavingDispatchDate(false)}
+  }
   async function saveWithDates(next){
     const oldIds=new Set((db.customerCatalog||[]).map(p=>p.id))
     const now=new Date().toISOString()
@@ -86,6 +115,15 @@ export default function CatalogAdmin({db,onSave}){
     alert(`Categoría “${c.name}” actualizada.`)
   }
   return <>
+    <section className="panel" style={{marginBottom:16,border:'2px solid #5b35b5'}}>
+      <div className="panel-heading"><div><h3>📦 Fecha estimada de despacho</h3><small>Elegí manualmente desde qué fecha se despacharán aproximadamente los pedidos. Este aviso se muestra arriba de todo en el catálogo público.</small></div></div>
+      <div className="actions" style={{marginTop:12,alignItems:'end',flexWrap:'wrap'}}>
+        <label style={{display:'grid',gap:6,minWidth:220}}><span style={{fontWeight:700}}>Fecha de despacho</span><input type="date" value={dispatchDate} onChange={e=>setDispatchDate(e.target.value)}/></label>
+        <button className="primary" type="button" disabled={savingDispatchDate||!dispatchDate} onClick={saveDispatchDate}>{savingDispatchDate?'Guardando...':'Guardar fecha'}</button>
+        {db.customerSettings?.estimatedDispatchDate&&<button className="ghost" type="button" disabled={savingDispatchDate} onClick={clearDispatchDate}>Quitar aviso</button>}
+      </div>
+      {dispatchDate&&<div style={{marginTop:14,padding:'12px 14px',borderRadius:12,background:'#f4f0ff'}}><b>Vista previa:</b> Los pedidos realizados actualmente se despacharán aproximadamente desde el <b>{formatDispatchDate(dispatchDate)}</b>.</div>}
+    </section>
     <section className="panel" style={{marginBottom:16}}>
       <div className="panel-heading"><div><h3>Categorías adicionales del catálogo</h3><small>Creá la categoría, buscá con la lupa y tildá todas las figuras que quieras. Se guarda una sola vez al final.</small></div></div>
       <div className="actions" style={{marginTop:12}}><input value={name} onChange={e=>setName(e.target.value)} placeholder="Ej.: Cumpleaños, Disney, Fútbol..."/><button className="primary" type="button" onClick={addCollection}>Crear categoría</button></div>
