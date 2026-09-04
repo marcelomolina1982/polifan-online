@@ -35,7 +35,12 @@ ORIGINAL_SOLVE=v4.solve_v4
 # composing the physical 1230 x 580 SVG. We still independently reject any SA
 # placement outside the 1214 x 568 solver rectangle.
 EDGE_MM=0.0
+# El presupuesto extra total NO aumenta. Se reparte entre SA y un barrido corto
+# de relleno compacto pensado para atacar el espacio residual del borde derecho.
 EXTRA_BUDGET_SECONDS=34
+SA_BUDGET_SECONDS=22
+RIGHT_FILL_BUDGET_SECONDS=12
+RIGHT_FILL_MAX_ATTEMPTS=4
 
 
 def _placed_geom(part, placement):
@@ -71,16 +76,72 @@ def _certify(rows, result, gap_mm, edge_mm=EDGE_MM):
 def _stamp_safe_runtime(data):
     if not isinstance(data,dict):return data
     data.update({
-        'build':'best-effort-multipass-v4-safe-1214x568-2026-09-01',
-        'engine':'Sparrow V4 safe-area · 1214×568 + offset físico 6 mm',
+        'build':'best-effort-multipass-v4-safe-1214x568-right-fill-lab-2026-09-04',
+        'engine':'Sparrow V4 safe-area · SA + relleno residual acotado',
         'widthCm':SAFE_WIDTH_MM/10.0,
         'heightCm':SAFE_HEIGHT_MM/10.0,
         'runtimePlateWidthMm':SAFE_WIDTH_MM,
         'runtimePlateHeightMm':SAFE_HEIGHT_MM,
         'runtimePhysicalOffsetMm':6,
         'runtimeHardCertMaxXmm':1220,
+        'rightFillLab':True,
+        'rightFillBudgetSeconds':RIGHT_FILL_BUDGET_SECONDS,
     })
     return data
+
+
+def _kit_compactness_key(kit):
+    """Prioriza kits con componentes de poca luz horizontal y poco sobre envolvente.
+
+    No modifica geometría ni separaciones: sólo ordena qué candidatos probar primero.
+    """
+    widths=[]; heights=[]; envelope=0.0; area=0.0
+    for part in (kit.get('parts') or []):
+        g=part.get('geom')
+        if g is None or g.is_empty:continue
+        minx,miny,maxx,maxy=g.bounds
+        w=maxx-minx;h=maxy-miny
+        widths.append(min(w,h))  # la rotación continua puede intercambiar el eje útil
+        heights.append(max(w,h))
+        envelope+=max(1.0,w*h)
+        area+=float(g.area or 0.0)
+    return (
+        max(widths) if widths else 1e18,
+        envelope,
+        -area,
+        int(kit.get('priority') or 999999),
+    )
+
+
+def _right_fill_sweep(selected,kits,attempts,deadline):
+    """Intenta +1 figura compacta sin poner en riesgo la solución ya válida.
+
+    Cada intento parte de la placa válida existente, repaca con Sparrow y sólo se
+    acepta si entra completa y además pasa la certificación Shapely. Si todos fallan,
+    el llamador conserva sin cambios la placa original.
+    """
+    selected_ids={str(k.get('kitId') or '') for k in selected}
+    remaining=[k for k in kits if str(k.get('kitId') or '') not in selected_ids]
+    candidates=sorted(remaining,key=_kit_compactness_key)[:RIGHT_FILL_MAX_ATTEMPTS]
+    diagnostics=[]
+    for idx,candidate in enumerate(candidates):
+        remaining_seconds=deadline-time.time()
+        if remaining_seconds<2.5:break
+        trial=list(selected)+[candidate]
+        seconds=max(2,min(3,int(remaining_seconds)))
+        seed=224011+len(selected)*271+idx*37
+        result=v4.core._run_sparrow(trial,v4.GAP_MM,seconds,seed,continuous=True)
+        label=f'relleno margen derecho +1 · {candidate.get("figure") or candidate.get("kitId")}'
+        v4._attempt(attempts,'right-edge-fill',label,trial,result,seed,True)
+        diag={'kitId':candidate.get('kitId'),'figure':candidate.get('figure'),'fits':bool(result.get('fits')),'seconds':seconds}
+        if result.get('ok') and result.get('fits'):
+            certified,reason=_certify(trial,result,v4.GAP_MM,EDGE_MM)
+            diag.update({'certified':bool(certified),'certificationReason':reason})
+            diagnostics.append(diag)
+            if certified:return (trial,result),diagnostics
+        else:
+            diagnostics.append(diag)
+    return None,diagnostics
 
 
 def solve_v4_sa():
@@ -94,7 +155,7 @@ def solve_v4_sa():
         return response
     _stamp_safe_runtime(data)
     if int(data.get('completeFigures') or 0)>=int(data.get('candidatePool') or 0):
-        data.update({'saEscapeRan':False,'saEscapeReason':'all-candidates-fit'})
+        data.update({'saEscapeRan':False,'saEscapeReason':'all-candidates-fit','rightFillRan':False,'rightFillReason':'all-candidates-fit'})
         return jsonify(data),status
 
     raw=sorted(payload.get('kits') or [],key=lambda k:(v4.core._priority(k),str(k.get('date') or ''),str(k.get('figure') or '')))[:v4.MAX_POOL_V4]
@@ -105,18 +166,20 @@ def solve_v4_sa():
     by_id={str(k.get('kitId') or ''):k for k in kits}
     selected=[by_id[kid] for kid in (data.get('selectedKitIds') or []) if kid in by_id]
     if len(selected)!=int(data.get('completeFigures') or 0):
-        data.update({'saEscapeRan':False,'saEscapeReason':'selected-reconstruction-failed'})
+        data.update({'saEscapeRan':False,'saEscapeReason':'selected-reconstruction-failed','rightFillRan':False,'rightFillReason':'selected-reconstruction-failed'})
         return jsonify(data),status
 
     attempts=list(data.get('attempts') or [])
-    started=time.time();deadline=started+EXTRA_BUDGET_SECONDS
+    started=time.time()
+    total_deadline=started+EXTRA_BUDGET_SECONDS
+    sa_deadline=min(total_deadline,started+SA_BUDGET_SECONDS)
     def run_attempt(rows,label,seed,seconds):
         result=v4.core._run_sparrow(rows,v4.GAP_MM,seconds,seed,continuous=True)
         v4._attempt(attempts,'simulated-annealing-escape',label,rows,result,seed,True)
         return result
 
     found,diag=anneal_plus_one(
-        selected,kits,int(data.get('urgentAnchorsKept') or 0),run_attempt,deadline,
+        selected,kits,int(data.get('urgentAnchorsKept') or 0),run_attempt,sa_deadline,
         max_iterations=7,seconds_per_attempt=4,seed=119003+len(selected)*313,
     )
     data.update({
@@ -128,23 +191,41 @@ def solve_v4_sa():
         'saElapsedSeconds':round(time.time()-started,2),
         'saSuccess':False,
     })
+
+    # Si SA no consiguió +1, usamos únicamente el presupuesto que queda para
+    # probar kits compactos. La placa original queda intacta como fallback.
     if found is None:
-        return jsonify(data),status
+        fill_found,fill_diag=_right_fill_sweep(selected,kits,attempts,total_deadline)
+        data.update({
+            'attempts':attempts,
+            'rightFillRan':True,
+            'rightFillAttempts':fill_diag,
+            'rightFillSuccess':bool(fill_found),
+            'rightFillElapsedSeconds':round(max(0.0,time.time()-started-float(data.get('saElapsedSeconds') or 0.0)),2),
+        })
+        if fill_found is None:
+            data['rightFillFallbackUsed']=True
+            return jsonify(data),status
+        found=fill_found
+        data['rightFillFallbackUsed']=False
+    else:
+        data.update({'rightFillRan':False,'rightFillReason':'sa-plus-one-succeeded','rightFillSuccess':False})
 
     rows,result=found
     certified,reason=_certify(rows,result,v4.GAP_MM,EDGE_MM)
     data['saCertified']=bool(certified);data['saCertificationReason']=reason
     if not certified:
+        data['rightFillFallbackUsed']=True
         return jsonify(data),status
 
     data.update({
-        'build':'best-effort-multipass-v4-safe-1214x568-sa-certified-2026-09-01',
-        'engine':'Sparrow V4 safe-area + simulated annealing + Shapely',
+        'build':'best-effort-multipass-v4-safe-1214x568-right-fill-certified-2026-09-04',
+        'engine':'Sparrow V4 safe-area + mejora residual acotada + Shapely',
         'completeFigures':len(rows),
         'placements':result.get('placements') or [],
         'selectedKitIds':[k.get('kitId') for k in rows],
-        'saSuccess':True,
-        'stoppedBecause':'sa-plus-one-certified',
+        'saSuccess':found is not None and not data.get('rightFillSuccess'),
+        'stoppedBecause':'right-fill-plus-one-certified' if data.get('rightFillSuccess') else 'sa-plus-one-certified',
     })
     data.update(v4._metrics(rows,result))
     _stamp_safe_runtime(data)
