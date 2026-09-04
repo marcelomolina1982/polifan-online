@@ -1,12 +1,12 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "25.0.77",
+  "version": "25.0.78",
   "description": "Modo operativo seguro",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-predeploy.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-predeploy.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && node scripts/finalize-performance-v2.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs"
