@@ -61,6 +61,23 @@ function relevantCutBatches(db,order,keyFor){
 }
 function iso(value){const ms=Date.parse(String(value||''));return Number.isFinite(ms)?new Date(ms).toISOString():''}
 function journeyEqual(a,b){try{return JSON.stringify(a||{})===JSON.stringify(b||{})}catch{return false}}
+function argentinaDateKey(value=new Date().toISOString()){
+  const date=new Date(value)
+  if(Number.isNaN(date.getTime()))return ''
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date)
+  const get=type=>parts.find(part=>part.type===type)?.value||''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+export function journeyEligible(order={},now=new Date().toISOString()){
+  const delivery=orderDate(order),today=argentinaDateKey(now)
+  return Boolean(delivery&&today&&delivery>=today&&!['Cancelado','Entregado'].includes(order?.status))
+}
+export function activateEligibleJourneys(orders=[],now=new Date().toISOString()){
+  return (orders||[]).map(order=>{
+    if(!journeyEligible(order,now)||order?.journey?.enabled===true)return order
+    return {...order,journey:{...(order.journey||{}),enabled:true,stage:order?.journey?.stage||JOURNEY_EVENTS.CONFIRMED,confirmedAt:order?.journey?.confirmedAt||iso(order.createdAt||order.date)||now,whatsappConfirmedStatus:order?.journey?.whatsappConfirmedStatus||'simulated-private'}}
+  })
+}
 
 export function effectiveJourneyEvent(order={},now=new Date().toISOString()){
   const journey=order.journey||{}
@@ -81,12 +98,15 @@ export function journeyStageLabel(event){
 export function journeyIsFinal(order={}){return FINAL_EVENTS.has(order?.journey?.stage)}
 
 export function advanceOperationalJourney(db={},now=new Date().toISOString(),options={}){
+  const eligibleOrders=activateEligibleJourneys(db.orders||[],now)
+  const activated=eligibleOrders.some((order,index)=>order!==(db.orders||[])[index])
+  if(activated)db={...db,orders:eligibleOrders}
   const stockRowsFn=options.stockRowsFn||stockRows
   const pools=inventoryPools(db,stockRowsFn)
   const projected=allocateCoverage(db,pools.projected,pools.keyFor)
   const finished=allocateCoverage(db,pools.finished,pools.keyFor)
   const nowMs=Date.parse(now),transitions=[]
-  let changed=false
+  let changed=activated
 
   const orders=(db.orders||[]).map(order=>{
     if(!order||['Cancelado','Entregado'].includes(order.status)||order?.journey?.enabled!==true)return order
