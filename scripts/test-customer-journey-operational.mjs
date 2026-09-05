@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {JOURNEY_EVENTS,journeyMessage,shouldSendJourneyWhatsApp,eventForFinalAction} from '../src/lib/customerJourney.js'
-import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal,finalActionLabel,journeyStageLabel} from '../src/lib/customerJourneyOperational.js'
+import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal,finalActionLabel,journeyStageLabel,journeyEligible} from '../src/lib/customerJourneyOperational.js'
 
 const enabled=(order,at='2026-09-02T10:00:00.000Z')=>({...order,journey:{enabled:true,stage:JOURNEY_EVENTS.CONFIRMED,confirmedAt:at,whatsappConfirmedStatus:'simulated-private'}})
 const makeOrder=(id,number,items,extra={})=>enabled({id,number,client:`Cliente ${number}`,delivery:'2026-09-02',deliveryType:'Vía Cargo',status:'Ingresado',createdAt:'2026-09-02T10:00:00.000Z',items,...extra})
@@ -60,14 +60,15 @@ const pickup={...reloadedOrder,deliveryType:'Retiro en el local'}
 assert.equal(eventForFinalAction(pickup),JOURNEY_EVENTS.READY_PICKUP)
 assert.equal(finalActionLabel(pickup),'LISTO PARA RETIRAR')
 
-// 6) Pedidos y placas anteriores quedan fuera del nuevo Customer Journey.
+// 6) Un pedido anterior entra al seguimiento si su entrega es hoy o futura.
 const legacyOrder={id:'legacy',number:99,delivery:'2026-09-02',status:'Ingresado',items:[{figure:'A',qty:1,inventoryTracked:true}]}
 const legacyBatch={id:'legacy-batch',date:'2026-09-02',status:'Terminada',finishedAt:'2026-09-02T10:00:00.000Z',items:[{figure:'A',qty:9}]}
 result=advanceOperationalJourney({orders:[legacyOrder],cutBatches:[legacyBatch]},'2026-09-02T20:00:00.000Z',{stockRowsFn:rows({figure:'A',cut:9,inCut:0})})
-assert.equal(result.changed,false)
-assert.equal(result.orders[0].journey,undefined)
-assert.equal(effectiveJourneyEvent(result.orders[0]),null)
-assert.equal(journeyStageLabel(null),'Seguimiento anterior')
+assert.equal(result.changed,true)
+assert.equal(result.orders[0].journey.enabled,true)
+assert.equal(journeyEligible(result.orders[0],'2026-09-02T20:00:00.000Z'),true)
+assert.equal(journeyEligible({...legacyOrder,delivery:'2026-09-01'},'2026-09-02T20:00:00.000Z'),false)
+assert.equal(journeyEligible({...legacyOrder,status:'Entregado'},'2026-09-02T20:00:00.000Z'),false)
 
 // 7) WhatsApp sólo en confirmación y acción final; etapas internas quedan silenciosas.
 assert.equal(shouldSendJourneyWhatsApp(JOURNEY_EVENTS.CONFIRMED),true)
