@@ -113,16 +113,65 @@ def _kit_compactness_key(kit):
     )
 
 
-def _right_fill_sweep(selected,kits,attempts,deadline):
+def _rightmost_x(selected,result):
+    """Mide el borde derecho realmente usado por la placa válida."""
+    parts={str(p.get('instanceId') or ''):p for k in selected for p in (k.get('parts') or [])}
+    right=0.0
+    for placement in (result or {}).get('placements') or []:
+        part=parts.get(str(placement.get('instanceId') or ''))
+        if part is None:continue
+        right=max(right,float(_placed_geom(part,placement).bounds[2]))
+    return right
+
+
+def _right_strip_key(kit,free_width_mm):
+    """Ordena primero kits completos cuyos componentes caben en la franja libre.
+
+    El motor sigue repacando y certificando toda la placa; esta puntuación sólo
+    evita gastar los cuatro intentos cortos en candidatos anchos que no pueden
+    aprovechar el margen derecho observado.
+    """
+    dimensions=[];envelope=0.0;area=0.0
+    for part in (kit.get('parts') or []):
+        g=part.get('geom')
+        if g is None or g.is_empty:continue
+        minx,miny,maxx,maxy=g.bounds
+        w=maxx-minx;h=maxy-miny
+        narrow=min(w,h)
+        long=max(w,h)
+        dimensions.append((narrow,long))
+        envelope+=max(1.0,w*h)
+        area+=float(g.area or 0.0)
+    if not dimensions:return (2,1e18,1e18,1e18,999999)
+    widest_narrow=max(row[0] for row in dimensions)
+    fits_strip=widest_narrow<=free_width_mm+0.05
+    leftover=max(0.0,free_width_mm-widest_narrow) if fits_strip else widest_narrow-free_width_mm
+    return (
+        0 if fits_strip else 1,
+        leftover,
+        envelope,
+        -area,
+        int(kit.get('priority') or 999999),
+    )
+
+
+def _right_fill_candidates(selected,kits,base_result,limit=RIGHT_FILL_MAX_ATTEMPTS):
+    selected_ids={str(k.get('kitId') or '') for k in selected}
+    remaining=[k for k in kits if str(k.get('kitId') or '') not in selected_ids]
+    used_right=_rightmost_x(selected,base_result)
+    free_width=max(0.0,v4.PLATE_WIDTH_MM-used_right-v4.GAP_MM)
+    ranked=sorted(remaining,key=lambda kit:_right_strip_key(kit,free_width))
+    return ranked[:limit],free_width
+
+
+def _right_fill_sweep(selected,kits,base_result,attempts,deadline):
     """Intenta +1 figura compacta sin poner en riesgo la solución ya válida.
 
     Cada intento parte de la placa válida existente, repaca con Sparrow y sólo se
     acepta si entra completa y además pasa la certificación Shapely. Si todos fallan,
     el llamador conserva sin cambios la placa original.
     """
-    selected_ids={str(k.get('kitId') or '') for k in selected}
-    remaining=[k for k in kits if str(k.get('kitId') or '') not in selected_ids]
-    candidates=sorted(remaining,key=_kit_compactness_key)[:RIGHT_FILL_MAX_ATTEMPTS]
+    candidates,free_width=_right_fill_candidates(selected,kits,base_result)
     diagnostics=[]
     for idx,candidate in enumerate(candidates):
         remaining_seconds=deadline-time.time()
@@ -133,7 +182,7 @@ def _right_fill_sweep(selected,kits,attempts,deadline):
         result=v4.core._run_sparrow(trial,v4.GAP_MM,seconds,seed,continuous=True)
         label=f'relleno margen derecho +1 · {candidate.get("figure") or candidate.get("kitId")}'
         v4._attempt(attempts,'right-edge-fill',label,trial,result,seed,True)
-        diag={'kitId':candidate.get('kitId'),'figure':candidate.get('figure'),'fits':bool(result.get('fits')),'seconds':seconds}
+        diag={'kitId':candidate.get('kitId'),'figure':candidate.get('figure'),'fits':bool(result.get('fits')),'seconds':seconds,'observedRightFreeMm':round(free_width,2)}
         if result.get('ok') and result.get('fits'):
             certified,reason=_certify(trial,result,v4.GAP_MM,EDGE_MM)
             diag.update({'certified':bool(certified),'certificationReason':reason})
@@ -195,7 +244,7 @@ def solve_v4_sa():
     # Si SA no consiguió +1, usamos únicamente el presupuesto que queda para
     # probar kits compactos. La placa original queda intacta como fallback.
     if found is None:
-        fill_found,fill_diag=_right_fill_sweep(selected,kits,attempts,total_deadline)
+        fill_found,fill_diag=_right_fill_sweep(selected,kits,data,attempts,total_deadline)
         data.update({
             'attempts':attempts,
             'rightFillRan':True,
