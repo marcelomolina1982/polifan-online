@@ -13,6 +13,14 @@
   ],
   "rewrites": [
     {
+      "source": "/p/:token",
+      "destination": "/seguimiento.html?t=:token"
+    },
+    {
+      "source": "/seguimiento.html",
+      "destination": "/seguimiento.html"
+    },
+    {
       "source": "/((?!assets/|api/).*)",
       "destination": "/"
     }
