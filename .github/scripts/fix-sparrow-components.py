@@ -1,53 +1,45 @@
 from pathlib import Path
-p=Path('src/pages/MotorDefinitivo.jsx')
+p=Path('scripts/prepare-v25.0.25.mjs')
 s=p.read_text()
-old="""function componentsForFigure(index,figure){
-  const target=normalizeFigureKey(figure)
-  if(!target)return null
-  const exact=uniqueComplete(index.exact.get(target)||[])
-  if(exact)return exact
-  const flexible=index.groups.filter(group=>group.aliases.some(alias=>alias===target||alias.includes(target)||target.includes(alias)))
-  return uniqueComplete(flexible)
-}"""
-new="""function componentsForFigure(index,figure,requested='complete'){
-  const target=normalizeFigureKey(figure)
-  if(!target)return null
-  const candidates=[...(index.exact.get(target)||[]),...index.groups.filter(group=>group.aliases.some(alias=>alias===target||alias.includes(target)||target.includes(alias)))]
-  const groups=[...new Map(candidates.map(g=>[g.key,g])).values()]
-  if(requested==='complete')return uniqueComplete(groups)
-  const matches=[]
-  groups.forEach(group=>{
-    const comp=group.items.find(x=>x.role===requested&&x.svgText)
-    if(comp)matches.push({key:group.key,comp})
-  })
-  const unique=[...new Map(matches.map(x=>[x.key,x])).values()]
-  return unique.length===1?[unique[0].comp]:null
-}"""
-if old not in s: raise SystemExit('componentsForFigure target not found')
-s=s.replace(old,new,1)
-old="""  pendingCutByDelivery(db).forEach(group=>group.rows.forEach(row=>{
-    const comps=componentsForFigure(index,row.figure)
-    if(!comps){missing.set(row.figure,(missing.get(row.figure)||0)+Number(row.qty||0));return}
-    for(let i=0;i<Number(row.qty||0);i++)units.push({figure:row.figure,date:group.date||'',orders:group.orders||[],components:comps})
-  }))"""
-new="""  pendingCutByDelivery(db).forEach(group=>group.rows.forEach(row=>{
-    const component=row.component||'complete'
-    const comps=componentsForFigure(index,row.figure,component)
-    if(!comps){const label=component==='complete'?row.figure:`${row.figure} · ${component}`;missing.set(label,(missing.get(label)||0)+Number(row.qty||0));return}
-    for(let i=0;i<Number(row.qty||0);i++)units.push({figure:row.figure,component,date:group.date||'',orders:group.orders||[],components:comps})
-  }))"""
-if old not in s: raise SystemExit('pendingUnits target not found')
-s=s.replace(old,new,1)
-old="""function summarizeUnits(units){
+marker="// COMPONENT_AWARE_SUMMARY_V13"
+if marker not in s:
+    extra=r'''
+
+// COMPONENT_AWARE_SUMMARY_V13
+// El plan ya conserva repairComponent desde V1.12. El resumen anterior agrupaba
+// sólo por figura y hacía parecer una tapa/base como figura completa.
+{
+  const motorFile='src/pages/MotorDefinitivo.jsx'
+  let motor=fs.readFileSync(motorFile,'utf8')
+  const oldSummary=`function summarizeUnits(units){
   const m=new Map();units.forEach(u=>m.set(u.figure,(m.get(u.figure)||0)+1))
   return [...m.entries()].map(([figure,qty])=>({figure,qty}))
-}"""
-new="""function summarizeUnits(units){
-  const m=new Map();units.forEach(u=>{const component=u.component||'complete',key=`${u.figure}|${component}`;const row=m.get(key)||{figure:u.figure,component,qty:0};row.qty++;m.set(key,row)})
+}`
+  const newSummary=`function summarizeUnits(units){
+  const m=new Map()
+  units.forEach(u=>{
+    const component=u.repairComponent||u.component||'complete'
+    const key=normalizeFigureKey(u.figure)+'|'+component
+    const row=m.get(key)||{figure:u.figure,component,qty:0}
+    row.qty+=1;m.set(key,row)
+  })
   return [...m.values()]
-}"""
-if old not in s: raise SystemExit('summarizeUnits target not found')
-s=s.replace(old,new,1)
-# Preserve component in compact local storage too
-s=s.replace("u=>({figure:u.figure,date:u.date||''})","u=>({figure:u.figure,component:u.component||'complete',date:u.date||''})",1)
-p.write_text(s)
+}`
+  if(motor.includes(oldSummary))motor=motor.replace(oldSummary,newSummary)
+  else if(!motor.includes("const component=u.repairComponent||u.component||'complete'"))throw new Error('v25.0.25 component summary: no se encontró summarizeUnits')
+
+  const oldCell="{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}`).join(', ')||'-'}"
+  const newCell="{plan.summary.map(x=>`${x.figure}${x.component&&x.component!=='complete'?' '+x.component.toUpperCase():' COMPLETO'} × ${x.qty} (sale ×${x.qty*Number(plan.multiplier||1)})`).join(', ')||'-'}"
+  if(motor.includes(oldCell))motor=motor.replace(oldCell,newCell)
+  else {
+    // Versiones con triple ya preparadas por finalize: reemplazo tolerante del map visible.
+    motor=motor.replace(/\{plan\.summary\.map\(x=>`\$\{x\.figure\}[^\n]+?\.join\(', '\)\|\|'-'\}/,
+      "{plan.summary.map(x=>`${x.figure}${x.component&&x.component!=='complete'?' '+x.component.toUpperCase():' COMPLETO'} × ${x.qty} (sale ×${x.qty*Number(plan.multiplier||1)})`).join(', ')||'-'}")
+  }
+  motor=motor.replace(/\{plan\.units\.length\} diseños · hasta \{plan\.units\.length\*Number\(plan\.multiplier\|\|1\)\} cortes completos/,
+    "{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} unidades de corte")
+  fs.writeFileSync(motorFile,motor)
+}
+'''
+    s += extra
+    p.write_text(s)
