@@ -204,10 +204,12 @@ function buildCompleteKits(rows,priority,date,source,modelResolver){
   rows.forEach(row=>{
     const {product,model}=modelResolver(row.figure)
     const checked=usableModelComponents(model)
-    const components=checked.components.filter(c=>['tapa','base','simple','capa'].includes(c.role||'simple'))
-    if(!components.length){missing.push(`${row.figure}${checked.reason?` (${checked.reason})`:''}`);return}
-    const roles=new Set(components.map(c=>c.role||'simple'))
-    if(roles.has('tapa')!==roles.has('base')){
+    const allComponents=checked.components.filter(c=>['tapa','base','simple','capa'].includes(c.role||'simple'))
+    const requested=row.component||'complete'
+    const components=requested==='complete'?allComponents:allComponents.filter(c=>(c.role||'simple')===requested)
+    if(!components.length){missing.push(`${row.figure}${requested!=='complete'?` (${requested} sin SVG)`:checked.reason?` (${checked.reason})`:''}`);return}
+    const roles=new Set(allComponents.map(c=>c.role||'simple'))
+    if(requested==='complete'&&roles.has('tapa')!==roles.has('base')){
       missing.push(`${row.figure} (falta ${roles.has('tapa')?'base':'tapa'})`)
       return
     }
@@ -838,9 +840,12 @@ function sheetProductionRows(sheet,multiplier=1){
   ;(sheet?.placed||[]).forEach(p=>{
     const figure=p.figure||p.name?.split(' · ')[0]||''
     if(!figure)return
-    totals[figure]=(totals[figure]||0)+num(p.unitWeight,1)
+    const role=['tapa','base'].includes(p.role)?p.role:'complete'
+    const key=`${figure}|${role}`
+    if(!totals[key])totals[key]={figure,component:role,baseQty:0}
+    totals[key].baseQty+=role==='complete'?num(p.unitWeight,1):1
   })
-  return Object.entries(totals).map(([figure,baseQty])=>({figure,baseQty,qty:baseQty*num(multiplier,1)}))
+  return Object.values(totals).map(row=>({...row,qty:row.baseQty*num(multiplier,1)}))
 }
 
 export default function SheetPlanner({db,onSave}){
