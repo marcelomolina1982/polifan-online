@@ -30,7 +30,12 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   })
   const [form,setForm]=useState(()=>{try{const saved=localStorage.getItem(DRAFT_KEY);if(!saved)return blank();const draft=JSON.parse(saved);return {...blank(),...draft,number:nextOrderNumber()}}catch{return blank()}})
   const [draftSaved,setDraftSaved]=useState(false)
-  const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const sortedFigures=useMemo(()=>{
+    const byName=new Map()
+    ;(db.figures||[]).forEach(value=>{const name=String(value||'').trim();if(name&&!byName.has(normalizeFigureName(name)))byName.set(normalizeFigureName(name),name)})
+    ;(db.customerCatalog||[]).filter(product=>product?.active!==false).forEach(product=>{const name=String(product?.name||'').trim();if(name&&!byName.has(normalizeFigureName(name)))byName.set(normalizeFigureName(name),name)})
+    return [...byName.values()].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+  },[db.figures,db.customerCatalog])
   const catalogById=useMemo(()=>new Map((db.customerCatalog||[]).map(p=>[String(p?.id||''),p]).filter(([id])=>id)),[db.customerCatalog])
   const catalogByName=useMemo(()=>new Map((db.customerCatalog||[]).map(p=>[normalizeFigureName(p?.name),p]).filter(([name])=>name)),[db.customerCatalog])
   const catalogProductFor=item=>catalogById.get(String(item?.productId||''))||catalogByName.get(normalizeFigureName(item?.figure))||null
