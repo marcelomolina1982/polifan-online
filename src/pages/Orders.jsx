@@ -5,6 +5,7 @@ import { Title } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money } from '../lib/format'
 import { downloadOrderReceiptJpg, receiptHtml, receiptCss } from '../lib/orderReceipt'
+import { JOURNEY_EVENTS, journeyMessage } from '../lib/customerJourney'
 
 const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch]))
 
@@ -239,15 +240,21 @@ export default function Orders({db,onSave,onEdit}){
     await onSave({...db,orders:db.orders.map(x=>x.id===o.id?{...x,status:newStatus,updatedAt:new Date().toISOString()}:x)})
   }
 
-  function openWhatsApp(o){
-    const number=String(o.phone||'').replace(/\D/g,'')
-    if(!number) return alert('Este pedido no tiene un teléfono cargado.')
-    const pieces=(o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)
-    const delivery=o.delivery?formatDelivery(o.delivery):'a confirmar'
-    const status=String(o.status||'Ingresado')
-    const statusMessages={'Ingresado':'ya fue registrado y está esperando su turno de producción','En producción':'ya está en producción','Listo':'ya está listo','Despachado':'ya fue despachado','Entregado':'figura como entregado'}
-    const text=[`Hola ${o.client} 😊`,'',`Te escribimos de *Tu Vida En Tinta* por tu pedido *#${o.number}*.`,`📦 Cantidad de piezas: *${pieces}*`,`💰 Total: *${money(o.total)}*`,`📌 Estado: *${status}*`,`📅 Fecha de salida: *${delivery}*`,'',`Tu pedido ${statusMessages[status]||'se encuentra actualizado en nuestro sistema'}.`,'Ante cualquier consulta, podés responder este mensaje.','','¡Gracias por elegirnos! 💜'].join('\n')
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank','noopener,noreferrer')
+  async function openWhatsApp(o){
+    const digits=String(o.phone||'').replace(/\D/g,'')
+    if(!digits)return alert('Este pedido no tiene un teléfono cargado.')
+    const number=digits.startsWith('54')?digits:`54${digits.replace(/^0/,'')}`
+    const whatsappWindow=window.open('about:blank','_blank')
+    if(!whatsappWindow)return alert('El navegador bloqueó WhatsApp. Permití las ventanas emergentes e intentá nuevamente.')
+    try{
+      await downloadOrderReceiptJpg(o)
+      whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(journeyMessage(o,JOURNEY_EVENTS.CONFIRMED))}`
+      alert(`Se descargó el comprobante del pedido #${o.number}. En WhatsApp, adjuntá ese JPG antes de enviar el mensaje al cliente.`)
+    }catch(error){
+      console.error(error)
+      whatsappWindow.close()
+      alert('No se pudo generar el comprobante JPG. Volvé a intentarlo.')
+    }
   }
 
   function printLabel(o){
