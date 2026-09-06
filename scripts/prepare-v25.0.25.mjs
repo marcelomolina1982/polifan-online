@@ -16,7 +16,6 @@ rep('mínimo 10 completas · objetivo ≥70% de placa · gap 2,5 mm · ocupació
 rep('Sparrow V1.12 · Area First · mínimo 10 · relleno base/tapa · borde 3 mm','Sparrow V1.13 · Area First + Residual Fill · hasta 3 extras · borde 3 mm','arquitectura')
 rep('V1.12 certificando…','V1.13 certificando…','certificación')
 rep("clientBuild:'v25.0.24-area-first-partial-fill',clientEngineVersion:'Sparrow V1.12 Area First + Partial Fill'","clientBuild:'v25.0.25-residual-fill-v13',clientEngineVersion:'Sparrow V1.13 Area First + Residual Fill'",'payload')
-
 rep("partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached)","partialExtra:data.partialExtraAllowed?data.partialExtra:null,partialExtras:Array.isArray(data.partialExtras)?data.partialExtras:(data.partialExtraAllowed&&data.partialExtra?[data.partialExtra]:[]),partialExtraCount:Number(data.partialExtraCount||0),residualFillV13:Boolean(data.residualFillV13),targetDensityReached:Boolean(data.targetDensityReached)",'guardar extras')
 
 const oldUi='{plan.partialExtra&&<small className="block green-text">Extra aprovechado: {plan.partialExtra.figure} · {plan.partialExtra.component} · próxima falta: {plan.partialExtra.missingCounterpart}</small>}'
@@ -41,20 +40,12 @@ if(text.includes(oldRegister)) text=text.replace(oldRegister,newRegister)
 else if(!text.includes('Array.isArray(plan.partialExtras)?plan.partialExtras')) throw new Error('v25.0.25 patch: no se encontró registro extras')
 
 rep("notes:`Sparrow V1.12 Area First · ${plan.units.length} unidades atendidas · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm${plan.partialExtra?` · extra ${plan.partialExtra.figure} ${plan.partialExtra.component}; próxima falta ${plan.partialExtra.missingCounterpart}`:''}`","notes:`Sparrow V1.13 Residual Fill · ${plan.units.length} unidades atendidas · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm${Array.isArray(plan.partialExtras)&&plan.partialExtras.length?` · ${plan.partialExtras.length} extra(s): ${plan.partialExtras.map(x=>`${x.figure} ${x.component}; falta ${x.missingCounterpart}`).join(' | ')}`:''}`",'notas extras')
-
-// Placas nuevas: el material físico mide 126 cm de ancho, pero Sparrow trabaja
-// deliberadamente sobre 123 cm para dejar 3 cm de reserva total de material.
 rep("widthCm:122,heightCm:58","widthCm:123,heightCm:58",'ancho de cálculo 123 cm')
 text=text.split('1220 × 580 mm').join('1230 × 580 mm')
 text=text.split('1220 mm').join('1230 mm')
 text=text.split('Math.max(0,1220-Number(plan.stripWidthMm||plan.usedWidthMm||1220))').join('Math.max(0,1230-Number(plan.stripWidthMm||plan.usedWidthMm||1230))')
 rep('width="1220mm" height="580mm" viewBox="0 0 1220 580"','width="1230mm" height="580mm" viewBox="0 0 1230 580"','SVG exportado 123 cm')
-
-// Protección crítica: al registrar/terminar un corte, esa acción sólo puede
-// modificar movimientos e historial de cortes. Nunca catálogo, categorías,
-// Biblioteca SVG, pedidos ni inventario base aunque la pantalla tenga un estado viejo.
 rep("await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})","await onSave({...db,__onlyKeys:['movements','cutBatches'],movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})",'registro Sparrow aislado')
-
 fs.writeFileSync(file,text)
 
 const cutsFile='src/pages/CutBatches.jsx'
@@ -73,4 +64,32 @@ if(app.includes(oldSave))app=app.replace(oldSave,newSave)
 else if(!app.includes('const requestedOnlyKeys=Array.isArray(next?.__onlyKeys)'))throw new Error('v25.0.25 patch: no se encontró saveData para aislar cortes')
 fs.writeFileSync(appFile,app)
 
-console.log('v25.0.25: Sparrow V1.13 · ancho 123 cm · confirmación de cortes aislada')
+// COMPONENT_AWARE_SUMMARY_V13
+{
+  const motorFile='src/pages/MotorDefinitivo.jsx'
+  let motor=fs.readFileSync(motorFile,'utf8')
+  const oldSummary=`function summarizeUnits(units){
+  const m=new Map();units.forEach(u=>m.set(u.figure,(m.get(u.figure)||0)+1))
+  return [...m.entries()].map(([figure,qty])=>({figure,qty}))
+}`
+  const newSummary=`function summarizeUnits(units){
+  const m=new Map()
+  units.forEach(u=>{
+    const component=u.repairComponent||u.component||'complete'
+    const key=normalizeFigureKey(u.figure)+'|'+component
+    const row=m.get(key)||{figure:u.figure,component,qty:0}
+    row.qty+=1;m.set(key,row)
+  })
+  return [...m.values()]
+}`
+  if(motor.includes(oldSummary))motor=motor.replace(oldSummary,newSummary)
+  else if(!motor.includes("const component=u.repairComponent||u.component||'complete'"))throw new Error('v25.0.25 component summary: no se encontró summarizeUnits')
+  const oldCell="{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}`).join(', ')||'-'}"
+  const newCell="{plan.summary.map(x=>`${x.figure}${x.component&&x.component!=='complete'?' '+x.component.toUpperCase():' COMPLETO'} × ${x.qty} (sale ×${x.qty*Number(plan.multiplier||1)})`).join(', ')||'-'}"
+  if(motor.includes(oldCell))motor=motor.replace(oldCell,newCell)
+  else motor=motor.replace(/\{plan\.summary\.map\(x=>`\$\{x\.figure\}[^\n]+?\.join\(', '\)\|\|'-'\}/,"{plan.summary.map(x=>`${x.figure}${x.component&&x.component!=='complete'?' '+x.component.toUpperCase():' COMPLETO'} × ${x.qty} (sale ×${x.qty*Number(plan.multiplier||1)})`).join(', ')||'-'}")
+  motor=motor.replace(/\{plan\.units\.length\} diseños · hasta \{plan\.units\.length\*Number\(plan\.multiplier\|\|1\)\} cortes completos/,"{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} unidades de corte")
+  fs.writeFileSync(motorFile,motor)
+}
+
+console.log('v25.0.25: Sparrow V1.13 · ancho 123 cm · componentes reales · cortes aislados')
