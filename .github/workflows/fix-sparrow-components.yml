@@ -1,0 +1,25 @@
+name: Fix Sparrow component planning
+on:
+  push:
+    branches: [app-v2-parallel]
+    paths: ['.github/workflows/fix-sparrow-components.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: app-v2-parallel
+      - name: Apply Sparrow component fix
+        run: python .github/scripts/fix-sparrow-components.py
+      - name: Validate build
+        run: npm ci && npm run build
+      - name: Commit validated fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/pages/MotorDefinitivo.jsx
+          git diff --cached --quiet || git commit -m "Respetar bases y tapas existentes en Sparrow"
+          git push origin HEAD:app-v2-parallel
