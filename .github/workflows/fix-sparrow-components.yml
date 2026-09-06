@@ -20,7 +20,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/pages/MotorDefinitivo.jsx
-          git diff --cached --quiet || git commit -m "Respetar bases y tapas existentes en Sparrow"
+          git add scripts/prepare-v25.0.25.mjs
+          git diff --cached --quiet || git commit -m "Mostrar y conservar componentes reales en Sparrow V1.13"
           git push origin HEAD:app-v2-parallel
-# activated 2026-09-06
+# activated component-aware V1.13
