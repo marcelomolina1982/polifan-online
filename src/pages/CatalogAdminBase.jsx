@@ -52,7 +52,11 @@ export default function CatalogAdmin({db,onSave}){
     const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
     const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.productionType||'simple'}
     const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
-    await onSave({...db,customerCatalog:next})
+    const result=await onSave({...db,customerCatalog:next})
+    if(result?.ok===false){
+      alert('No se pudo guardar todavía. Dejamos todos los datos y la imagen en pantalla para que puedas volver a intentar sin cargar nada de nuevo.')
+      return
+    }
     clear(); alert(form.id?'Producto actualizado.':'Producto agregado al catálogo.')
   }
   async function toggle(product){await onSave({...db,customerCatalog:products.map(p=>p.id===product.id?{...p,active:p.active===false}:p)})}
