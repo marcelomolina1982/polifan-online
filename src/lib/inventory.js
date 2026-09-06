@@ -239,6 +239,7 @@ export function automaticOrderOutflow(db){
 }
 
 const CUT_REPAIR_CUTOFF='2026-08-14T23:59:59'
+const finishedProductionCache=new WeakMap()
 
 function batchTimestamp(batch){
   return String(batch?.finishedAt||batch?.createdAt||batch?.date||'')
@@ -271,6 +272,8 @@ function movementNetForBatchItem(db,batch,figure,component){
 }
 
 function missingFinishedBatchProduction(db){
+  const cached=finishedProductionCache.get(db)
+  if(cached)return cached
   const complete={},components={}
   ;(db.cutBatches||[])
     .filter(batch=>batch?.status==='Terminada'&&batchTimestamp(batch)>CUT_REPAIR_CUTOFF)
@@ -299,7 +302,9 @@ function missingFinishedBatchProduction(db){
         }
       })
     })
-  return {complete,components}
+  const result={complete,components}
+  finishedProductionCache.set(db,result)
+  return result
 }
 
 export function manualBalance(db){
@@ -432,52 +437,58 @@ export function stockRows(db){
 export function pendingCutByDelivery(db){
   const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
-  const available={}
+  const loose=looseComponentBalance(db)
+  const inCutParts=activeCutComponents(db)
+  const complete={},tapas={},bases={}
   const aliases=canonicalAliasMap(db)
   const canonical=value=>aliases.get(normalizeFigureKey(value))||String(value||'').trim()
+  const add=(bucket,name,qty)=>{const figure=canonical(name);bucket[figure]=(bucket[figure]||0)+Math.max(0,Number(qty||0))}
 
-  const names=new Set([...Object.keys(physical),...Object.keys(inCut)])
+  const names=new Set([...Object.keys(physical),...Object.keys(inCut),...Object.keys(loose),...Object.keys(inCutParts)])
   names.forEach(name=>{
-    const figure=canonical(name)
-    available[figure]=(available[figure]||0)+Number(physical[name]||0)+Number(inCut[name]||0)
+    add(complete,name,Number(physical[name]||0)+Number(inCut[name]||0))
+    const rawTapa=Math.max(0,Number(loose[name]?.tapa||0)),rawBase=Math.max(0,Number(loose[name]?.base||0))
+    const paired=Math.min(rawTapa,rawBase)
+    add(tapas,name,rawTapa-paired+Number(inCutParts[name]?.tapa||0))
+    add(bases,name,rawBase-paired+Number(inCutParts[name]?.base||0))
   })
 
   const groups={}
+  const addNeed=(group,figure,component,qty)=>{
+    qty=Math.max(0,Number(qty||0));if(!qty)return
+    const key=`${figure}|${component}`
+    if(!group.rows[key])group.rows[key]={figure,component,qty:0}
+    group.rows[key].qty+=qty
+  }
   ;(db.orders||[])
     .filter(o=>isOrderCommitted(o))
     .slice()
     .sort((a,b)=>(orderDate(a)||'9999-12-31').localeCompare(orderDate(b)||'9999-12-31') || String(a.number||'').localeCompare(String(b.number||'')))
     .forEach(order=>{
-      const date=orderDate(order)
-      const key=date||'sin-fecha'
+      const date=orderDate(order),key=date||'sin-fecha'
       if(!groups[key])groups[key]={key,date,orders:[],rows:{}}
       groups[key].orders.push(order.number)
       ;(order.items||[]).forEach(item=>{
         if(!item?.figure || item.inventoryTracked===false || Number(item.qty||0)<=0)return
         const figure=canonical(item.figure)
-        const qty=Number(item.qty||0)
-        const onHand=Math.max(0,Number(available[figure]||0))
-        const covered=Math.min(onHand,qty)
-        available[figure]=onHand-covered
-        const pending=qty-covered
-        if(pending>0)groups[key].rows[figure]=(groups[key].rows[figure]||0)+pending
+        let need=Math.max(0,Number(item.qty||0))
+        const useComplete=Math.min(need,Math.max(0,Number(complete[figure]||0)))
+        complete[figure]=Math.max(0,Number(complete[figure]||0)-useComplete);need-=useComplete
+        const readyPairs=Math.min(need,Math.max(0,Number(tapas[figure]||0)),Math.max(0,Number(bases[figure]||0)))
+        tapas[figure]=Math.max(0,Number(tapas[figure]||0)-readyPairs);bases[figure]=Math.max(0,Number(bases[figure]||0)-readyPairs);need-=readyPairs
+        const useBases=Math.min(need,Math.max(0,Number(bases[figure]||0)))
+        if(useBases){bases[figure]-=useBases;addNeed(groups[key],figure,'tapa',useBases);need-=useBases}
+        const useTapas=Math.min(need,Math.max(0,Number(tapas[figure]||0)))
+        if(useTapas){tapas[figure]-=useTapas;addNeed(groups[key],figure,'base',useTapas);need-=useTapas}
+        if(need>0)addNeed(groups[key],figure,'complete',need)
       })
     })
 
-  return Object.values(groups)
-    .map(g=>({
-      key:g.key,
-      date:g.date,
-      orders:[...new Set(g.orders)].filter(Boolean),
-      rows:Object.entries(g.rows)
-        .map(([figure,qty])=>({figure,qty:Number(qty||0)}))
-        .filter(r=>r.qty>0)
-        .sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
-    }))
-    .filter(g=>g.rows.length)
-    .sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
+  return Object.values(groups).map(g=>({
+    key:g.key,date:g.date,orders:[...new Set(g.orders)].filter(Boolean),
+    rows:Object.values(g.rows).filter(r=>r.qty>0).sort((a,b)=>a.figure.localeCompare(b.figure,'es',{sensitivity:'base'})||a.component.localeCompare(b.component))
+  })).filter(g=>g.rows.length).sort((a,b)=>(a.date||'9999-12-31').localeCompare(b.date||'9999-12-31'))
 }
-
 export function pendingCutRows(db){
   const totals={}
   pendingCutByDelivery(db).forEach(group=>group.rows.forEach(row=>{
