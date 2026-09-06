@@ -47,7 +47,7 @@ export function journeyMessage(order={},event,{trackingBaseUrl,reviewUrl}={}){
   const trackLine=seguimiento?`\n\nPodés seguir el avance de tu pedido acá:\n${seguimiento}`:''
   const reviewLine=clean(reviewUrl)?`\n\nCuando recibas tu pedido, te invitamos a dejarnos una reseña y contarnos tu experiencia. Tu opinión nos ayuda muchísimo a seguir creciendo:\n${clean(reviewUrl)}`:''
 
-  if(event===JOURNEY_EVENTS.CONFIRMED)return `Hola ${nombre} 💜\n\nTu pedido #${numero} de Tu Vida en Tinta ya fue agendado correctamente.\n\nTe adjuntamos el comprobante pedido.jpg. Por favor, revisá que los diseños, cantidades y modalidad de entrega estén correctos. Si ves cualquier irregularidad, escribinos por este mismo WhatsApp antes de que avancemos con la producción.${trackLine}\n\nMuchas gracias por elegirnos y confiar en nosotros.`
+  if(event===JOURNEY_EVENTS.CONFIRMED)return `Hola ${nombre}.\n\nTu pedido #${numero} de Tu Vida en Tinta ya fue agendado correctamente.\n\nTe enviamos adjunto el comprobante del pedido. Por favor, revisá que los diseños, cantidades, datos personales y modalidad de entrega estén correctos. Si encontrás algún error, escribinos por este mismo WhatsApp antes de que avancemos con la producción.${trackLine}\n\nMuchas gracias por elegirnos y confiar en nosotros.`
 
   if(event===JOURNEY_EVENTS.PRODUCTION_CUT||event===JOURNEY_EVENTS.PACKING)return ''
 
