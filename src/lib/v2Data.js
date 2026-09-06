@@ -85,10 +85,19 @@ export async function patchV2Sections(patch,userId,expectedRevisions){
   const keys=Object.keys(patch||{})
   const missing=keys.filter(key=>!Object.prototype.hasOwnProperty.call(expectedRevisions||{},key))
   if(missing.length)throw new Error('No se puede guardar sin revisión segura de: '+missing.join(', '))
-  const {data,error}=await supabase.rpc('patch_v2_sections_cas',{p_patch:patch,p_expected_revisions:expectedRevisions||{},p_updated_by:userId||null})
-  if(error)throw error
-  const row=Array.isArray(data)?data[0]:data
-  return{updatedAt:row?.updated_at||''}
+  const args={p_patch:patch,p_expected_revisions:expectedRevisions||{},p_updated_by:userId||null}
+  let lastError
+  for(let attempt=0;attempt<3;attempt+=1){
+    const {data,error}=await supabase.rpc('patch_v2_sections_cas',args)
+    if(!error){
+      const row=Array.isArray(data)?data[0]:data
+      return{updatedAt:row?.updated_at||''}
+    }
+    lastError=error
+    if(!/statement timeout|canceling statement/i.test(String(error.message||error))||attempt===2)break
+    await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)))
+  }
+  throw lastError
 }
 
 export function pageSections(page){return PAGE_SECTIONS[page]||['orders']}

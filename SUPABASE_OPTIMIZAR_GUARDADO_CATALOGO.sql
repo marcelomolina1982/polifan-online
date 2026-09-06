@@ -47,3 +47,9 @@ end;
 $$;
 
 revoke all on function public.sync_public_catalog_items() from public,anon,authenticated;
+-- El catálogo completo ronda los 10 MB. El rol autenticado corta las consultas
+-- a los 8 segundos, por eso algunos guardados fallaban de manera intermitente.
+-- Esta función necesita un margen propio porque actualiza el estado y sincroniza
+-- el catálogo público en la misma transacción.
+alter function public.patch_v2_sections_cas(jsonb, jsonb, uuid)
+  set statement_timeout = '30s';
