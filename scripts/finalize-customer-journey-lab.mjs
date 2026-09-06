@@ -15,7 +15,21 @@ function mustReplace(text,pattern,replacement,label){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
     const multiplier=Number(plan.multiplier||1)
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
-    const items=[...plan.summary.map(x=>({figure:x.figure,component:'complete',qty:x.qty}))]
+    const itemMap=new Map()
+    ;(plan.units||[]).forEach(unit=>{
+      const component=unit.repairComponent||'complete'
+      const key=normalizeFigureKey(unit.figure)+'|'+component
+      const current=itemMap.get(key)||{figure:unit.figure,component,qty:0}
+      current.qty+=1;itemMap.set(key,current)
+    })
+    ;(plan.partialExtras||[plan.partialExtra]).filter(Boolean).forEach(extra=>{
+      const component=String(extra.component||'').toLowerCase()
+      if(!extra.figure||!['base','tapa'].includes(component))return
+      const key=normalizeFigureKey(extra.figure)+'|'+component
+      const current=itemMap.get(key)||{figure:extra.figure,component,qty:0}
+      current.qty+=1;itemMap.set(key,current)
+    })
+    const items=[...itemMap.values()]
     const now=new Date().toISOString()
     const deliveryDates=[...new Set((plan.units||[]).map(u=>String(u.date||'').slice(0,10)).filter(Boolean))]
     const batch={id:crypto.randomUUID(),number,date:plan.date||today(),deliveryDates,name:\`Placa automática Sparrow \${plan.date||today()}\`,status:'En corte',sentToCutAt:now,journeyManaged:true,notes:\`Sparrow + V1.7 · \${plan.units.length} diseños · \${multiplier===2?'placa doble':'placa simple'} · ocupación \${Number(plan.density||0).toFixed(1)}% · ancho usado \${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación \${plan.minGap} mm\`,multiplier,items,createdAt:now}
