@@ -31,7 +31,7 @@ export function deliveryMode(order={}){
   return 'logistics'
 }
 
-export function trackingUrl(order={},baseUrl='https://seguimiento.tuvidaentinta.com'){
+export function trackingUrl(order={},baseUrl='https://polifan-online.vercel.app'){
   const token=clean(order.trackingToken||order.customerTrackingToken)
   if(!token)return ''
   return `${String(baseUrl).replace(/\/$/,'')}/p/${encodeURIComponent(token)}`

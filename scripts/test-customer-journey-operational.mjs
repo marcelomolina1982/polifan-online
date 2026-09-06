@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {JOURNEY_EVENTS,journeyMessage,shouldSendJourneyWhatsApp,eventForFinalAction} from '../src/lib/customerJourney.js'
+import {JOURNEY_EVENTS,journeyMessage,shouldSendJourneyWhatsApp,eventForFinalAction,trackingUrl} from '../src/lib/customerJourney.js'
 import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal,finalActionLabel,journeyStageLabel,journeyEligible} from '../src/lib/customerJourneyOperational.js'
 
 const enabled=(order,at='2026-09-02T10:00:00.000Z')=>({...order,journey:{enabled:true,stage:JOURNEY_EVENTS.CONFIRMED,confirmedAt:at,whatsappConfirmedStatus:'simulated-private'}})
@@ -80,5 +80,7 @@ assert.equal(journeyMessage(final,JOURNEY_EVENTS.PACKING),'')
 const message=journeyMessage(final,JOURNEY_EVENTS.DISPATCHED,{reviewUrl:'https://catalogo.example/opiniones'})
 assert.match(message,/Esperamos que disfrutes de tu pedido tanto como nosotros disfrutamos de realizarlo para vos/)
 assert.match(message,/https:\/\/catalogo\.example\/opiniones/)
+assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://polifan-online.vercel.app/p/token-prueba')
+assert.doesNotMatch(trackingUrl({trackingToken:'token-prueba'}),/seguimiento\.tuvidaentinta\.com/)
 
 console.log('customer journey predeploy: 7/7 OK')
