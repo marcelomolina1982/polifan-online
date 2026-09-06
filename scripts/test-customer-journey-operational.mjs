@@ -80,7 +80,7 @@ assert.equal(journeyMessage(final,JOURNEY_EVENTS.PACKING),'')
 const message=journeyMessage(final,JOURNEY_EVENTS.DISPATCHED,{reviewUrl:'https://catalogo.example/opiniones'})
 assert.match(message,/Esperamos que disfrutes de tu pedido tanto como nosotros disfrutamos de realizarlo para vos/)
 assert.match(message,/https:\/\/catalogo\.example\/opiniones/)
-assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://polifan-online.vercel.app/p/token-prueba')
+assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://tu-vida-en-tinta-catalogo-v2.vercel.app/p/token-prueba')
 assert.doesNotMatch(trackingUrl({trackingToken:'token-prueba'}),/seguimiento\.tuvidaentinta\.com/)
 
 console.log('customer journey predeploy: 7/7 OK')
