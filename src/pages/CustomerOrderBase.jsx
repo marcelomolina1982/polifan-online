@@ -7,6 +7,8 @@ import { argentinaNow, estimateProductionAvailability, formatArgentinaLongDate }
 const cleanPhone = value => String(value || '').replace(/\D/g, '')
 const money = value => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
 const PLANNING_CACHE_KEY = 'tvet_catalog_planning_cache_v1'
+const DEFAULT_CATEGORY = 'Carameleras'
+const PREFERRED_CATEGORIES = ['Carameleras', 'Palabras con luces', 'Figuras con luces', 'Cartelería']
 
 function regularPrice(qty) {
   if (qty <= 0) return 0
@@ -43,7 +45,7 @@ export default function CustomerOrder({publicCatalogState=null}) {
   const [sending, setSending] = useState(false)
   const [products, setProducts] = useState(normalizeCatalogProducts(publicProductsInitial).filter(product=>product.active!==false))
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('Carameleras')
+  const [category, setCategory] = useState(DEFAULT_CATEGORY)
   const [cart, setCart] = useState({})
   const [zoomProduct,setZoomProduct]=useState(null)
   const [specialFigure,setSpecialFigure]=useState({enabled:false,description:''})
@@ -67,7 +69,7 @@ export default function CustomerOrder({publicCatalogState=null}) {
     setConfig({whatsapp:urlPhone||cleanPhone(publicCatalogState.customerSettings?.whatsapp),businessName:publicCatalogState.customerSettings?.businessName||'Tu Vida En Tinta'})
     setChatbotSettings((()=>{const saved=publicCatalogState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
     setLoading(false)
-    if(category!=='Todos'&&!publicProducts.some(p=>p.category===category))setCategory('Todos')
+    setCategory(current=>current==='Todos'||publicProducts.some(p=>p.category===current)?current:(publicProducts.some(p=>p.category===DEFAULT_CATEGORY)?DEFAULT_CATEGORY:(publicProducts[0]?.category||DEFAULT_CATEGORY)))
   },[publicCatalogState?.__updatedAt,urlPhone])
 
   async function refreshPlanning(showLoading=false,{retries=1,strict=false}={}) {
@@ -83,16 +85,16 @@ export default function CustomerOrder({publicCatalogState=null}) {
           const state = row.data
           if(!Array.isArray(state.productionClosedDates)) throw new Error('La planificación no contiene la lista de días cerrados.')
           if(!Array.isArray(state.orders)) throw new Error('La planificación no contiene la lista de pedidos.')
-          if(!publicCatalogState?.customerCatalog?.length){
-            setProducts(normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false))
-            setPublicReviews((state.customerReviews||[]).filter(x=>x.active!==false))
-            setPublicPhotos((state.customerPhotos||[]).filter(x=>x.active!==false))
-            setConfig({whatsapp:urlPhone||cleanPhone(state.customerSettings?.whatsapp),businessName:state.customerSettings?.businessName||'Tu Vida En Tinta'})
-            setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
-          }
+          const latestProducts=normalizeCatalogProducts(state.customerCatalog?.length ? state.customerCatalog : catalogProducts).filter(product => product.active !== false)
+          setProducts(latestProducts)
+          setPublicReviews((state.customerReviews||[]).filter(x=>x.active!==false))
+          setPublicPhotos((state.customerPhotos||[]).filter(x=>x.active!==false))
+          setConfig({whatsapp:urlPhone||cleanPhone(state.customerSettings?.whatsapp),businessName:state.customerSettings?.businessName||'Tu Vida En Tinta'})
+          setChatbotSettings((()=>{const saved=state.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
+          setCategory(current=>current==='Todos'||latestProducts.some(p=>p.category===current)?current:(latestProducts.some(p=>p.category===DEFAULT_CATEGORY)?DEFAULT_CATEGORY:(latestProducts[0]?.category||DEFAULT_CATEGORY)))
           setOrders(state.orders)
           setClosedProductionDates(state.productionClosedDates)
-          const cachedPlanning={state:{orders:state.orders,productionClosedDates:state.productionClosedDates},updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
+          const cachedPlanning={state:{orders:state.orders,productionClosedDates:state.productionClosedDates,customerCatalog:state.customerCatalog||[],customerReviews:state.customerReviews||[],customerPhotos:state.customerPhotos||[],customerSettings:state.customerSettings||{},chatbotSettings:state.chatbotSettings||{}},updatedAt:row.updated_at||'',cachedAt:new Date().toISOString()}
           try{window.localStorage.setItem(PLANNING_CACHE_KEY,JSON.stringify(cachedPlanning))}catch{}
           setPlanningSync({status:'ready',error:'',updatedAt:row.updated_at||'',fetchedAt:new Date().toISOString()})
           return {...state,__updatedAt:row.updated_at||''}
@@ -104,8 +106,8 @@ export default function CustomerOrder({publicCatalogState=null}) {
       try{cached=JSON.parse(window.localStorage.getItem(PLANNING_CACHE_KEY)||'null')}catch{}
       const cachedState=cached?.state
       if(Array.isArray(cachedState?.productionClosedDates)&&Array.isArray(cachedState?.orders)){
-        if(!publicCatalogState?.customerCatalog?.length){
-          setProducts(normalizeCatalogProducts(cachedState.customerCatalog?.length ? cachedState.customerCatalog : catalogProducts).filter(product => product.active !== false))
+        if(Array.isArray(cachedState.customerCatalog)&&cachedState.customerCatalog.length){
+          setProducts(normalizeCatalogProducts(cachedState.customerCatalog).filter(product => product.active !== false))
           setPublicReviews((cachedState.customerReviews||[]).filter(x=>x.active!==false));setPublicPhotos((cachedState.customerPhotos||[]).filter(x=>x.active!==false))
           setConfig({whatsapp:urlPhone||cleanPhone(cachedState.customerSettings?.whatsapp),businessName:cachedState.customerSettings?.businessName||'Tu Vida En Tinta'})
           setChatbotSettings((()=>{const saved=cachedState.chatbotSettings||{};const migrateAvatar=saved.avatarStyleVersion!==2;return {enabled:true,assistantName:'Juli',assistantSubtitle:'Asistente de Tu Vida en Tinta',avatarStyleVersion:2,launcherAvatarPosition:'above',welcome:'¡Hola! Puedo ayudarte a buscar figuras, conocer precios y armar tu pedido.',...saved,assistantImage:migrateAvatar?'/mia-assistant-cutout.png':(saved.assistantImage||'/mia-assistant-cutout.png')}})())
@@ -131,7 +133,10 @@ export default function CustomerOrder({publicCatalogState=null}) {
 
   useEffect(() => {trackCatalogEvent('catalog_visit', { metadata: { device: window.innerWidth <= 760 ? 'mobile' : 'desktop', source: customerSource } })}, [customerSource])
 
-  const categories=useMemo(()=>['Todos',...new Set(products.map(p=>p.category).filter(Boolean))],[products])
+  const categories=useMemo(()=>{
+    const dynamic=[...new Set(products.map(p=>p.category).filter(Boolean))]
+    return ['Todos',...PREFERRED_CATEGORIES,...dynamic.filter(item=>!PREFERRED_CATEGORIES.includes(item))]
+  },[products])
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
     return products.filter(product => {
