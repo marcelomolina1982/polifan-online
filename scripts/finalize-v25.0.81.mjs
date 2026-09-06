@@ -56,9 +56,9 @@ version=version.replace(/APP_VERSION='[^']*'/,"APP_VERSION='25.0.81'")
   .replace(/APP_VERSION_NAME='[^']*'/,"APP_VERSION_NAME='Polifan 25 · navegación fluida + trabajo de placas persistente'")
 fs.writeFileSync(versionFile,version)
 const swFile='public/sw.js'
-fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.81-navigation-motor-resume'"))
+fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.83-customer-confirmation'"))
 const indexFile='index.html'
-fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.81-navigation-motor-resume'"))
+fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.83-customer-confirmation'"))
 
 if(!app.includes('navigationRef=useRef(0)')||!app.includes('onWheel={e=>')||!motor.includes("const resumeRef=useRef('')")||!motor.includes('useState(loadRuntimePlans)'))throw new Error('v25.0.81: validación final incompleta')
 console.log('v25.0.81 FINALIZE OK · navegación + sidebar wheel + placa terminada persistente + recuperación segura del motor')
