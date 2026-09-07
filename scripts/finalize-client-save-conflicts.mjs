@@ -5,20 +5,21 @@ let src=fs.readFileSync(file,'utf8')
 
 const marker=`    if(key==='orders'&&wanted===undefined){merged.delete(id);continue}`
 const patch=`    if(key==='clients'){
-      // Guardar un pedido no debe fallar porque otra sesión refrescó la ficha
-      // del mismo cliente. El pedido que se está guardando es la intención más
-      // reciente para esa ficha; se conserva cualquier campo remoto que el
-      // formulario no traiga y se aplican encima los datos del pedido actual.
+      // Los clientes se sincronizan con estrategia last-intent-wins por campo
+      // para que guardar un pedido nunca quede bloqueado por un refresco de la
+      // misma ficha desde otra sesión.
       if(wanted===undefined){merged.delete(id);continue}
-      merged.set(id,{...(remote||{}),...(wanted||{}),id:wanted?.id||remote?.id})
+      merged.set(id,{...(remote||{}),...(wanted||{}),id:wanted?.id||remote?.id,createdAt:remote?.createdAt||wanted?.createdAt,updatedAt:wanted?.updatedAt||remote?.updatedAt})
       continue
     }
     if(key==='orders'&&wanted===undefined){merged.delete(id);continue}`
 
+// App.jsx puede ser regenerado por los prepare anteriores en cada build. Por
+// eso esta etapa final aplica el parche sobre el archivo REAL que compilará Vite.
 if(!src.includes("if(key==='clients')")){
   if(!src.includes(marker))throw new Error('client save fix: no se encontró punto de merge')
   src=src.replace(marker,patch)
 }
-if(!src.includes("merged.set(id,{...(remote||{}),...(wanted||{})"))throw new Error('client save fix: no quedó aplicado')
+if(!src.includes("if(key==='clients')")||!src.includes("createdAt:remote?.createdAt||wanted?.createdAt"))throw new Error('client save fix: no quedó aplicado en App compilado')
 fs.writeFileSync(file,src)
-console.log('CLIENT SAVE CONFLICT FIX OK · clientes concurrentes no bloquean pedidos')
+console.log('CLIENT SAVE CONFLICT FIX OK · aplicado al App final compilado')
