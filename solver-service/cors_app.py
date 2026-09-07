@@ -7,6 +7,7 @@ import intelligent_selector_runtime
 import hybrid_strategy_runtime
 import final_runtime_v20  # runtime final v25.0.22: V1.10 Global Recompact
 import emergency_cut_runtime  # V1.17: Sparrow real, cantidades 10/9/8/7 intercaladas
+import sparrow_compact_runtime  # LAB: seguir creciendo y reducir desperdicio lateral
 
 import async_jobs
 from flask import jsonify, request
@@ -23,7 +24,7 @@ def runtime_info():
     return jsonify(
         ok=True,
         build=LAB_BUILD,
-        runtime='sparrow-real-area-first-v117',
+        runtime='sparrow-real-area-first-v117+compact-lab',
         solverFunction=getattr(view,'__name__','-'),
         solverModule=getattr(view,'__module__','-'),
         candidateOrder=[10,9,8,7],
@@ -32,6 +33,9 @@ def runtime_info():
         minGapMm=3.0,
         edgeMarginMm=3,
         traceMode=True,
+        compactLab=True,
+        compactTargetPercent=84.0,
+        compactMaxComplete=18,
     )
 
 
