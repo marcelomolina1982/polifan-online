@@ -5,9 +5,12 @@ const appFile='src/AppV2.jsx'
 let app=fs.readFileSync(appFile,'utf8')
 const start=app.indexOf("      if(conflicts.length){\n        const retryKeys=keys.filter(key=>recordSections.has(key))")
 const endMarker="      await patchV2Sections(patch,session?.user?.id,latestResult.revisions)"
-const end=app.indexOf(endMarker,start)
-if(start<0||end<0)throw new Error('v25.0.75: no se encontró bloque CAS v25.0.74')
-const replacement=`      if(conflicts.length){
+const end=start>=0?app.indexOf(endMarker,start):-1
+
+// v25.0.75 sólo transforma el bloque CAS legado de v25.0.74. Si una etapa
+// posterior ya reemplazó esa sincronización, se conserva la versión nueva.
+if(start>=0&&end>=0){
+  const replacement=`      if(conflicts.length){
         if(keys.length===1&&keys[0]==='quotes'){
           const refreshed=await loadV2Sections(['quotes'])
           const localBefore=Array.isArray(db.quotes)?db.quotes:[],wanted=Array.isArray(next.quotes)?next.quotes:[]
@@ -30,8 +33,12 @@ const replacement=`      if(conflicts.length){
         alert('Otra sesión modificó exactamente el mismo dato: '+conflicts.join(', ')+'. Recargá esa sección y repetí sólo ese cambio.');return{ok:false,conflict:true}
       }
 `
-app=app.slice(0,start)+replacement+app.slice(end)
-fs.writeFileSync(appFile,app)
+  app=app.slice(0,start)+replacement+app.slice(end)
+  fs.writeFileSync(appFile,app)
+  console.log('v25.0.75 · rebase legado de quotes aplicado')
+}else{
+  console.log('v25.0.75 · sincronización V2 ya es más nueva; no se reemplaza ni se bloquea el build')
+}
 
 const versionFile='src/version.js'
 let version=fs.readFileSync(versionFile,'utf8')
@@ -43,4 +50,4 @@ const swFile='public/sw.js'
 fs.writeFileSync(swFile,fs.readFileSync(swFile,'utf8').replace(/SW_VERSION='[^']*'/,"SW_VERSION='25.0.75'"))
 const indexFile='index.html'
 fs.writeFileSync(indexFile,fs.readFileSync(indexFile,'utf8').replace(/const build='[^']*'/,"const build='25.0.75'"))
-console.log('v25.0.75 FINALIZE OK · quotes rebasea sólo el presupuesto tocado sobre la revisión más reciente')
+console.log('v25.0.75 FINALIZE OK · compatible con sincronización V2 actual')
