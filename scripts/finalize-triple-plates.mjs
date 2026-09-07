@@ -25,6 +25,36 @@ function mustReplace(text,pattern,replacement,label){
   src=src.replace("Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''","Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''")
   src=src.replace('SIMPLE o DOBLE','SIMPLE, DOBLE o TRIPLE')
 
+  // El SVG ya conserva correctamente repairComponent. El resumen visual debe
+  // agrupar por figura+componente para no mostrar una tapa como figura completa.
+  const oldSummary=`function summarizeUnits(units){
+  const m=new Map();units.forEach(u=>m.set(u.figure,(m.get(u.figure)||0)+1))
+  return [...m.entries()].map(([figure,qty])=>({figure,qty}))
+}`
+  const newSummary=`function summarizeUnits(units){
+  const m=new Map()
+  units.forEach(u=>{
+    const component=u.repairComponent||u.component||'complete'
+    const key=normalizeFigureKey(u.figure)+'|'+component
+    const row=m.get(key)||{figure:u.figure,component,qty:0}
+    row.qty+=1;m.set(key,row)
+  })
+  return [...m.values()]
+}`
+  if(src.includes(oldSummary))src=src.replace(oldSummary,newSummary)
+
+  // Este finalizador corre después de prepare-v25.0.25: garantiza que ninguna
+  // transformación posterior vuelva a borrar la etiqueta TAPA/BASE/COMPLETO.
+  src=src.replace(
+    "{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}",
+    "{plan.summary.map(x=>`${x.figure} ${String(x.component||'complete').toUpperCase()} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}"
+  )
+  src=src.replace(
+    "{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}`).join(', ')||'-'}",
+    "{plan.summary.map(x=>`${x.figure} ${String(x.component||'complete').toUpperCase()} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}"
+  )
+  if(!src.includes("String(x.component||'complete').toUpperCase()"))throw new Error('triple plates: resumen visual no conserva componente')
+
   if(!src.includes('generateAutomatic(3)'))throw new Error('triple plates: el Motor no ofrece ×3')
   if(!src.includes("TRIPLE ×3"))throw new Error('triple plates: el Motor no etiqueta ×3')
   fs.writeFileSync(file,src)
@@ -47,4 +77,4 @@ function mustReplace(text,pattern,replacement,label){
   fs.writeFileSync(file,src)
 }
 
-console.log('TRIPLE PLATES OK · generación ×3 · registro ×3 · inventario ×3 · etiquetas triple')
+console.log('TRIPLE PLATES OK · generación ×3 · registro ×3 · inventario ×3 · resumen por TAPA/BASE/COMPLETO')
