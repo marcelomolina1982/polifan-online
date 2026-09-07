@@ -43,6 +43,11 @@ function mergeArray(base,remote,wanted,key){
   for(const id of ids){
     const b=bm.get(id),r=rm.get(id),w=wm.get(id)
     if(stable(b)===stable(w))continue
+    if(key==='clients'){
+      if(w===undefined){out.delete(id);continue}
+      out.set(id,{...(r||{}),...(w||{}),id:w?.id||r?.id,createdAt:r?.createdAt||w?.createdAt,updatedAt:w?.updatedAt||r?.updatedAt})
+      continue
+    }
     if(w===undefined){
       if(r!==undefined&&stable(r)!==stable(b)){conflicts.push(id);continue}
       out.delete(id);continue
@@ -109,7 +114,8 @@ export default function AppV2(){
         }else if(stable(latest[key])!==stable(baseline[key])&&stable(latest[key])!==stable(next[key]))conflicts.push(key)
         else patch[key]=next[key]
       }
-      if(conflicts.length){alert('Otra sesión modificó exactamente el mismo dato: '+conflicts.join(', ')+'. Recargá esa sección y repetí sólo ese cambio.');return{ok:false,conflict:true}}
+      const blockingConflicts=conflicts.filter(item=>!String(item).startsWith('clients'))
+      if(blockingConflicts.length){alert('Otra sesión modificó exactamente el mismo dato: '+blockingConflicts.join(', ')+'. Recargá esa sección y repetí sólo ese cambio.');return{ok:false,conflict:true}}
       await patchV2Sections(patch,session?.user?.id,latestResult.revisions)
       const confirmed={...db,...patch};baselineRef.current={...baselineRef.current,...patch};setDb(confirmed)
       writeCache({keys:[...loadedRef.current],data:Object.fromEntries([...loadedRef.current].map(k=>[k,confirmed[k]]))})
