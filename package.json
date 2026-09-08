@@ -1,12 +1,12 @@
 {
   "name": "polifan-profesional",
   "private": true,
-  "version": "25.0.86",
+  "version": "25.0.87",
   "description": "Modo operativo seguro",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-predeploy.mjs && node scripts/finalize-tracking-stock-ready.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && node scripts/finalize-performance-v2.mjs && node scripts/finalize-customer-journey-v2.mjs && node scripts/finalize-operations-journey-live.mjs && node scripts/finalize-client-save-conflicts.mjs && node scripts/finalize-v2-save-import.mjs && node scripts/test-motor-component-registration.mjs && vite build",
+    "build": "node scripts/prepare-v25.0.66.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-lab.mjs && node scripts/finalize-tracking-stock-ready.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && node scripts/finalize-performance-v2.mjs && node scripts/finalize-customer-journey-v2.mjs && node scripts/finalize-operations-journey-live.mjs && node scripts/finalize-client-save-conflicts.mjs && node scripts/finalize-v2-save-import.mjs && node scripts/test-motor-component-registration.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs"
