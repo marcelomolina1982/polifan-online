@@ -2,26 +2,27 @@ import fs from 'node:fs'
 
 const appFile='src/AppV2.jsx'
 let app=fs.readFileSync(appFile,'utf8')
-const oldLive="const liveProductionKeys=target==='sheetplanner'?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||(k==='orders'&&liveOrderPages.has(target))||!loadedRef.current.has(k))"
-const newLive="const liveProductionKeys=(target==='sheetplanner'||target==='operations')?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||(k==='orders'&&liveOrderPages.has(target))||!loadedRef.current.has(k))"
-const simpleOld="const missing=full?keys:keys.filter(k=>!loadedRef.current.has(k))"
-const simpleNew="const liveProductionKeys=(target==='sheetplanner'||target==='operations')?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||!loadedRef.current.has(k))"
-const hasOperationsLive=app.includes("target==='sheetplanner'||target==='operations'")&&app.includes("new Set(['orders','movements','cutBatches'])")
-if(hasOperationsLive){
-  // ya aplicado por una etapa anterior del build
-}else if(app.includes(oldLive))app=app.replace(oldLive,newLive)
-else if(app.includes(simpleOld))app=app.replace(simpleOld,simpleNew)
-else throw new Error('operations journey live: no se encontró política de refresco V2 compatible')
+// Parche estructural: cualquier política de `missing` dentro de ensurePage pasa a
+// refrescar siempre orders/movements/cutBatches al abrir Centro operativo o Generar placas.
+if(!app.includes("liveProductionKeys=(target==='sheetplanner'||target==='operations')")){
+  const anchor="    const missing=full?keys:keys.filter("
+  const pos=app.indexOf(anchor)
+  if(pos<0)throw new Error('operations journey live: no se encontró cálculo missing en ensurePage')
+  const lineEnd=app.indexOf('\n',pos)
+  if(lineEnd<0)throw new Error('operations journey live: línea missing incompleta')
+  const current=app.slice(pos,lineEnd)
+  const replacement="    const liveProductionKeys=(target==='sheetplanner'||target==='operations')?new Set(['orders','movements','cutBatches']):null\n"+
+    current.replace('keys.filter(',"keys.filter(k=>Boolean(liveProductionKeys?.has(k))||(").replace(/\)\s*$/,'))')
+  app=app.slice(0,pos)+replacement+app.slice(lineEnd)
+}
 fs.writeFileSync(appFile,app)
 
 const opsFile='src/pages/OperationsHub.jsx'
 let ops=fs.readFileSync(opsFile,'utf8')
-const oldSave="onSave({...db,orders:result.orders,_onlyKeys:['orders']})"
-const newSave="onSave({...db,orders:result.orders})"
-if(ops.includes(oldSave))ops=ops.replaceAll(oldSave,newSave)
+ops=ops.replaceAll("onSave({...db,orders:result.orders,_onlyKeys:['orders']})","onSave({...db,orders:result.orders})")
 if(ops.includes("_onlyKeys:['orders']"))throw new Error('operations journey live: quedó _onlyKeys inválido en Centro operativo')
 fs.writeFileSync(opsFile,ops)
 
-if(!app.includes("target==='sheetplanner'||target==='operations'"))throw new Error('operations journey live: Centro operativo no refresca producción real')
+if(!app.includes("liveProductionKeys=(target==='sheetplanner'||target==='operations')"))throw new Error('operations journey live: Centro operativo no refresca producción real')
 if(!ops.includes('advanceOperationalJourney'))throw new Error('operations journey live: no quedó reconciliación operativa')
 console.log('OPERATIONS JOURNEY LIVE OK · Centro operativo refresca orders/movements/cutBatches y persiste cambios reales')
