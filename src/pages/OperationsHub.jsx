@@ -5,6 +5,7 @@ import {dispatchGroups,productionColumns,packagingNeeds,normalizeDeliveryType} f
 import {pendingCutPlan} from '../lib/cutPlanning'
 import {effectiveJourneyEvent,journeyStageLabel} from '../lib/customerJourneyOperational'
 
+// Centro operativo: mostrar la etapa real del seguimiento, no sólo el estado comercial.
 function dateLabel(value){
   if(!value)return 'Sin fecha'
   const [y,m,d]=String(value).split('-').map(Number)
