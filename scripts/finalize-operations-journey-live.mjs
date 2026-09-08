@@ -6,8 +6,9 @@ const oldLive="const liveProductionKeys=target==='sheetplanner'?new Set(['orders
 const newLive="const liveProductionKeys=(target==='sheetplanner'||target==='operations')?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||(k==='orders'&&liveOrderPages.has(target))||!loadedRef.current.has(k))"
 const simpleOld="const missing=full?keys:keys.filter(k=>!loadedRef.current.has(k))"
 const simpleNew="const liveProductionKeys=(target==='sheetplanner'||target==='operations')?new Set(['orders','movements','cutBatches']):null;const missing=full?keys:keys.filter(k=>Boolean(liveProductionKeys?.has(k))||!loadedRef.current.has(k))"
-if(app.includes(newLive)||app.includes(simpleNew)){
-  // ya aplicado
+const hasOperationsLive=app.includes("target==='sheetplanner'||target==='operations'")&&app.includes("new Set(['orders','movements','cutBatches'])")
+if(hasOperationsLive){
+  // ya aplicado por una etapa anterior del build
 }else if(app.includes(oldLive))app=app.replace(oldLive,newLive)
 else if(app.includes(simpleOld))app=app.replace(simpleOld,simpleNew)
 else throw new Error('operations journey live: no se encontró política de refresco V2 compatible')
