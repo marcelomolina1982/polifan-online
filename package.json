@@ -1,6 +1,6 @@
 {
-  "name":"polifan-profesional","private":true,"version":"25.0.89","description":"Modo operativo seguro","type":"module",
-  "scripts":{"dev":"vite","build":"node scripts/prepare-v25.0.66.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-lab.mjs && node scripts/finalize-tracking-stock-ready.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && node scripts/finalize-performance-v2.mjs && node scripts/finalize-v2-save-import.mjs && node scripts/test-motor-component-registration.mjs && vite build","preview":"vite preview","postinstall":"node scripts/render-install-chrome.cjs","test:journey":"node scripts/test-customer-journey-operational.mjs"},
+  "name":"polifan-profesional","private":true,"version":"25.0.90","description":"Modo operativo seguro","type":"module",
+  "scripts":{"dev":"vite","build":"node scripts/test-customer-journey-operational.mjs && node scripts/finalize-customer-journey-lab.mjs && node scripts/finalize-tracking-stock-ready.mjs && node scripts/finalize-live-production-refresh.mjs && node scripts/finalize-triple-plates.mjs && node scripts/finalize-performance-v2.mjs && node scripts/finalize-v2-save-import.mjs && node scripts/test-motor-component-registration.mjs && vite build","preview":"vite preview","postinstall":"node scripts/render-install-chrome.cjs","test:journey":"node scripts/test-customer-journey-operational.mjs"},
   "dependencies":{"@supabase/supabase-js":"2.112.4","html2canvas":"1.4.1","jspdf":"4.2.1","react":"19.2.8","react-dom":"19.2.8"},
   "devDependencies":{"@vitejs/plugin-react":"4.7.0","vite":"6.4.3"}
 }
