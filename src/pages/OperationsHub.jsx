@@ -3,6 +3,7 @@ import {Title,Badge} from '../components/UI'
 import {todayArgentinaISO,orderPieces} from '../lib/production'
 import {dispatchGroups,productionColumns,packagingNeeds,normalizeDeliveryType} from '../lib/operations'
 import {pendingCutPlan} from '../lib/cutPlanning'
+import {effectiveJourneyEvent,journeyStageLabel} from '../lib/customerJourneyOperational'
 
 function dateLabel(value){
   if(!value)return 'Sin fecha'
@@ -13,6 +14,10 @@ function addDaysIso(iso,days){
   const [y,m,d]=iso.split('-').map(Number),date=new Date(y,m-1,d,12)
   date.setDate(date.getDate()+days)
   return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-')
+}
+function operationalStatus(order){
+  const event=effectiveJourneyEvent(order,new Date().toISOString())
+  return event?journeyStageLabel(event):(order.status||'Ingresado')
 }
 
 export default function OperationsHub({db,go}){
@@ -27,7 +32,7 @@ export default function OperationsHub({db,go}){
   const pendingCutPieces=cutGroups.reduce((sum,g)=>sum+g.rows.reduce((s,r)=>s+Number(r.qty||0),0),0)
   const overdueGroups=cutGroups.filter(g=>g.overdue)
   const overdueOrderCount=new Set(overdueGroups.flatMap(g=>g.orders||[])).size
-  const readyToday=todayOrders.filter(o=>String(o.status||'').toLowerCase().includes('listo')).length
+  const readyToday=todayOrders.filter(o=>['Para embalar','Despachado','Listo para retirar'].includes(operationalStatus(o))).length
   const upcoming=active.filter(o=>o.delivery&&o.delivery>=today&&o.delivery<=end).sort((a,b)=>String(a.delivery).localeCompare(String(b.delivery))||Number(a.number||0)-Number(b.number||0))
   const upcomingByDate=useMemo(()=>{
     const map=new Map()
@@ -35,7 +40,7 @@ export default function OperationsHub({db,go}){
       if(!map.has(o.delivery))map.set(o.delivery,[])
       map.get(o.delivery).push(o)
     })
-    return [...map.entries()].map(([date,orders])=>({date,orders,pieces:orders.reduce((s,o)=>s+orderPieces(o),0),ready:orders.filter(o=>String(o.status||'').toLowerCase().includes('listo')).length}))
+    return [...map.entries()].map(([date,orders])=>({date,orders,pieces:orders.reduce((s,o)=>s+orderPieces(o),0),ready:orders.filter(o=>['Para embalar','Despachado','Listo para retirar'].includes(operationalStatus(o))).length}))
   },[upcoming])
 
   return <>
@@ -60,7 +65,7 @@ export default function OperationsHub({db,go}){
 
     <section className="panel">
       <div className="panel-heading"><div><h3>Despachos de hoy</h3><small>Pedidos que tienen fecha de entrega hoy, separados por modalidad real.</small></div><button className="ghost" onClick={()=>window.print()}>Imprimir vista</button></div>
-      <div className="dispatch-grid">{Object.entries(dispatch).map(([type,orders])=><div className="dispatch-card" key={type}><h4>{type}</h4><b>{orders.length} pedido{orders.length===1?'':'s'}</b>{orders.map(o=><div className="dispatch-order" key={o.id}><span><b>#{o.number} · {o.client}</b><small>{orderPieces(o)} piezas · {o.locality||o.province||''}</small></span><Badge status={o.status}/></div>)}</div>)}{!Object.keys(dispatch).length&&<div className="dash-empty"><b>No hay despachos para hoy.</b></div>}</div>
+      <div className="dispatch-grid">{Object.entries(dispatch).map(([type,orders])=><div className="dispatch-card" key={type}><h4>{type}</h4><b>{orders.length} pedido{orders.length===1?'':'s'}</b>{orders.map(o=><div className="dispatch-order" key={o.id}><span><b>#{o.number} · {o.client}</b><small>{orderPieces(o)} piezas · {o.locality||o.province||''}</small></span><Badge status={operationalStatus(o)}/></div>)}</div>)}{!Object.keys(dispatch).length&&<div className="dash-empty"><b>No hay despachos para hoy.</b></div>}</div>
     </section>
 
     <section className="panel">
