@@ -9,6 +9,15 @@
 .v2-shell main>.panel.table-wrap{margin-left:0!important;margin-right:0!important;width:100%!important;max-width:none!important}
 .v2-shell main>.panel.table-wrap table{text-align:left!important}
 .v2-shell main>.panel.table-wrap th,.v2-shell main>.panel.table-wrap td{text-align:left!important;vertical-align:top!important}
+/* Para cortar: delivery cards must stay light/readable even if older page CSS paints them navy. */
+.v2-shell .delivery-group>.delivery-head,.v2-shell .delivery-group .delivery-head{background:#fff0f7!important;color:#3d2d38!important;border-bottom:1px solid #f6d8e6!important}
+.v2-shell .delivery-group .delivery-head h1,.v2-shell .delivery-group .delivery-head h2,.v2-shell .delivery-group .delivery-head h3,.v2-shell .delivery-group .delivery-head h4,.v2-shell .delivery-group .delivery-head b,.v2-shell .delivery-group .delivery-head span{color:#3d2d38!important}
+.v2-shell .delivery-group .delivery-head small{color:#c62d70!important}
+.v2-shell .delivery-group .delivery-head>b{background:#ffe1ee!important;color:#b91f61!important}
+/* Some legacy Para cortar builds use dispatch-card for the date header. Keep that variant readable too. */
+.v2-shell .delivery-groups>.dispatch-card{background:#fff0f7!important;color:#3d2d38!important;border-color:#f6d8e6!important}
+.v2-shell .delivery-groups>.dispatch-card h4,.v2-shell .delivery-groups>.dispatch-card b,.v2-shell .delivery-groups>.dispatch-card span{color:#3d2d38!important}
+.v2-shell .delivery-groups>.dispatch-card small{color:#c62d70!important}
 /* Sidebar: keep the restored hierarchy compact without removing any route/function. */
 .v2-shell .sidebar nav{padding-top:12px!important}
 .v2-shell .nav-group{margin-bottom:8px!important}
