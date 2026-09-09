@@ -28,11 +28,11 @@ def test_strip_width_is_last_tiebreaker():
     assert compact > wide
 
 
-def test_real_selected_score_never_mutates_inputs():
-    selected = [{'kitId': 'a', 'priority': 1}, {'kitId': 'b', 'priority': 2}]
-    result = {'density': 80.5, 'stripWidthMm': 1180.0}
+def test_real_selected_score_matches_candidate_shape_and_never_mutates_inputs():
+    selected = [{'kitId': 'a', 'priority': 2}, {'kitId': 'b', 'priority': 5}]
+    result = {'density': 81.5, 'stripWidthMm': 1199.0}
     before_selected = repr(selected)
     before_result = repr(result)
-    score_selected(selected, result)
+    assert score_selected(selected, result) == candidate_score(2, 81.5, 1199.0, 7)
     assert repr(selected) == before_selected
     assert repr(result) == before_result
