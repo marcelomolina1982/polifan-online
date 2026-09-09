@@ -14,8 +14,23 @@ function writeIfChanged(file,before,after){
   const before=fs.readFileSync(file,'utf8')
   let src=before
   src=src.replace(/\s*useEffect\(\(\)=>\{const result=advanceOperationalJourney\(db,new Date\(\)\.toISOString\(\)\);if\(result\.changed\)Promise\.resolve\(onSave\?\.\(\{\.\.\.db,orders:result\.orders\}\)\)\.catch\(console\.error\)\},\[db\.orders,db\.movements,db\.cutBatches,onSave\]\)\n?/,'\n')
-  // Si el finalizer dejó imports ampliados, no son peligrosos; el punto crítico
-  // es impedir escrituras automáticas al abrir la pantalla.
+  writeIfChanged(file,before,src)
+}
+
+// RECOVERY GUARD: el recuento/cierre físico del 14/08 es una migración histórica.
+// Nunca debe volver a ejecutarse automáticamente sólo por abrir Inventario.
+// Se bloquean exclusivamente los dos efectos automáticos; no se toca stock,
+// movimientos, pedidos, Para cortar ni las herramientas manuales de Inventario.
+{
+  const file='src/pages/Stock.jsx'
+  const before=fs.readFileSync(file,'utf8')
+  let src=before
+  const recount="    if(!db||!onSave||db.inventoryRecount?.id===RECOUNT_ID||applyingRef.current)return"
+  const closeout="    if(!db||!onSave||db.inventoryRecount?.id!==RECOUNT_ID||db.inventoryRecountCloseout?.id===CLOSEOUT_ID||closeoutRef.current)return"
+  if(src.includes(recount)) src=src.replace(recount,"    return // RECOVERY GUARD: recuento histórico 14/08 sólo manual")
+  if(src.includes(closeout)) src=src.replace(closeout,"    return // RECOVERY GUARD: cierre histórico 14/08 sólo manual")
+  if(src.includes(recount)||src.includes(closeout)) throw new Error('RECOVERY GUARD: quedaron auto-escrituras históricas de Inventario')
+  if(!src.includes('recuento histórico 14/08 sólo manual')||!src.includes('cierre histórico 14/08 sólo manual')) throw new Error('RECOVERY GUARD: no se pudo neutralizar Inventario 14/08')
   writeIfChanged(file,before,src)
 }
 
@@ -36,4 +51,4 @@ function writeIfChanged(file,before,after){
   writeIfChanged(file,before,src)
 }
 
-console.log('RECOVERY GUARD OK · Centro operativo sin auto-save · Sparrow con sesión')
+console.log('RECOVERY GUARD OK · Centro operativo sin auto-save · Inventario 14/08 sin auto-write · Sparrow con sesión')
