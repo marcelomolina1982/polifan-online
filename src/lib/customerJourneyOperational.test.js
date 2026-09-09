@@ -8,8 +8,7 @@ function order(overrides = {}) {
   return {
     id: 'test-order-1', number: 'TEST-1', status: 'Confirmado', delivery: '2026-09-10',
     deliveryType: 'Retiro en local', items: [{ figure: 'Arcoiris', qty: 1 }],
-    customerJourneyEnabled: true,
-    journey: { stage: JOURNEY_EVENTS.CONFIRMED, confirmedAt: '2026-09-09T12:00:00-03:00' },
+    journey: { enabled: true, stage: JOURNEY_EVENTS.CONFIRMED, confirmedAt: '2026-09-09T12:00:00-03:00' },
     ...overrides,
   }
 }
@@ -35,7 +34,7 @@ describe('customer journey safety', () => {
 
   it('keeps the three-hour packing gate after production cut completion', () => {
     const cutAt = '2026-09-09T16:00:00-03:00'
-    const o = order({ journey: { stage: JOURNEY_EVENTS.PRODUCTION_CUT, productionAt: '2026-09-09T14:00:00-03:00', cutCompletedAt: cutAt } })
+    const o = order({ journey: { enabled: true, stage: JOURNEY_EVENTS.PRODUCTION_CUT, productionAt: '2026-09-09T14:00:00-03:00', cutCompletedAt: cutAt } })
     expect(effectiveJourneyEvent(o, NOW)).toBe(JOURNEY_EVENTS.PRODUCTION_CUT)
     const after = new Date('2026-09-09T19:01:00-03:00')
     expect(effectiveJourneyEvent(o, after)).toBe(JOURNEY_EVENTS.PACKING)
@@ -44,7 +43,7 @@ describe('customer journey safety', () => {
   it('allows final manual action only from packing', () => {
     const confirmed = order()
     expect(markJourneyFinal(confirmed, NOW).journey.stage).toBe(JOURNEY_EVENTS.CONFIRMED)
-    const packing = order({ journey: { stage: JOURNEY_EVENTS.PACKING, packingAt: '2026-09-09T17:00:00-03:00' } })
+    const packing = order({ journey: { enabled: true, stage: JOURNEY_EVENTS.PACKING, packingAt: '2026-09-09T17:00:00-03:00' } })
     const final = markJourneyFinal(packing, NOW)
     expect([JOURNEY_EVENTS.DISPATCHED, JOURNEY_EVENTS.READY_PICKUP]).toContain(final.journey.stage)
   })
