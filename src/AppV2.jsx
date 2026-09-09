@@ -36,117 +36,43 @@ const recordSections=new Set(['orders','clients','movements','cutBatches','quote
 const Loading=()=> <div className="v2-boot"><div className="v2-boot-orb"/><b>Preparando tu espacio de trabajo</b><span>Cargando sólo lo necesario…</span></div>
 const readCache=()=>{try{return JSON.parse(localStorage.getItem(V2_CACHE)||'{}')}catch{return{}}}
 const writeCache=value=>{try{localStorage.setItem(V2_CACHE,JSON.stringify(value))}catch{}}
+const withTimeout=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(label)),ms))])
 
 function mergeArray(base,remote,wanted,key){
   const bm=new Map((base||[]).map(x=>[String(x?.id),x])),rm=new Map((remote||[]).map(x=>[String(x?.id),x])),wm=new Map((wanted||[]).map(x=>[String(x?.id),x]))
   const ids=new Set([...bm.keys(),...wm.keys()]),out=new Map(rm),conflicts=[]
-  for(const id of ids){
-    const b=bm.get(id),r=rm.get(id),w=wm.get(id)
-    if(stable(b)===stable(w))continue
-    if(key==='clients'){
-      if(w===undefined){out.delete(id);continue}
-      out.set(id,{...(r||{}),...(w||{}),id:w?.id||r?.id,createdAt:r?.createdAt||w?.createdAt,updatedAt:w?.updatedAt||r?.updatedAt})
-      continue
-    }
-    if(w===undefined){
-      if(r!==undefined&&stable(r)!==stable(b)){conflicts.push(id);continue}
-      out.delete(id);continue
-    }
-    if(b===undefined){
-      if(r!==undefined&&stable(r)!==stable(w)){conflicts.push(id);continue}
-      out.set(id,w);continue
-    }
-    if(r===undefined){conflicts.push(id);continue}
-    if(stable(r)!==stable(b)&&stable(r)!==stable(w)){conflicts.push(id);continue}
-    out.set(id,w)
-  }
+  for(const id of ids){const b=bm.get(id),r=rm.get(id),w=wm.get(id);if(stable(b)===stable(w))continue;if(key==='clients'){if(w===undefined){out.delete(id);continue}out.set(id,{...(r||{}),...(w||{}),id:w?.id||r?.id,createdAt:r?.createdAt||w?.createdAt,updatedAt:w?.updatedAt||r?.updatedAt});continue}if(w===undefined){if(r!==undefined&&stable(r)!==stable(b)){conflicts.push(id);continue}out.delete(id);continue}if(b===undefined){if(r!==undefined&&stable(r)!==stable(w)){conflicts.push(id);continue}out.set(id,w);continue}if(r===undefined){conflicts.push(id);continue}if(stable(r)!==stable(b)&&stable(r)!==stable(w)){conflicts.push(id);continue}out.set(id,w)}
   const order=[...(remote||[]).map(x=>String(x?.id)),...(wanted||[]).map(x=>String(x?.id))]
   return conflicts.length?{ok:false,conflicts}:{ok:true,value:[...new Set(order)].map(id=>out.get(id)).filter(Boolean)}
 }
-
-function CatalogAccess(){
-  return <div className="panel v2-catalog-access"><div><small>CATÁLOGO PÚBLICO</small><h3>Compartí el catálogo y medí de dónde llegan los pedidos.</h3></div><button className="primary" onClick={()=>window.open(PUBLIC_CATALOG_URL,'_blank','noopener,noreferrer')}>Abrir catálogo ↗</button></div>
-}
+function CatalogAccess(){return <div className="panel v2-catalog-access"><div><small>CATÁLOGO PÚBLICO</small><h3>Compartí el catálogo y medí de dónde llegan los pedidos.</h3></div><button className="primary" onClick={()=>window.open(PUBLIC_CATALOG_URL,'_blank','noopener,noreferrer')}>Abrir catálogo ↗</button></div>}
 
 export default function AppV2(){
   const cached=useMemo(readCache,[]),initial={...emptyState(),...(cached.data||{})}
   const [session,setSession]=useState(null),[authReady,setAuthReady]=useState(false),[db,setDb]=useState(initial),[page,setPage]=useState(()=>sessionStorage.getItem('polifan-current-page')||'dashboard')
-  const [loading,setLoading]=useState(true),[pageLoading,setPageLoading]=useState(false),[saving,setSaving]=useState(false),[mobileOpen,setMobileOpen]=useState(false),[editingOrder,setEditingOrder]=useState(null)
+  const [loading,setLoading]=useState(true),[pageLoading,setPageLoading]=useState(false),[saving,setSaving]=useState(false),[mobileOpen,setMobileOpen]=useState(false),[editingOrder,setEditingOrder]=useState(null),[loadWarning,setLoadWarning]=useState('')
   const loadedRef=useRef(new Set(cached.keys||[])),baselineRef=useRef(initial),requestRef=useRef(0)
 
-  useEffect(()=>{
-    let alive=true
-    supabase.auth.getSession().then(({data})=>{if(!alive)return;setSession(data.session);setAuthReady(true)})
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,s)=>{if(!alive)return;setSession(s);setAuthReady(true)})
-    return()=>{alive=false;subscription.unsubscribe()}
-  },[])
-
+  useEffect(()=>{let alive=true;withTimeout(supabase.auth.getSession(),12000,'La sesión tardó demasiado').then(({data})=>{if(!alive)return;setSession(data.session);setAuthReady(true)}).catch(error=>{console.error(error);if(!alive)return;setAuthReady(true)});const {data:{subscription}}=supabase.auth.onAuthStateChange((_,s)=>{if(!alive)return;setSession(s);setAuthReady(true)});return()=>{alive=false;subscription.unsubscribe()}},[])
   useEffect(()=>{sessionStorage.setItem('polifan-current-page',page)},[page])
   useEffect(()=>{if(session)ensurePage(page,true)},[session])
 
   async function ensurePage(target,initialLoad=false){
-    const keys=pageSections(target),full=pageNeedsFullCatalog(target)
-    const missing=full?keys:keys.filter(k=>!loadedRef.current.has(k))
+    const keys=pageSections(target),full=pageNeedsFullCatalog(target),missing=full?keys:keys.filter(k=>!loadedRef.current.has(k))
     if(!missing.length){setLoading(false);setPageLoading(false);return}
-    const request=++requestRef.current
-    if(initialLoad)setLoading(true);else setPageLoading(true)
-    try{
-      const result=await loadV2Sections(missing,{fullCatalog:full})
-      if(request!==requestRef.current)return
-      const next={...db,...result.data}
-      Object.keys(result.data).forEach(k=>loadedRef.current.add(k))
-      baselineRef.current={...baselineRef.current,...result.data}
-      setDb(next);writeCache({keys:[...loadedRef.current],data:Object.fromEntries([...loadedRef.current].filter(k=>k!=='customerCatalog'||target!=='catalog').map(k=>[k,next[k]]))})
-    }catch(error){console.error(error);alert('No se pudo cargar esta sección: '+error.message)}finally{if(request===requestRef.current){setLoading(false);setPageLoading(false)}}
+    const request=++requestRef.current;if(initialLoad)setLoading(true);else setPageLoading(true)
+    try{const result=await withTimeout(loadV2Sections(missing,{fullCatalog:full}),15000,'La carga de datos tardó demasiado');if(request!==requestRef.current)return;const next={...db,...result.data};Object.keys(result.data).forEach(k=>loadedRef.current.add(k));baselineRef.current={...baselineRef.current,...result.data};setDb(next);setLoadWarning('');writeCache({keys:[...loadedRef.current],data:Object.fromEntries([...loadedRef.current].filter(k=>k!=='customerCatalog'||target!=='catalog').map(k=>[k,next[k]]))})}
+    catch(error){console.error(error);if(request!==requestRef.current)return;setLoadWarning('No se pudieron actualizar los datos. La app quedó abierta en modo seguro; recargá antes de guardar cambios.')}
+    finally{if(request===requestRef.current){setLoading(false);setPageLoading(false)}}
   }
 
-  async function saveData(next){
-    const keys=changedKeys(db,next)
-    if(!keys.length)return{ok:true,data:db}
-    setSaving(true)
-    try{
-      const latestResult=await loadV2Sections(keys,{fullCatalog:keys.includes('customerCatalog')&&pageNeedsFullCatalog(page)})
-      const latest={...db,...latestResult.data},baseline=baselineRef.current,patch={},conflicts=[]
-      for(const key of keys){
-        if(recordSections.has(key)){
-          const merged=mergeArray(baseline[key],latest[key],next[key],key)
-          if(!merged.ok)conflicts.push(`${key} (${merged.conflicts.length})`);else patch[key]=merged.value
-        }else if(stable(latest[key])!==stable(baseline[key])&&stable(latest[key])!==stable(next[key]))conflicts.push(key)
-        else patch[key]=next[key]
-      }
-      const blockingConflicts=conflicts.filter(item=>!String(item).startsWith('clients'))
-      if(blockingConflicts.length){alert('Otra sesión modificó exactamente el mismo dato: '+blockingConflicts.join(', ')+'. Recargá esa sección y repetí sólo ese cambio.');return{ok:false,conflict:true}}
-      await patchV2Sections(patch,session?.user?.id,latestResult.revisions)
-      const confirmed={...db,...patch};baselineRef.current={...baselineRef.current,...patch};setDb(confirmed)
-      writeCache({keys:[...loadedRef.current],data:Object.fromEntries([...loadedRef.current].map(k=>[k,confirmed[k]]))})
-      return{ok:true,data:confirmed}
-    }catch(error){console.error(error);alert('No se pudo guardar: '+error.message);return{ok:false,error}}finally{setSaving(false)}
-  }
-
+  async function saveData(next){if(loadWarning){alert('Por seguridad no se puede guardar mientras los datos no estén sincronizados. Recargá la app y esperá a que indique Sincronizado.');return{ok:false,safeMode:true}}const keys=changedKeys(db,next);if(!keys.length)return{ok:true,data:db};setSaving(true);try{const latestResult=await loadV2Sections(keys,{fullCatalog:keys.includes('customerCatalog')&&pageNeedsFullCatalog(page)}),latest={...db,...latestResult.data},baseline=baselineRef.current,patch={},conflicts=[];for(const key of keys){if(recordSections.has(key)){const merged=mergeArray(baseline[key],latest[key],next[key],key);if(!merged.ok)conflicts.push(`${key} (${merged.conflicts.length})`);else patch[key]=merged.value}else if(stable(latest[key])!==stable(baseline[key])&&stable(latest[key])!==stable(next[key]))conflicts.push(key);else patch[key]=next[key]}const blockingConflicts=conflicts.filter(item=>!String(item).startsWith('clients'));if(blockingConflicts.length){alert('Otra sesión modificó exactamente el mismo dato: '+blockingConflicts.join(', ')+'. Recargá esa sección y repetí sólo ese cambio.');return{ok:false,conflict:true}}await patchV2Sections(patch,session?.user?.id,latestResult.revisions);const confirmed={...db,...patch};baselineRef.current={...baselineRef.current,...patch};setDb(confirmed);writeCache({keys:[...loadedRef.current],data:Object.fromEntries([...loadedRef.current].map(k=>[k,confirmed[k]]))});return{ok:true,data:confirmed}}catch(error){console.error(error);alert('No se pudo guardar: '+error.message);return{ok:false,error}}finally{setSaving(false)}}
   async function saveOrderData(next){return saveData(next)}
   async function logout(){await supabase.auth.signOut();setSession(null)}
   function go(id){if(id==='new'){try{localStorage.removeItem('polifan-order-draft-v1')}catch{}setEditingOrder(null)}setPage(id);setMobileOpen(false);ensurePage(id,false)}
-  function openQuoteAsOrder(q){
-    const customer=q.customer||{},fullName=q.client||customer.name||'',regular=(q.items||[]).filter(i=>i.inventoryTracked!==false&&!i.manualItem).map(i=>({figure:i.figure||i.name||'',productId:i.productId||'',qty:Number(i.qty||1),inventoryTracked:true})),manual=(q.items||[]).filter(i=>i.inventoryTracked===false||i.manualItem).map(i=>({figure:i.figure||i.name||'',qty:Number(i.qty||1),unitPrice:Number(i.unitPrice||i.price||0),inventoryTracked:false,manualItem:true}))
-    const draft={id:crypto.randomUUID(),firstName:q.firstName||customer.firstName||String(fullName).split(' ')[0]||'',lastName:q.lastName||customer.lastName||String(fullName).split(' ').slice(1).join(' '),client:fullName,phone:q.phone||customer.phone||'',dni:q.dni||customer.dni||'',email:q.email||customer.email||'',address:q.address||customer.address||'',betweenStreets:q.betweenStreets||customer.betweenStreets||'',locality:q.locality||customer.locality||'',district:q.district||customer.district||'',province:q.province||customer.province||'',postalCode:q.postalCode||customer.postalCode||'',deliveryType:q.deliveryType||'Logística GBA/CABA',carrier:q.deliveryType||'Logística GBA/CABA',delivery:q.delivery||'',priority:q.priority||'Normal',status:'Ingresado',shippingCost:q.shippingCost||'',notes:[q.notes,`Convertido desde presupuesto ${q.code}`].filter(Boolean).join(' · '),items:regular.length?regular:[{figure:'',qty:1,inventoryTracked:true}],manualItems:manual,quoteId:q.id}
-    try{localStorage.setItem('polifan-order-draft-v1',JSON.stringify(draft))}catch{}setEditingOrder(null);setPage('new');ensurePage('new')
-  }
+  function openQuoteAsOrder(q){const customer=q.customer||{},fullName=q.client||customer.name||'',regular=(q.items||[]).filter(i=>i.inventoryTracked!==false&&!i.manualItem).map(i=>({figure:i.figure||i.name||'',productId:i.productId||'',qty:Number(i.qty||1),inventoryTracked:true})),manual=(q.items||[]).filter(i=>i.inventoryTracked===false||i.manualItem).map(i=>({figure:i.figure||i.name||'',qty:Number(i.qty||1),unitPrice:Number(i.unitPrice||i.price||0),inventoryTracked:false,manualItem:true}));const draft={id:crypto.randomUUID(),firstName:q.firstName||customer.firstName||String(fullName).split(' ')[0]||'',lastName:q.lastName||customer.lastName||String(fullName).split(' ').slice(1).join(' '),client:fullName,phone:q.phone||customer.phone||'',dni:q.dni||customer.dni||'',email:q.email||customer.email||'',address:q.address||customer.address||'',betweenStreets:q.betweenStreets||customer.betweenStreets||'',locality:q.locality||customer.locality||'',district:q.district||customer.district||'',province:q.province||customer.province||'',postalCode:q.postalCode||customer.postalCode||'',deliveryType:q.deliveryType||'Logística GBA/CABA',carrier:q.deliveryType||'Logística GBA/CABA',delivery:q.delivery||'',priority:q.priority||'Normal',status:'Ingresado',shippingCost:q.shippingCost||'',notes:[q.notes,`Convertido desde presupuesto ${q.code}`].filter(Boolean).join(' · '),items:regular.length?regular:[{figure:'',qty:1,inventoryTracked:true}],manualItems:manual,quoteId:q.id};try{localStorage.setItem('polifan-order-draft-v1',JSON.stringify(draft))}catch{}setEditingOrder(null);setPage('new');ensurePage('new')}
 
-  if(!authReady)return <Loading/>
-  if(!session)return <Login/>
-  if(loading)return <Loading/>
-
+  if(!authReady)return <Loading/>;if(!session)return <Login/>;if(loading)return <Loading/>
   const navGroups=[['NEGOCIO',[['dashboard','⌂','Inicio'],['operations','⚡','Centro operativo'],['new','＋','Nuevo pedido'],['orders','▤','Pedidos'],['clients','♙','Clientes']]],['PRODUCCIÓN',[['calendar','◫','Calendario'],['cut','✂','Para cortar'],['cutbatches','▦','En corte'],['sheetplanner','◎','Generar placas'],['svglibrary','⌁','Biblioteca SVG'],['stock','◇','Inventario']]],['VENTAS',[['assistant','✦','Asistente del catálogo'],['quotes','▤','Presupuestos'],['webrequests','↙','Solicitudes web'],['trust','★','Fotos y reseñas'],['catalog','▦','Catálogo'],['analytics','◒','Estadísticas']]],['FINANZAS',[['expenses','◉','Caja y gastos'],['monthly','▥','Resumen mensual'],['costs','◫','Costos']]],['SISTEMA',[['settings','⚙','Configuración']]]]
-
-  return <div className="app v2-shell">
-    <aside className={'sidebar '+(mobileOpen?'open':'')}>
-      <div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN <em>V2</em></b><span className="version-badge">{APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div>
-      <nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>go(id)}><span>{icon}</span>{label}</button>)}</div>)}</nav>
-      <div className="side-help"><b>Arquitectura V2</b><small>Carga por módulos · sincronización selectiva</small></div>
-    </aside>
-    <div className="content"><header><button className="menu" onClick={()=>setMobileOpen(v=>!v)}>☰</button><div className="v2-header-title"><small>ESPACIO DE PRODUCCIÓN</small><b>{navGroups.flatMap(g=>g[1]).find(x=>x[0]===page)?.[2]||'Polifan'}</b></div><div className="header-right"><span className={'sync '+(saving?'saving':'')}>{saving?'Guardando cambio…':pageLoading?'Cargando módulo…':'Sincronizado'}</span><div className="avatar">{session.user.email?.[0]?.toUpperCase()||'A'}</div><div className="user"><b>{session.user.email?.split('@')[0]}</b><small>Administrador</small></div><button className="ghost" onClick={logout}>Salir</button></div></header><main className={pageLoading?'v2-page-loading':''}><Suspense fallback={<Loading/>}>
-      {page==='dashboard'&&<Dashboard db={db} go={go}/>} {page==='operations'&&<OperationsHub db={db} onSave={saveData} go={go}/>} {page==='new'&&<OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveOrderData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} {page==='orders'&&<><Orders db={db} onSave={saveData} onEdit={o=>{setEditingOrder(o);setPage('new');ensurePage('new')}}/><OrdersFinance db={db}/></>}
-      {page==='calendar'&&<ProductionCalendar db={db} onSave={saveData} go={go}/>} {page==='cut'&&<CutList db={db} onSave={saveData} goMotor={()=>go('sheetplanner')}/>} {page==='cutbatches'&&<CutBatches db={db} onSave={saveData}/>} {page==='sheetplanner'&&<MotorDefinitivo db={db} onSave={saveData}/>} {page==='svglibrary'&&<SvgLibrary db={db} onSave={saveData}/>} {page==='stock'&&<Stock db={db} onSave={saveData}/>} {page==='clients'&&<Clients db={db} onSave={saveData} go={go}/>} {page==='assistant'&&<CatalogAssistant db={db} onSave={saveData}/>} {page==='quotes'&&<Quotes db={db} onSave={saveData} onOpenOrder={openQuoteAsOrder}/>} {page==='webrequests'&&<WebRequests db={db} onSave={saveData}/>} {page==='trust'&&<CustomerTrust db={db} onSave={saveData}/>} {page==='catalog'&&<><CatalogAccess/><CatalogAdmin db={db} onSave={saveData}/></>} {page==='analytics'&&<Analytics db={db}/>} {page==='expenses'&&<Expenses db={db} onSave={saveData}/>} {page==='monthly'&&<Monthly db={db}/>} {page==='costs'&&<CostSettings db={db} onSave={saveData}/>} {page==='settings'&&<Settings db={db} onSave={saveData}/>} 
-    </Suspense></main></div>
-  </div>
+  return <div className="app v2-shell"><aside className={'sidebar '+(mobileOpen?'open':'')}><div className="brand"><img className="brand-logo" src="/logo-tu-vida-en-tinta.png" alt="Tu Vida En Tinta"/><div><small>TU VIDA EN TINTA</small><b>POLIFAN <em>V2</em></b><span className="version-badge">{APP_VERSION_LABEL} · {APP_UPDATED_AT}</span></div></div><nav>{navGroups.map(([group,items])=><div className="nav-group" key={group}><small>{group}</small>{items.map(([id,icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>go(id)}><span>{icon}</span>{label}</button>)}</div>)}</nav><div className="side-help"><b>Arquitectura V2</b><small>Carga por módulos · sincronización selectiva</small></div></aside><div className="content"><header><button className="menu" onClick={()=>setMobileOpen(v=>!v)}>☰</button><div className="v2-header-title"><small>ESPACIO DE PRODUCCIÓN</small><b>{navGroups.flatMap(g=>g[1]).find(x=>x[0]===page)?.[2]||'Polifan'}</b></div><div className="header-right"><span className={'sync '+(saving?'saving':'')}>{saving?'Guardando cambio…':pageLoading?'Cargando módulo…':loadWarning?'Modo seguro':'Sincronizado'}</span><div className="avatar">{session.user.email?.[0]?.toUpperCase()||'A'}</div><div className="user"><b>{session.user.email?.split('@')[0]}</b><small>Administrador</small></div><button className="ghost" onClick={logout}>Salir</button></div></header>{loadWarning&&<div style={{margin:'12px 24px',padding:'12px 16px',border:'1px solid #f59e0b',borderRadius:12,background:'#fffbeb'}}>{loadWarning}</div>}<main className={pageLoading?'v2-page-loading':''}><Suspense fallback={<Loading/>}>{page==='dashboard'&&<Dashboard db={db} go={go}/>} {page==='operations'&&<OperationsHub db={db} onSave={saveData} go={go}/>} {page==='new'&&<OrderForm key={editingOrder?.id||'new'} db={db} onSave={saveOrderData} editing={editingOrder} clearEdit={()=>setEditingOrder(null)}/>} {page==='orders'&&<><Orders db={db} onSave={saveData} onEdit={o=>{setEditingOrder(o);setPage('new');ensurePage('new')}}/><OrdersFinance db={db}/></>}{page==='calendar'&&<ProductionCalendar db={db} onSave={saveData} go={go}/>} {page==='cut'&&<CutList db={db} onSave={saveData} goMotor={()=>go('sheetplanner')}/>} {page==='cutbatches'&&<CutBatches db={db} onSave={saveData}/>} {page==='sheetplanner'&&<MotorDefinitivo db={db} onSave={saveData}/>} {page==='svglibrary'&&<SvgLibrary db={db} onSave={saveData}/>} {page==='stock'&&<Stock db={db} onSave={saveData}/>} {page==='clients'&&<Clients db={db} onSave={saveData} go={go}/>} {page==='assistant'&&<CatalogAssistant db={db} onSave={saveData}/>} {page==='quotes'&&<Quotes db={db} onSave={saveData} onOpenOrder={openQuoteAsOrder}/>} {page==='webrequests'&&<WebRequests db={db} onSave={saveData}/>} {page==='trust'&&<CustomerTrust db={db} onSave={saveData}/>} {page==='catalog'&&<><CatalogAccess/><CatalogAdmin db={db} onSave={saveData}/></>} {page==='analytics'&&<Analytics db={db}/>} {page==='expenses'&&<Expenses db={db} onSave={saveData}/>} {page==='monthly'&&<Monthly db={db}/>} {page==='costs'&&<CostSettings db={db} onSave={saveData}/>} {page==='settings'&&<Settings db={db} onSave={saveData}/>}</Suspense></main></div></div>
 }
