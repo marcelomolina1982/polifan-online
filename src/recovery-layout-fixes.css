@@ -1,0 +1,17 @@
+/* Final recovery layout: presentation only. No production/data rules here. */
+.v2-shell .actions{justify-content:flex-start!important;align-items:center!important;gap:10px!important;flex-wrap:wrap!important}
+.v2-shell td.row-actions{display:flex!important;justify-content:flex-start!important;align-items:center!important;gap:10px!important;flex-wrap:wrap!important;text-align:left!important;min-width:250px!important}
+.v2-shell td.row-actions button{margin:0!important;white-space:nowrap!important}
+.v2-shell form.panel>.actions{width:100%!important;margin-top:16px!important}
+.v2-shell .form-grid{justify-content:start!important}
+.v2-shell .item-row{justify-content:start!important}
+/* En corte: keep the operational table anchored to the work area's left edge. */
+.v2-shell main>.panel.table-wrap{margin-left:0!important;margin-right:0!important;width:100%!important;max-width:none!important}
+.v2-shell main>.panel.table-wrap table{text-align:left!important}
+.v2-shell main>.panel.table-wrap th,.v2-shell main>.panel.table-wrap td{text-align:left!important;vertical-align:top!important}
+/* Sidebar: keep the restored hierarchy compact without removing any route/function. */
+.v2-shell .sidebar nav{padding-top:12px!important}
+.v2-shell .nav-group{margin-bottom:8px!important}
+.v2-shell .nav-group>small{margin-top:5px!important;padding-bottom:4px!important}
+.v2-shell .sidebar nav button{height:38px!important;min-height:38px!important}
+@media(max-width:760px){.v2-shell td.row-actions{min-width:0!important}.v2-shell main>.panel.table-wrap{overflow-x:auto!important}}
