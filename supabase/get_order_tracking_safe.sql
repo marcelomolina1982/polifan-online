@@ -10,6 +10,7 @@ as $$
 declare
  r public.order_tracking_public%rowtype; st jsonb; ord jsonb; j jsonb:='{}'::jsonb;
  derived text:='confirmed'; stored_stage text:='confirmed'; cut_completed_at timestamptz; effective_cut_completed_at timestamptz;
+ production_started boolean:=false;
  stock_covers_order boolean:=false; projected_cut_covers_order boolean:=false; finished_cut_covers_order boolean:=false;
 begin
  select * into r from public.order_tracking_public where token=p_token limit 1; if not found then return; end if;
@@ -19,6 +20,7 @@ begin
  derived:=stored_stage;
  if ord is not null then
   j:=coalesce(ord->'journey','{}'::jsonb); cut_completed_at:=nullif(j->>'cutCompletedAt','')::timestamptz; effective_cut_completed_at:=cut_completed_at;
+  production_started:=coalesce(j->>'productionAt','')<>'' or cut_completed_at is not null or lower(coalesce(j->>'stage',''))='production_cut' or stored_stage='production_cut';
   if lower(coalesce(ord->>'status','')) in ('entregado','finalizado') then derived:='delivered';
   elsif lower(coalesce(ord->>'status','')) in ('despachado','enviado','listo para retirar') or lower(coalesce(j->>'stage','')) in ('dispatched','ready_pickup') then derived:='dispatched';
   else
@@ -38,10 +40,6 @@ begin
     finished_have as (select f,sum(case when component not in ('base','tapa') then qty else 0 end)+least(sum(case when component='base' then qty else 0 end),sum(case when component='tapa' then qty else 0 end)) qty from finished_raw group by f)
     select exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join active_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)), exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join finished_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)) into projected_cut_covers_order,finished_cut_covers_order;
 
-    -- Legacy compatibility: never write or invent cutCompletedAt. Only derive a conservative
-    -- effective timestamp when the whole chronological demand is already covered by finished,
-    -- journey-managed batches. The latest finishedAt among eligible finished batches is used,
-    -- so the 3-hour gate can never start earlier than the physical production evidence.
     if finished_cut_covers_order and effective_cut_completed_at is null then
       select max(nullif(b->>'finishedAt','')::timestamptz) into effective_cut_completed_at
       from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b
@@ -53,9 +51,11 @@ begin
     end if;
    end if;
 
-   if stock_covers_order and coalesce(j->>'productionAt','')='' and cut_completed_at is null then derived:='packing';
+   -- Stock may skip production only before production has ever started.
+   -- Once production starts, the order must finish that path and pass the 3-hour gate.
+   if stock_covers_order and not production_started then derived:='packing';
    elsif finished_cut_covers_order and effective_cut_completed_at is not null and pg_catalog.now()>=effective_cut_completed_at+interval '3 hours' then derived:='packing';
-   elsif projected_cut_covers_order or lower(coalesce(j->>'stage',''))='production_cut' or stored_stage='production_cut' then derived:='production_cut'; else derived:='confirmed'; end if;
+   elsif projected_cut_covers_order or production_started then derived:='production_cut'; else derived:='confirmed'; end if;
   end if;
  end if;
  return query select r.order_number,r.customer_name,r.delivery_date,r.delivery_type,r.agency_delivery,r.pieces,r.order_status,derived,greatest(r.updated_at,coalesce(nullif(ord->>'updatedAt','')::timestamptz,r.updated_at));
