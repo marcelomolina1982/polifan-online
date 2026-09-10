@@ -9,7 +9,7 @@ language plpgsql security definer set search_path=''
 as $$
 declare
  r public.order_tracking_public%rowtype; st jsonb; ord jsonb; j jsonb:='{}'::jsonb;
- derived text:='confirmed'; stored_stage text:='confirmed'; cut_completed_at timestamptz;
+ derived text:='confirmed'; stored_stage text:='confirmed'; cut_completed_at timestamptz; effective_cut_completed_at timestamptz;
  stock_covers_order boolean:=false; projected_cut_covers_order boolean:=false; finished_cut_covers_order boolean:=false;
 begin
  select * into r from public.order_tracking_public where token=p_token limit 1; if not found then return; end if;
@@ -18,7 +18,7 @@ begin
  stored_stage:=case lower(trim(coalesce(r.tracking_stage,''))) when 'agendado' then 'confirmed' when 'confirmed' then 'confirmed' when 'en corte' then 'production_cut' when 'en producción' then 'production_cut' when 'en produccion' then 'production_cut' when 'production_cut' then 'production_cut' when 'para embalar' then 'packing' when 'packing' then 'packing' when 'despachado' then 'dispatched' when 'enviado' then 'dispatched' when 'listo para retirar' then 'dispatched' when 'ready_pickup' then 'dispatched' when 'dispatched' then 'dispatched' else 'confirmed' end;
  derived:=stored_stage;
  if ord is not null then
-  j:=coalesce(ord->'journey','{}'::jsonb); cut_completed_at:=nullif(j->>'cutCompletedAt','')::timestamptz;
+  j:=coalesce(ord->'journey','{}'::jsonb); cut_completed_at:=nullif(j->>'cutCompletedAt','')::timestamptz; effective_cut_completed_at:=cut_completed_at;
   if lower(coalesce(ord->>'status','')) in ('entregado','finalizado') then derived:='delivered';
   elsif lower(coalesce(ord->>'status','')) in ('despachado','enviado','listo para retirar') or lower(coalesce(j->>'stage','')) in ('dispatched','ready_pickup') then derived:='dispatched';
   else
@@ -37,10 +37,24 @@ begin
     finished_raw as (select lower(trim(bi->>'figure')) f,lower(coalesce(bi->>'component','complete')) component,sum(coalesce((bi->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b cross join lateral pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi where b->>'journeyManaged'='true' and lower(coalesce(b->>'status',''))='terminada' and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery') group by 1,2),
     finished_have as (select f,sum(case when component not in ('base','tapa') then qty else 0 end)+least(sum(case when component='base' then qty else 0 end),sum(case when component='tapa' then qty else 0 end)) qty from finished_raw group by f)
     select exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join active_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)), exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join finished_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)) into projected_cut_covers_order,finished_cut_covers_order;
+
+    -- Legacy compatibility: never write or invent cutCompletedAt. Only derive a conservative
+    -- effective timestamp when the whole chronological demand is already covered by finished,
+    -- journey-managed batches. The latest finishedAt among eligible finished batches is used,
+    -- so the 3-hour gate can never start earlier than the physical production evidence.
+    if finished_cut_covers_order and effective_cut_completed_at is null then
+      select max(nullif(b->>'finishedAt','')::timestamptz) into effective_cut_completed_at
+      from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b
+      where b->>'journeyManaged'='true'
+        and lower(coalesce(b->>'status',''))='terminada'
+        and nullif(b->>'finishedAt','') is not null
+        and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery')
+        and exists(select 1 from pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi join pg_catalog.jsonb_array_elements(coalesce(ord->'items','[]'::jsonb)) oi on lower(trim(bi->>'figure'))=lower(trim(oi->>'figure')));
+    end if;
    end if;
 
    if stock_covers_order and coalesce(j->>'productionAt','')='' and cut_completed_at is null then derived:='packing';
-   elsif finished_cut_covers_order and cut_completed_at is not null and pg_catalog.now()>=cut_completed_at+interval '3 hours' then derived:='packing';
+   elsif finished_cut_covers_order and effective_cut_completed_at is not null and pg_catalog.now()>=effective_cut_completed_at+interval '3 hours' then derived:='packing';
    elsif projected_cut_covers_order or lower(coalesce(j->>'stage',''))='production_cut' or stored_stage='production_cut' then derived:='production_cut'; else derived:='confirmed'; end if;
   end if;
  end if;
