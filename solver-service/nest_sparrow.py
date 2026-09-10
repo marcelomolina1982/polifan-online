@@ -2,6 +2,7 @@ from extended_app import app, _kit_valid_for_plate
 from app import _n, svg_to_geometry
 from flask import request, jsonify
 from shapely.geometry import Polygon, MultiPolygon
+from candidate_ranking import score_selected
 import json, os, subprocess, tempfile, time
 
 SPARROW_BIN=os.environ.get('SPARROW_BIN','/usr/local/bin/sparrow')
@@ -152,7 +153,6 @@ def _run_sparrow(selected,gap_mm,seconds,seed,continuous=False,extra_part=None):
     return {'ok':True,'fits':fits,'stripWidthMm':strip_width,'density':density,'placements':placements,'elapsedSeconds':round(time.time()-started,2),'solverDensity':float(sol.get('density') or 0)*100.0,'runTimeSec':sol.get('run_time_sec'),'placedParts':len(placements),'expectedParts':len(items),'continuousRotation':bool(continuous),'hasPartialExtra':extra_part is not None}
 
 def _production_ready(target,result):return bool(result.get('fits')) and (target>=MIN_COMPLETE or (target==HIGH_DENSITY_COMPLETE and float(result.get('density') or 0)>=HIGH_DENSITY_MIN))
-def _score(target,result):return (float(result.get('density') or 0),target,-float(result.get('stripWidthMm') or 1e18))
 
 def _result_payload(selected,label,result,kits,rejected,attempts,started,extra_part=None):
     target=len(selected); partial_payload=None
@@ -183,7 +183,7 @@ def nest_sparrow():
         nonlocal best
         target=len(selected); attempts.append({'label':label,'target':target,'ok':result.get('ok'),'fits':result.get('fits'),'stripWidthMm':result.get('stripWidthMm'),'density':round(float(result.get('density') or 0),1),'solverDensity':round(float(result.get('solverDensity') or 0),1),'rotation':('continua' if result.get('continuousRotation') else '15°'),'extra':bool(extra_part),'error':result.get('error')})
         if result.get('ok') and _production_ready(target,result):
-            sc=_score(target,result)
+            sc=score_selected(selected,result)
             if best is None or sc>best[0]:best=(sc,selected,label,result,extra_part)
 
     base_variants=_candidate_selections(kits,10)
