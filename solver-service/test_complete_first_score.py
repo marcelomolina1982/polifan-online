@@ -1,6 +1,7 @@
 """Safety regression tests for Polifan plate candidate ranking.
 Run locally/CI; no network, DB, Render or Vercel required.
 """
+from pathlib import Path
 from candidate_ranking import candidate_score, score_selected
 
 
@@ -36,3 +37,11 @@ def test_real_selected_score_matches_candidate_shape_and_never_mutates_inputs():
     assert score_selected(selected, result) == candidate_score(2, 81.5, 1199.0, 7)
     assert repr(selected) == before_selected
     assert repr(result) == before_result
+
+
+def test_production_solver_is_wired_to_the_safe_ranking_module():
+    """Prevents a false green: the pure helper must actually be used by nest_sparrow."""
+    source = (Path(__file__).parent / 'nest_sparrow.py').read_text(encoding='utf-8')
+    assert 'from candidate_ranking import score_selected' in source
+    assert 'sc=score_selected(selected,result)' in source.replace(' ', '')
+    assert 'def _score(' not in source
