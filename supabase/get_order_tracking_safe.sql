@@ -1,6 +1,8 @@
 -- SAFE DRAFT ONLY. Do not apply automatically.
 -- Read-only replacement candidate for public.get_order_tracking(text).
--- Keeps the current return contract used by the public catalog.
+-- Critical rule: managed cut production is allocated only inside the explicit
+-- operational journey queue. Legacy orders remain untouched and cannot consume
+-- journeyManaged batches.
 
 create or replace function public.get_order_tracking(p_token text)
 returns table(order_number text,customer_name text,delivery_date date,delivery_type text,agency_delivery text,pieces integer,order_status text,tracking_stage text,updated_at timestamptz)
@@ -21,34 +23,23 @@ begin
   if lower(coalesce(ord->>'status','')) in ('entregado','finalizado') then derived:='delivered';
   elsif lower(coalesce(ord->>'status','')) in ('despachado','enviado','listo para retirar') or lower(coalesce(j->>'stage','')) in ('dispatched','ready_pickup') then derived:='dispatched';
   else
-   -- Finished-stock allocation: cumulative demand through this order, sorted by delivery/number.
-   with target_items as (
-    select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(ord->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) group by 1
-   ), demand as (
-    select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'orders','[]'::jsonb)) o cross join lateral pg_catalog.jsonb_array_elements(coalesce(o->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) and lower(coalesce(o->>'status','')) not in ('cancelado','entregado') and (coalesce(o->>'delivery','9999-12-31')<coalesce(ord->>'delivery','9999-12-31') or (coalesce(o->>'delivery','9999-12-31')=coalesce(ord->>'delivery','9999-12-31') and coalesce(nullif(o->>'number','')::numeric,0)<=coalesce(nullif(ord->>'number','')::numeric,0))) group by 1
-   ), complete_stock as (
-    select lower(trim(m->>'figure')) f,sum(case when coalesce(m->>'component','complete') not in ('tapa','base') then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) qty from pg_catalog.jsonb_array_elements(coalesce(st->'movements','[]'::jsonb)) m group by 1
-   ), parts as (
-    select lower(trim(m->>'figure')) f,sum(case when m->>'component'='tapa' then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) tapa,sum(case when m->>'component'='base' then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) base from pg_catalog.jsonb_array_elements(coalesce(st->'movements','[]'::jsonb)) m group by 1
-   ), avail as (
-    select t.f,greatest(0,coalesce(c.qty,0))+greatest(0,least(coalesce(p.tapa,0),coalesce(p.base,0))) qty from target_items t left join complete_stock c using(f) left join parts p using(f)
-   ) select exists(select 1 from target_items) and not exists(select 1 from target_items t left join demand d using(f) left join avail a using(f) where coalesce(a.qty,0)<coalesce(d.qty,0)) into stock_covers_order;
+   -- Finished stock remains allocated against the normal active order queue.
+   with target_items as (select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(ord->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) group by 1),
+   demand as (select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'orders','[]'::jsonb)) o cross join lateral pg_catalog.jsonb_array_elements(coalesce(o->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) and lower(coalesce(o->>'status','')) not in ('cancelado','entregado') and (coalesce(o->>'delivery','9999-12-31')<coalesce(ord->>'delivery','9999-12-31') or (coalesce(o->>'delivery','9999-12-31')=coalesce(ord->>'delivery','9999-12-31') and coalesce(nullif(o->>'number','')::numeric,0)<=coalesce(nullif(ord->>'number','')::numeric,0))) group by 1),
+   complete_stock as (select lower(trim(m->>'figure')) f,sum(case when coalesce(m->>'component','complete') not in ('tapa','base') then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) qty from pg_catalog.jsonb_array_elements(coalesce(st->'movements','[]'::jsonb)) m group by 1),
+   parts as (select lower(trim(m->>'figure')) f,sum(case when m->>'component'='tapa' then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) tapa,sum(case when m->>'component'='base' then case when m->>'type' in ('Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo') then coalesce((m->>'qty')::numeric,0) else -coalesce((m->>'qty')::numeric,0) end else 0 end) base from pg_catalog.jsonb_array_elements(coalesce(st->'movements','[]'::jsonb)) m group by 1),
+   avail as (select t.f,greatest(0,coalesce(c.qty,0))+greatest(0,least(coalesce(p.tapa,0),coalesce(p.base,0))) qty from target_items t left join complete_stock c using(f) left join parts p using(f))
+   select exists(select 1 from target_items) and not exists(select 1 from target_items t left join demand d using(f) left join avail a using(f) where coalesce(a.qty,0)<coalesce(d.qty,0)) into stock_covers_order;
 
-   -- CUT ALLOCATION: do not give the same managed batch quantity to every order sharing date+figure.
-   -- For each figure, compare cumulative managed production available through this order's delivery date
-   -- with cumulative active-order demand through this exact order (delivery, then order number).
-   with target_need as (
-    select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(ord->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) group by 1
-   ), prior_demand as (
-    select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'orders','[]'::jsonb)) o cross join lateral pg_catalog.jsonb_array_elements(coalesce(o->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) and lower(coalesce(o->>'status','')) not in ('cancelado','entregado') and (coalesce(o->>'delivery','9999-12-31')<coalesce(ord->>'delivery','9999-12-31') or (coalesce(o->>'delivery','9999-12-31')=coalesce(ord->>'delivery','9999-12-31') and coalesce(nullif(o->>'number','')::numeric,0)<=coalesce(nullif(ord->>'number','')::numeric,0))) group by 1
-   ), active_have as (
-    select lower(trim(bi->>'figure')) f,sum(coalesce((bi->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b cross join lateral pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi where b->>'journeyManaged'='true' and lower(coalesce(b->>'status','')) in ('en corte','terminada') and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery') group by 1
-   ), finished_have as (
-    select lower(trim(bi->>'figure')) f,sum(coalesce((bi->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b cross join lateral pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi where b->>'journeyManaged'='true' and lower(coalesce(b->>'status',''))='terminada' and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery') group by 1
-   ) select
-    exists(select 1 from target_need) and not exists(select 1 from target_need n left join prior_demand d using(f) left join active_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)),
-    exists(select 1 from target_need) and not exists(select 1 from target_need n left join prior_demand d using(f) left join finished_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0))
-   into projected_cut_covers_order,finished_cut_covers_order;
+   -- Managed production belongs only to journey-enabled active orders. This is
+   -- the boundary that prevents old historical orders from reserving new plates.
+   if coalesce((j->>'enabled')::boolean,false) then
+    with target_need as (select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(ord->'items','[]'::jsonb)) i where coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) group by 1),
+    journey_demand as (select lower(trim(i->>'figure')) f,sum(coalesce((i->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'orders','[]'::jsonb)) o cross join lateral pg_catalog.jsonb_array_elements(coalesce(o->'items','[]'::jsonb)) i where coalesce((o->'journey'->>'enabled')::boolean,false) and lower(coalesce(o->>'status','')) not in ('cancelado','entregado') and coalesce((i->>'qty')::numeric,0)>0 and coalesce((i->>'inventoryTracked')::boolean,true) and (coalesce(o->>'delivery','9999-12-31')<coalesce(ord->>'delivery','9999-12-31') or (coalesce(o->>'delivery','9999-12-31')=coalesce(ord->>'delivery','9999-12-31') and coalesce(nullif(o->>'number','')::numeric,0)<=coalesce(nullif(ord->>'number','')::numeric,0))) group by 1),
+    active_have as (select lower(trim(bi->>'figure')) f,sum(coalesce((bi->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b cross join lateral pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi where b->>'journeyManaged'='true' and lower(coalesce(b->>'status','')) in ('en corte','terminada') and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery') group by 1),
+    finished_have as (select lower(trim(bi->>'figure')) f,sum(coalesce((bi->>'qty')::numeric,0)) qty from pg_catalog.jsonb_array_elements(coalesce(st->'cutBatches','[]'::jsonb)) b cross join lateral pg_catalog.jsonb_array_elements(coalesce(b->'items','[]'::jsonb)) bi where b->>'journeyManaged'='true' and lower(coalesce(b->>'status',''))='terminada' and exists(select 1 from pg_catalog.jsonb_array_elements_text(coalesce(b->'deliveryDates','[]'::jsonb)) d(v) where d.v<=ord->>'delivery') group by 1)
+    select exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join active_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)), exists(select 1 from target_need) and not exists(select 1 from target_need n left join journey_demand d using(f) left join finished_have h using(f) where coalesce(h.qty,0)<coalesce(d.qty,0)) into projected_cut_covers_order,finished_cut_covers_order;
+   end if;
 
    if stock_covers_order and coalesce(j->>'productionAt','')='' and cut_completed_at is null then derived:='packing';
    elsif finished_cut_covers_order and cut_completed_at is not null and pg_catalog.now()>=cut_completed_at+interval '3 hours' then derived:='packing';
