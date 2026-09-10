@@ -162,7 +162,7 @@ def _result_payload(selected,label,result,kits,rejected,attempts,started,extra_p
 @app.get('/nest-sparrow/health')
 def nest_sparrow_health():
     exists=os.path.exists(SPARROW_BIN) and os.access(SPARROW_BIN,os.X_OK)
-    return jsonify(ok=exists,engine='Sparrow base garantizada + crecimiento + V1.7',binary=SPARROW_BIN,criterion='base de 10 obligatoria; luego crecer 11,12,13... hacia >=80%; extra parcial sólo >85%')
+    return jsonify(ok=exists,engine='Sparrow base garantizada + crecimiento + V1.7',binary=SPARROW_BIN,criterion='base de 10 obligatoria; luego crecer 11,12,13... mientras quede presupuesto; densidad sólo desempata; extra parcial sólo >85%')
 
 @app.post('/nest-sparrow')
 def nest_sparrow():
@@ -218,10 +218,10 @@ def nest_sparrow():
     if best is None:
         return jsonify(ok=False,error='Sparrow agotó intentos rápidos y estables sin encontrar 10 completas válidas en los pendientes actuales',engine='Sparrow base garantizada + crecimiento + V1.7',attempts=attempts,candidatePool=len(kits),rejectedCount=len(rejected),rejected=rejected[:8],elapsedSeconds=round(time.time()-started,2)),422
 
-    # CRECIMIENTO: sólo usa el tiempo REALMENTE sobrante después de asegurar la base.
+    # CRECIMIENTO: una vez asegurada la base, la prioridad es maximizar figuras completas.
+    # La densidad deja de ser una condición de corte: sólo desempata entre soluciones con igual cantidad.
     growth_base=list(best[1])
     while len(growth_base)<min(MAX_COMPLETE,len(kits)):
-        if best[3].get('density',0)>=requested_target:break
         remaining=TOTAL_BUDGET_SECONDS-(time.time()-started)
         if remaining<28:break
         next_target=len(growth_base)+1; fitted=None
@@ -229,7 +229,6 @@ def nest_sparrow():
             remaining=TOTAL_BUDGET_SECONDS-(time.time()-started)
             if remaining<24:break
             trial=growth_base+[candidate]
-            if _selection_density(trial)<=float(best[3].get('density') or 0)+0.05:continue
             seconds=max(16,min(24,int(remaining-10)))
             result=_run_sparrow(trial,gap,seconds,3100+next_target*101+idx*17,continuous=True)
             consider(trial,f'crecimiento {len(growth_base)}→{next_target} · {kind}: {candidate["figure"]}',result)
