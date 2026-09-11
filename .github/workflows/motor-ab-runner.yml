@@ -13,35 +13,26 @@ permissions:
   contents: read
 
 jobs:
-  network-check:
+  private-fixture-call:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Verify Complete First lab is reachable
+      - name: Call Complete First private fixture benchmark
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://polifan-motor-complete-first-ab.onrender.com/upload-benchmark'
-          for i in {1..12}; do
-            code=$(curl -L -sS -o /tmp/benchmark.html -w '%{http_code}' --connect-timeout 15 --max-time 60 "$URL" || true)
+          URL='https://polifan-motor-complete-first-ab.onrender.com/benchmark-private-fixture'
+          for i in {1..8}; do
+            code=$(curl -L -sS -o /tmp/result.json -w '%{http_code}' --connect-timeout 20 --max-time 600 "$URL" || true)
+            echo "attempt=$i http=$code"
             if [ "$code" = '200' ]; then
-              grep -q 'Prueba historica real' /tmp/benchmark.html
-              echo 'COMPLETE_FIRST_LAB_REACHABLE=1'
-              echo 'WORKSPACE=1220x580'
-              echo 'SCALE=1:1'
-              echo 'PREFERRED_GAP_MM=3.0'
-              echo 'ABSOLUTE_MIN_GAP_MM=2.5'
+              cat /tmp/result.json
+              echo
               exit 0
             fi
-            echo "attempt=$i http=$code"
+            cat /tmp/result.json 2>/dev/null || true
+            echo
             sleep 15
           done
-          echo 'Complete First benchmark endpoint was not reachable/updated' >&2
-          cat /tmp/benchmark.html 2>/dev/null || true
+          echo 'Private fixture benchmark call failed' >&2
           exit 1
-
-      - name: Prepare private-input directory
-        run: |
-          mkdir -p "$RUNNER_TEMP/polifan-benchmark-input"
-          chmod 700 "$RUNNER_TEMP/polifan-benchmark-input"
-          echo 'Runner listo. Los SVG no se almacenan en el repositorio.'
