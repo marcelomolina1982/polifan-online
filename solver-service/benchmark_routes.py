@@ -128,9 +128,19 @@ def upload_benchmark():
     try: svg_text=uploaded.read().decode('utf-8-sig'); payload,status=_execute_svg(svg_text); return jsonify(payload),status
     except Exception as exc: return jsonify(ok=False,error=f'No se pudo leer/procesar el SVG: {exc}'),422
 
+def _private_fixture_payload():
+    packed=str(os.environ.get('POLIFAN_BENCH_FIXTURE_GZIP_B64') or '')
+    if packed: return packed
+    parts=[]
+    for idx in range(1,100):
+        part=str(os.environ.get(f'POLIFAN_BENCH_FIXTURE_GZIP_B64_PART_{idx}') or '')
+        if not part: break
+        parts.append(part)
+    return ''.join(parts)
+
 @app.get('/benchmark-private-fixture')
 def benchmark_private_fixture():
-    packed=str(os.environ.get('POLIFAN_BENCH_FIXTURE_GZIP_B64') or '')
+    packed=_private_fixture_payload()
     if not packed: return jsonify(ok=False,error='Fixture privado no configurado'),404
     try:
         svg_text=gzip.decompress(base64.b64decode(packed)).decode('utf-8-sig'); payload,status=_execute_svg(svg_text); return jsonify(payload),status
