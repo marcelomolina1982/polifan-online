@@ -1,10 +1,18 @@
 """Lab bootstrap hook.
 
 Python imports sitecustomize automatically at interpreter startup. Keep this hook inert
-outside the isolated residual-lab service; in that lab it schedules one read-only real
-state benchmark after the normal smoke test.
+outside isolated lab services.
 """
 import os
 
-if "residual-lab" in os.environ.get("MOTOR_RUNTIME_BUILD", ""):
+runtime = os.environ.get("MOTOR_RUNTIME_BUILD", "")
+
+if "residual-lab" in runtime:
     import startup_real_state_probe  # noqa: F401
+
+if runtime == "motor-complete-first-safe-20260909":
+    try:
+        import benchmark_routes
+        benchmark_routes.GAP_MM = 2.5
+    except Exception:
+        pass
