@@ -149,5 +149,8 @@ def async_health():
     return jsonify(ok=True,asyncSolve=True,persistentJobs=True,durableJobs=DURABLE_CONFIGURED,durableStore='supabase' if DURABLE_CONFIGURED else 'local-only',directStatusCors=True,startupBenchmarks=False,solver='best-effort-v4-batch-fill',sparrowBinary=core.SPARROW_BIN,sparrowExecutable=os.path.isfile(core.SPARROW_BIN) and os.access(core.SPARROW_BIN,os.X_OK))
 
 # Registrar rutas de benchmark al final para mantenerlas aisladas del flujo normal.
-# Este import no ejecuta pruebas al arrancar: solo agrega /upload-benchmark y preview.
+# Importamos primero benchmark_routes y luego conectamos la reparación aquí mismo,
+# después de que el módulo ya quedó cargado. Así no dependemos de sitecustomize.
 import benchmark_routes  # noqa: E402,F401
+from benchmark_local_repair import run_exact_with_repair  # noqa: E402
+benchmark_routes._run_exact = run_exact_with_repair
