@@ -12,7 +12,7 @@ ET.register_namespace('',SVG_NS)
 _BENCH_RESULTS={}
 PLATE_WIDTH_MM=1230.0
 PLATE_HEIGHT_MM=580.0
-GAP_MM=3.0
+GAP_MM=2.5
 ABSOLUTE_MIN_GAP_MM=2.5
 
 def _source_size_mm(root):
@@ -153,7 +153,7 @@ def benchmark_result_svg(trace_id):
 
 @app.route('/upload-benchmark',methods=['GET','POST'])
 def upload_benchmark():
-    if request.method=='GET': return '<!doctype html><html><body><h2>Prueba historica real · 1230×580 · 1:1</h2><form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><button type="submit">Buscar y validar placa</button></form></body></html>'
+    if request.method=='GET': return '<!doctype html><html><body><h2>Prueba historica real · 1230×580 · 1:1 · gap 2.5 mm</h2><form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".svg,image/svg+xml" required><button type="submit">Buscar y validar placa</button></form></body></html>'
     uploaded=request.files.get('file')
     if not uploaded: return jsonify(ok=False,error='Falta archivo SVG'),400
     try: svg_text=uploaded.read().decode('utf-8-sig'); payload,status=_execute_svg(svg_text); return jsonify(payload),status
