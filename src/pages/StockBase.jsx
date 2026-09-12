@@ -11,14 +11,15 @@ export default function Stock({db,onSave}){
   const [mergeA,setMergeA]=useState('')
   const [mergeB,setMergeB]=useState('')
   const [mergeKeep,setMergeKeep]=useState('')
-  const rows=stockRows(db).filter(r=>r.figure.toLowerCase().includes(search.toLowerCase()))
+  const allRows=useMemo(()=>stockRows(db),[db])
+  const rows=useMemo(()=>{const q=search.toLowerCase();return allRows.filter(r=>r.figure.toLowerCase().includes(q))},[allRows,search])
   const sortedFigures=useMemo(()=>[...new Set([...(db.figures||[]),...(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures,db.customerCatalog])
   const duplicateGroups=useMemo(()=>duplicateFigureGroups(db),[db])
   const mergeInfoA=useMemo(()=>catalogFigureInfo(db,mergeA),[db,mergeA])
   const mergeInfoB=useMemo(()=>catalogFigureInfo(db,mergeB),[db,mergeB])
   const selectedKeep=useMemo(()=>{if(mergeInfoA.isCatalog&&!mergeInfoB.isCatalog)return mergeA;if(mergeInfoB.isCatalog&&!mergeInfoA.isCatalog)return mergeB;return mergeKeep||mergeA},[mergeA,mergeB,mergeKeep,mergeInfoA.isCatalog,mergeInfoB.isCatalog])
   const selectedSource=selectedKeep===mergeA?mergeB:mergeA
-  const rowByFigure=useMemo(()=>Object.fromEntries(stockRows(db).map(r=>[r.figure,r])),[db])
+  const rowByFigure=useMemo(()=>Object.fromEntries(allRows.map(r=>[r.figure,r])),[allRows])
   const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free,projected:a.projected+r.projected}),{cut:0,ordered:0,inCut:0,free:0,projected:0}),[rows])
 
   async function add(e){e.preventDefault();if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]});setForm({...form,qty:1,detail:''})}
