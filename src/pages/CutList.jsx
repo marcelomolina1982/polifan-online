@@ -9,6 +9,7 @@ function dateLabel(value){
   const [y,m,d]=value.split('-').map(Number)
   return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(new Date(y,m-1,d))
 }
+function componentLabel(component){return component==='tapa'?'Tapa solamente':component==='base'?'Base solamente':''}
 
 export default function CutList({db,goMotor}){
   const [selectedDate,setSelectedDate]=useState('')
@@ -65,7 +66,7 @@ export default function CutList({db,goMotor}){
   function printDailyList(){
     if(!visibleGroups.length) return alert('No hay piezas pendientes para la fecha seleccionada.')
     const sections=visibleGroups.map(g=>{
-      const body=g.rows.map(r=>`<tr><td>${r.figure}</td><td>${r.qty}</td></tr>`).join('')
+      const body=g.rows.map(r=>`<tr><td>${r.figure}${componentLabel(r.component)?` <small>(${componentLabel(r.component)})</small>`:''}</td><td>${r.qty}</td></tr>`).join('')
       const total=g.rows.reduce((a,r)=>a+r.qty,0)
       return `<section><h2>${g.overdue?'ATRASADO · ':''}Entrega: ${dateLabel(g.date)}</h2><p class="orders">Pedidos: ${g.orders.map(n=>'#'+n).join(', ')}</p><table><thead><tr><th>Figura</th><th>Cantidad</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th>Total</th><th>${total}</th></tr></tfoot></table></section>`
     }).join('')
@@ -91,7 +92,7 @@ export default function CutList({db,goMotor}){
     <div className="delivery-groups">
       {visibleGroups.map(g=><div className="panel delivery-group" key={g.key}>
         <div className="delivery-head"><div><small>{g.overdue?'⚠ ATRASADO':'FECHA DE ENTREGA'}</small><h3>{dateLabel(g.date)}</h3><span>Pedidos: {g.orders.map(n=>'#'+n).join(', ')}</span></div><b>{g.rows.reduce((a,r)=>a+r.qty,0)} piezas</b></div>
-        <div className="table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad a cortar</th></tr></thead><tbody>{g.rows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td className="big">{r.qty}</td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Figura</th><th>Cantidad a cortar</th></tr></thead><tbody>{g.rows.map(r=><tr key={`${r.figure}|${r.component||'complete'}`}><td><b>{r.figure}</b>{componentLabel(r.component)&&<small className="block">{componentLabel(r.component)}</small>}</td><td className="big">{r.qty}</td></tr>)}</tbody></table></div>
         <details style={{marginTop:10}}><summary><b>Ver cómo se calculó esta fecha</b></summary><div className="table-wrap" style={{marginTop:8}}><table><thead><tr><th>Figura</th><th>Pedido</th><th>Cubierto</th><th>Falta cortar</th></tr></thead><tbody>{g.auditRows.map(r=><tr key={r.figure}><td><b>{r.figure}</b></td><td>{r.ordered}</td><td>{r.covered}</td><td className={r.pending>0?'big':'green-text'}>{r.pending}</td></tr>)}</tbody></table></div></details>
       </div>)}
       {!visibleGroups.length&&<div className="panel">No hay piezas pendientes para cortar.</div>}
