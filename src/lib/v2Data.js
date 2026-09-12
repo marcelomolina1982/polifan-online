@@ -4,7 +4,7 @@ export const PAGE_SECTIONS={
   dashboard:['orders','movements','stockMin','figures','cutBatches'],
   operations:['orders','movements','stockMin','figures','cutBatches','costSettings','packagingStock'],
   new:['orders','clients','figures','customerCatalog','quotes','productionClosedDates'],
-  orders:['orders'],
+  orders:['orders','movements','stockMin','figures','cutBatches'],
   calendar:['orders','productionClosedDates','packedDeliveryDates'],
   cut:['orders','movements','stockMin','figures','cutBatches'],
   cutbatches:['orders','movements','cutBatches','figures'],
