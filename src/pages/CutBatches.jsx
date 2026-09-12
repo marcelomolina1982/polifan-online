@@ -8,6 +8,12 @@ export default function CutBatches({db,onSave}){
   const [editing,setEditing]=useState(null)
   const autoFinishRef=useRef(false)
   const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
+  const sortedBatches=useMemo(()=>[...(db.cutBatches||[])].sort((a,b)=>{
+    const ta=Date.parse(a.createdAt||a.updatedAt||a.finishedAt||a.date||'')||0
+    const tb=Date.parse(b.createdAt||b.updatedAt||b.finishedAt||b.date||'')||0
+    if(tb!==ta)return tb-ta
+    return (Number(b.number)||0)-(Number(a.number)||0)
+  }),[db.cutBatches])
 
   function updateItem(ix,key,value){
     setForm(f=>({...f,items:f.items.map((it,i)=>i===ix?{...it,[key]:value}:it)}))
@@ -120,7 +126,7 @@ export default function CutBatches({db,onSave}){
       <div className="actions"><button className="primary">{editing?'Guardar modificación':'Guardar placa'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{setEditing(null);setForm(blank())}}>Cancelar edición</button>}</div>
     </form>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Piezas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
-      {(db.cutBatches||[]).slice().reverse().map(b=><tr key={b.id}><td><b>#{b.number} · {b.name}</b><small className="block">{b.notes}</small></td><td>{b.date}</td><td>{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(', ')}<small className="block">Corte {(Number(b.multiplier)||1)===2?'doble':'simple'}</small></td><td><span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')}>{b.status}</span></td><td className="row-actions">{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</td></tr>)}
+      {sortedBatches.map(b=><tr key={b.id}><td><b>#{b.number} · {b.name}</b><small className="block">{b.notes}</small></td><td>{b.date}</td><td>{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(', ')}<small className="block">Corte {(Number(b.multiplier)||1)===2?'doble':'simple'}</small></td><td><span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')}>{b.status}</span></td><td className="row-actions">{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</td></tr>)}
       {!(db.cutBatches||[]).length&&<tr><td colSpan="5">Todavía no hay placas registradas.</td></tr>}
     </tbody></table></div>
   </>
