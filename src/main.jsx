@@ -18,6 +18,7 @@ import './recovery-layout-fixes.css'
 import './trustCatalogEnhancements'
 import './catalogProEnhancements'
 import './orders-v2-enhancements'
+import './ordersTrackingEnhancement'
 import './v2NavigationEnhancement'
 import './v2MobileTables'
 
