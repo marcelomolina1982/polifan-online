@@ -10,7 +10,7 @@ export const PAGE_SECTIONS={
   cutbatches:['orders','movements','cutBatches','figures'],
   sheetplanner:['orders','movements','figures','svgLibrary','generatedSheets','cutBatches'],
   svglibrary:['svgLibrary','figures','customerCatalog','svgAnalysisHistory'],
-  stock:['orders','movements','stockMin','figures','inventoryRecount','inventoryRecountCloseout'],
+  stock:['orders','movements','stockMin','figures','cutBatches','inventoryRecount','inventoryRecountCloseout'],
   clients:['clients','orders'],assistant:['customerCatalog','customerSettings','chatbotSettings','catalogCollections'],quotes:['quotes','clients','figures','customerCatalog','orders'],webrequests:['quotes','orders','customerCatalog','svgLibrary'],trust:['customerReviews','customerPhotos'],catalog:['customerCatalog','catalogCollections','customerSettings'],analytics:['orders','quotes','customerCatalog'],expenses:['expenses','incomes'],monthly:['orders','expenses','incomes'],costs:['costSettings','customerCatalog'],settings:['customerSettings','attentionTemplates','chatbotSettings']
 }
 const uniq=list=>[...new Set((list||[]).filter(Boolean))]
