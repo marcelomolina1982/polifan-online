@@ -21,6 +21,11 @@ import './orders-v2-enhancements'
 import './v2NavigationEnhancement'
 import './v2MobileTables'
 
+// Las colecciones operativas (pedidos, movimientos y placas) viven en las filas
+// durables de Supabase. No arrancamos con una fotografía vieja del navegador:
+// cada carga reconstruye el módulo actual desde la fuente autoritativa.
+try{localStorage.removeItem('polifan-v2-section-cache')}catch{}
+
 // V2 bundle: responsive mobile shell + validated 1230 mm nesting motor.
 const NEW_CATALOG_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/'
 const params=new URLSearchParams(window.location.search)
