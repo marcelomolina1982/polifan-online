@@ -1,29 +1,37 @@
-import React,{useEffect,useMemo,useRef,useState} from 'react'
+import React,{useMemo,useState} from 'react'
+import {supabase} from '../supabase'
 import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal} from '../lib/customerJourneyOperational.js'
 import {JOURNEY_EVENTS} from '../lib/customerJourney.js'
 
-export default function DispatchPanel({db,onSave}){
-  const syncing=useRef(false)
+export default function DispatchPanel({db}){
   const [busy,setBusy]=useState('')
 
-  useEffect(()=>{
-    if(syncing.current)return
-    const result=advanceOperationalJourney(db)
-    if(!result.changed)return
-    syncing.current=true
-    Promise.resolve(onSave({...db,orders:result.orders})).finally(()=>{syncing.current=false})
-  },[db.orders,db.movements,db.cutBatches])
+  const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
+  const ready=useMemo(()=>operationalOrders.filter(o=>effectiveJourneyEvent(o)===JOURNEY_EVENTS.PACKING),[operationalOrders])
 
-  const ready=useMemo(()=>(db.orders||[]).filter(o=>effectiveJourneyEvent(o)===JOURNEY_EVENTS.PACKING),[db.orders])
+  async function saveOrdersSafely(orders){
+    const {data:revisionRows,error:revisionError}=await supabase.rpc('get_v2_section_revisions',{p_keys:['orders']})
+    if(revisionError)throw revisionError
+    const expected=Object.fromEntries((revisionRows||[]).map(r=>[r.section_key,r.updated_at||'']))
+    const {data:sessionData}=await supabase.auth.getSession()
+    const {data,error}=await supabase.rpc('patch_v2_sections_checked',{p_patch:{orders},p_expected_revisions:expected,p_updated_by:sessionData?.session?.user?.id||null})
+    if(error)throw error
+    const row=Array.isArray(data)?data[0]:data
+    if((row?.conflict_keys||[]).length)throw new Error('Otra sesión modificó Pedidos. Recargá y volvé a intentar.')
+  }
 
   async function dispatch(order){
     if(!window.confirm(`¿Marcar el pedido #${order.number} como despachado?`))return
     setBusy(String(order.id||order.number))
     try{
       const nextOrder=markJourneyFinal(order)
-      const result=await onSave({...db,orders:(db.orders||[]).map(o=>o.id===order.id?nextOrder:o)})
-      if(result?.ok===false)return
+      const orders=operationalOrders.map(o=>o.id===order.id?nextOrder:o)
+      await saveOrdersSafely(orders)
       alert(`Pedido #${order.number} marcado como despachado.`)
+      window.location.reload()
+    }catch(error){
+      console.error(error)
+      alert('No se pudo marcar como despachado: '+(error?.message||'error de sincronización'))
     }finally{setBusy('')}
   }
 
