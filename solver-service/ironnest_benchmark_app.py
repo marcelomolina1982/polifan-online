@@ -86,18 +86,19 @@ def _execute(svg_text):
     },200 if valid else 422
 
 
-@app.get('/ironnest-health')
-def health():
+@app.get('/ironnest-health', endpoint='ironnest_health')
+def ironnest_health():
     return jsonify(ok=True,engine='IronNest hard-bound NFP',workspaceMm=[1230,580],gapMm=2.5,supabase=False,vercel=False)
 
 
-@app.route('/upload-ironnest',methods=['GET','POST'])
-def upload():
+@app.route('/upload-ironnest',methods=['GET','POST'], endpoint='ironnest_upload')
+def ironnest_upload():
     if request.method=='GET':
         return '''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>IronNest Lab</title><body style="font-family:Arial;max-width:720px;margin:24px auto;padding:18px"><h2>IronNest · límite duro 1230×580</h2><p>26/26 piezas · separación 2,5 mm · NFP · rotaciones cada 15°.</p><form method="post" enctype="multipart/form-data"><input type="file" name="file" required style="display:block;margin:18px 0"><button style="padding:12px 18px;font-size:16px">Probar motor nuevo</button></form></body>'''
     up=request.files.get('file')
     if not up:return jsonify(ok=False,error='Falta archivo SVG'),400
     try:
         if up.filename and not str(up.filename).lower().endswith('.svg'):return jsonify(ok=False,error='El archivo no es SVG'),422
-        return jsonify(*_execute(up.read().decode('utf-8-sig')))
+        result,status=_execute(up.read().decode('utf-8-sig'))
+        return jsonify(result),status
     except Exception as exc:return jsonify(ok=False,error=f'No se pudo procesar el SVG: {exc}'),422
