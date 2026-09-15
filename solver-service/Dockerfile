@@ -4,12 +4,12 @@ RUN git clone --depth 1 https://github.com/JeroenGar/sparrow.git /sparrow
 WORKDIR /sparrow
 RUN cargo build --release --features only_final_svg --bin sparrow
 
-FROM python:3.12-slim-trixie
+FROM python:3.13-slim-trixie
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SPARROW_BIN=/usr/local/bin/sparrow
-ENV MOTOR_RUNTIME_BUILD=motor-frontier-v6-lab
+ENV MOTOR_RUNTIME_BUILD=motor-ironnest-hardbound-lab
 RUN apt-get update && apt-get install -y --no-install-recommends liblapack3 libblas3 libgomp1 libcairo2 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
