@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r re
 COPY --from=sparrow-build /sparrow/target/release/sparrow /usr/local/bin/sparrow
 COPY *.py .
 EXPOSE 10000
-CMD ["sh", "-c", "exec gunicorn -b 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 600 --graceful-timeout 30 frontier_v6_app:app"]
+CMD ["sh", "-c", "exec gunicorn -b 0.0.0.0:${PORT:-10000} --workers 1 --threads 2 --timeout 600 --graceful-timeout 30 ironnest_benchmark_app:app"]
