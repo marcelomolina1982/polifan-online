@@ -130,7 +130,14 @@ v6._insert_candidates_v6 = _bounded_insert_candidates
 
 
 def run_exact_with_repair(kits, budget=185):
-    return v6.run_exact_with_repair(kits, budget=min(110, int(budget or 110)))
+    # Keep V7's bounded candidate generation, but restore the full V5/V6
+    # schedule. The previous 110 s cap caused run_exact_with_repair to skip
+    # both continuous Sparrow passes because V5 stops launching attempts when
+    # less than 64 s remain. Those continuous passes produced the historical
+    # ~1270 mm starting layout that is much more repairable than ~1353 mm.
+    requested = int(budget or 185)
+    effective_budget = max(185, min(195, requested))
+    return v6.run_exact_with_repair(kits, budget=effective_budget)
 
 
 __all__ = ['run_exact_with_repair']
