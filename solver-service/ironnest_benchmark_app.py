@@ -13,15 +13,15 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
 IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
-IRON_BUDGET=40
+IRON_BUDGET=60
 IRON_RESTARTS=1
 IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=120
-# Simplification can move each boundary by up to its tolerance. Keep a larger
-# solver clearance, then check every placement against the parser geometry.
-IRON_SOLVER_GAP_MM=br.GAP_MM+2*IRON_SIMPLIFY_MM+0.2
+# Search clearance is intentionally wider than the required clearance. The
+# validator below checks the parser geometry and rejects any shortfall.
+IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
 
 def _outline(geom):
     if geom.geom_type=='MultiPolygon': geom=max(geom.geoms,key=lambda g:g.area)
