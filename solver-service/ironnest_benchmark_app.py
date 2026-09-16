@@ -43,14 +43,15 @@ def _solve_process(items, container, rotation_sets, result_queue):
         result_queue.put(('error', repr(exc)))
 
 def _run_ironnest(kits,job_id=None):
-    items=[]; ids=[]
+    items=[]; ids=[]; rotation_sets=[]
     for k in kits:
         for p in (k.get('parts') or []):
             items.append(_outline(p['geom']))
             ids.append(str(p.get('instanceId')))
+            i=len(items)-1
+            rotation_sets.append([0.0] if p.get('allowRotate') is False else (IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS))
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
-    rotation_sets=[IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS for i in range(len(items))]
     vertex_count=sum(len(x) for x in items)
     print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={IRON_STRATEGY} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
     started=time.time()
@@ -174,4 +175,116 @@ def ironnest_job_result(job_id):
     if not job:return jsonify(ok=False,error='Trabajo no encontrado'),404
     if job.get('state') not in ('done','failed'):return jsonify(ok=True,jobId=job_id,state=job.get('state')),202
     return jsonify(job),200
+
+def _industrial_kits(payload, detailed=False):
+    incoming=payload.get('kits')
+    if not isinstance(incoming,list) or not incoming or len(incoming)>60:
+        raise ValueError('Se requieren entre 1 y 60 kits')
+    kits=[]; seen=set(); count=0
+    for n,raw_kit in enumerate(incoming):
+        if not isinstance(raw_kit,dict): raise ValueError('Kit invalido')
+        kit_id=str(raw_kit.get('kitId') or f'kit_{n+1}')
+        raw_parts=raw_kit.get('parts')
+        if not isinstance(raw_parts,list) or not raw_parts: raise ValueError(f'Kit {kit_id} sin piezas')
+        parts=[]
+        for m,raw in enumerate(raw_parts):
+            if not isinstance(raw,dict): raise ValueError('Pieza invalida')
+            instance_id=str(raw.get('instanceId') or f'{kit_id}_p{m+1}')
+            if instance_id in seen: raise ValueError(f'instanceId repetido: {instance_id}')
+            seen.add(instance_id)
+            svg_text=raw.get('svgText')
+            if not isinstance(svg_text,str) or '<svg' not in svg_text.lower() or len(svg_text)>500000:
+                raise ValueError(f'SVG invalido en {instance_id}')
+            width_cm=float(raw.get('sourceWidthCm') or raw.get('widthCm') or 0)
+            height_cm=float(raw.get('sourceHeightCm') or raw.get('heightCm') or 0)
+            if not (0<width_cm<=123 and 0<height_cm<=58):
+                raise ValueError(f'Medidas fisicas invalidas en {instance_id}')
+            geom,trim_x,trim_y=br.core.svg_to_geometry(
+                svg_text,width_cm,height_cm,
+                solver_tolerance_mm=.02 if detailed else .18,
+                max_vertices=5000 if detailed else 360,
+                curve_step_mm=1.0 if detailed else 8.0)
+            if geom.is_empty or geom.area<=0: raise ValueError(f'Contorno vacio en {instance_id}')
+            bx0,by0,bx1,by1=geom.bounds
+            parts.append({'instanceId':instance_id,'kitId':kit_id,'name':str(raw.get('name') or instance_id),
+                          'geom':geom,'trimXmm':trim_x,'trimYmm':trim_y,
+                          'allowRotate':raw.get('allowRotate') is not False,
+                          'area':float(geom.area),'envelope':max(1.0,(bx1-bx0)*(by1-by0))})
+            count+=1
+            if count>60: raise ValueError('El laboratorio admite como maximo 60 piezas por intento')
+        kits.append({'kitId':kit_id,'figure':str(raw_kit.get('figure') or kit_id),'priority':n,'parts':parts})
+    return kits
+
+def _execute_industrial(payload,job_id):
+    kits=_industrial_kits(payload)
+    try:
+        placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id)
+    except Exception as exc:
+        return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
+    detailed=_industrial_kits(payload,detailed=True)
+    validation,rows=br._validate_layout(detailed,placements)
+    strict_outside=[]
+    for pose,geom in rows:
+        x0,y0,x1,y1=geom.bounds
+        if x0 < -.001 or y0 < -.001 or x1 > br.PLATE_WIDTH_MM+.001 or y1 > br.PLATE_HEIGHT_MM+.001:
+            strict_outside.append(str(pose.get('instanceId')))
+    if strict_outside:
+        validation['ok']=False; validation['strictOutsidePlate']=strict_outside
+    validation['geometryDetail']='industrial-svg-dense-curves-1mm'
+    part_map={str(p['instanceId']):p for k in kits for p in k['parts']}
+    placements=[{**p,'kitId':part_map[p['instanceId']]['kitId'],
+                 'trimXCm':part_map[p['instanceId']]['trimXmm']/10,
+                 'trimYCm':part_map[p['instanceId']]['trimYmm']/10} for p in placements]
+    all_placed=len(placements)==item_count and not unplaced
+    valid=bool(all_placed and validation.get('ok'))
+    trace=uuid.uuid4().hex[:12]; preview=None
+    if rows:
+        br._BENCH_RESULTS[trace]=br._svg_preview(rows)
+        preview=f'/benchmark-result/{trace}.svg'
+    return {'ok':valid,'engine':'IronNest industrial lab','parser':'industrial-kits',
+            'traceId':trace,'kitCount':len(kits),'pieceCount':item_count,'placedCount':len(placements),
+            'unplacedItemIndexes':unplaced,'elapsedSeconds':elapsed,'vertexCount':vertex_count,
+            'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
+            'layoutValidation':validation,'placements':placements if valid else [],
+            'previewSvgUrl':preview,
+            'error':None if valid else 'No entraron y validaron todas las piezas del lote'},200 if valid else 422
+
+def _industrial_worker(job_id,payload):
+    with _SOLVE_SEMAPHORE:
+        with _JOB_LOCK:_JOBS[job_id]={'state':'running','startedAt':time.time()}
+        try:
+            result,status=_execute_industrial(payload,job_id)
+            with _JOB_LOCK:_JOBS[job_id]={'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
+        except Exception as exc:
+            print(f'IRON_INDUSTRIAL_ERROR job={job_id} error={exc!r}',flush=True)
+            with _JOB_LOCK:_JOBS[job_id]={'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
+
+@app.post('/ironnest/solve-start')
+def ironnest_solve_start():
+    if request.content_length and request.content_length>6_000_000:
+        return jsonify(ok=False,error='Lote demasiado grande'),413
+    payload=request.get_json(silent=True)
+    if not isinstance(payload,dict): return jsonify(ok=False,error='Se espera JSON con kits'),400
+    try:
+        incoming=payload.get('kits')
+        if not isinstance(incoming,list) or not incoming or len(incoming)>60:
+            raise ValueError('Se requieren entre 1 y 60 kits')
+        if sum(len(k.get('parts') or []) for k in incoming if isinstance(k,dict))>60:
+            raise ValueError('El laboratorio admite como maximo 60 piezas por intento')
+    except ValueError as exc:return jsonify(ok=False,error=str(exc)),422
+    job_id=uuid.uuid4().hex[:12]
+    with _JOB_LOCK:_JOBS[job_id]={'state':'queued','createdAt':time.time()}
+    threading.Thread(target=_industrial_worker,args=(job_id,payload),daemon=True).start()
+    return jsonify(ok=True,jobId=job_id,status='queued'),202
+
+@app.get('/ironnest/solve-status')
+def ironnest_solve_status():
+    job_id=str(request.args.get('id') or '')
+    with _JOB_LOCK:job=_JOBS.get(job_id)
+    if not job:return jsonify(ok=False,error='Trabajo no encontrado'),404
+    state=job.get('state')
+    if state in ('queued','running'):
+        return jsonify(ok=True,jobId=job_id,status=state,elapsedSeconds=round(time.time()-job.get('startedAt',time.time()),1)),202
+    result=job.get('result') or {}
+    return jsonify(ok=bool(result.get('ok')),jobId=job_id,status='done' if result.get('ok') else 'error',result=result),200
 
