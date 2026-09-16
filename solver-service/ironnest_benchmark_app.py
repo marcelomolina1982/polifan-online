@@ -1,9 +1,11 @@
-import time, uuid
-from flask import jsonify, request, Response
+import time, uuid, threading
+from flask import jsonify, request, Response, redirect, url_for
 import ironnest
 import benchmark_routes as br
 
 app=br.app
+_JOBS={}
+_JOB_LOCK=threading.Lock()
 
 def _outline(geom):
     if geom.geom_type=='MultiPolygon': geom=max(geom.geoms,key=lambda g:g.area)
@@ -33,13 +35,21 @@ def _execute(svg_text):
     if rows: br._BENCH_RESULTS[trace]=br._svg_preview(rows); preview=f'/benchmark-result/{trace}.svg'
     return {'ok':valid,'engine':'IronNest hard-bound NFP','traceId':trace,'parser':parser,'pieceCount':len(kits),'placedCount':len(placements),'unplacedCount':len(unplaced),'unplacedItemIndexes':unplaced,'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,'elapsedSeconds':elapsed,'layoutValidation':validation,'placements':placements if valid else [],'previewSvgUrl':preview,'error':None if valid else 'IronNest no logro colocar y validar las piezas dentro del limite duro'},200 if valid else 422
 
+def _worker(job_id,svg_text):
+    with _JOB_LOCK: _JOBS[job_id]={'state':'running','startedAt':time.time()}
+    try:
+        result,status=_execute(svg_text)
+        with _JOB_LOCK: _JOBS[job_id]={'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
+    except Exception as exc:
+        with _JOB_LOCK: _JOBS[job_id]={'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
+
 @app.get('/ironnest-health',endpoint='ironnest_health')
 def ironnest_health(): return jsonify(ok=True,engine='IronNest hard-bound NFP',workspaceMm=[1230,580],gapMm=2.5)
 
 @app.route('/upload-ironnest',methods=['GET','POST'],endpoint='ironnest_upload')
 def ironnest_upload():
     if request.method=='GET':
-        html='''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IronNest formulario</title></head><body style="margin:0;background:#fff;color:#111;font-family:Arial,sans-serif"><main style="max-width:650px;margin:auto;padding:24px 18px"><h1>Prueba IronNest</h1><p>Placa 1230 × 580 mm · separación 2,5 mm.</p><form method="POST" action="/upload-ironnest" enctype="multipart/form-data"><div style="border:2px solid #222;border-radius:12px;padding:16px;background:#f3f3f3"><label for="svgfile" style="display:block;font-weight:bold;font-size:17px;margin-bottom:10px">1. Seleccioná pedido 08-08-2.svg</label><input id="svgfile" name="file" type="file" required style="display:block;width:100%;font-size:16px;background:#fff;border:1px solid #777;padding:12px;box-sizing:border-box"></div><button type="submit" style="margin-top:16px;width:100%;padding:18px;background:#111;color:#fff;border:0;border-radius:10px;font-size:18px;font-weight:bold">2. PROBAR MOTOR NUEVO</button></form><p style="margin-top:18px;font-size:13px;color:#666">Versión FORMULARIO v5 · sin JavaScript. Al tocar PROBAR MOTOR el navegador envía el archivo directamente al servidor.</p></main></body></html>'''
+        html='''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IronNest async</title></head><body style="margin:0;background:#fff;color:#111;font-family:Arial,sans-serif"><main style="max-width:650px;margin:auto;padding:24px 18px"><h1>Prueba IronNest</h1><p>Placa 1230 × 580 mm · separación 2,5 mm.</p><form method="POST" action="/upload-ironnest" enctype="multipart/form-data"><div style="border:2px solid #222;border-radius:12px;padding:16px;background:#f3f3f3"><label for="svgfile" style="display:block;font-weight:bold;font-size:17px;margin-bottom:10px">1. Seleccioná pedido 08-08-2.svg</label><input id="svgfile" name="file" type="file" required style="display:block;width:100%;font-size:16px;background:#fff;border:1px solid #777;padding:12px;box-sizing:border-box"></div><button type="submit" style="margin-top:16px;width:100%;padding:18px;background:#111;color:#fff;border:0;border-radius:10px;font-size:18px;font-weight:bold">2. SUBIR Y PROBAR MOTOR</button></form><p style="margin-top:18px;font-size:13px;color:#666">Versión ASYNC v6. La subida termina rápido; el cálculo continúa separado.</p></main></body></html>'''
         return Response(html,200,content_type='text/html; charset=utf-8',headers={'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0','Pragma':'no-cache'})
     up=request.files.get('file')
     if not up:return jsonify(ok=False,error='Falta archivo SVG'),400
@@ -48,5 +58,22 @@ def ironnest_upload():
         if not data:return jsonify(ok=False,error='El archivo esta vacio'),422
         text=data.decode('utf-8-sig')
         if '<svg' not in text.lower():return jsonify(ok=False,error='El archivo seleccionado no contiene un SVG valido'),422
-        result,status=_execute(text); return jsonify(result),status
-    except Exception as exc:return jsonify(ok=False,error=f'No se pudo procesar el SVG: {exc}'),422
+    except Exception as exc:return jsonify(ok=False,error=f'No se pudo leer el SVG: {exc}'),422
+    job_id=uuid.uuid4().hex[:12]
+    with _JOB_LOCK: _JOBS[job_id]={'state':'queued','createdAt':time.time()}
+    threading.Thread(target=_worker,args=(job_id,text),daemon=True).start()
+    return redirect(url_for('ironnest_job_page',job_id=job_id),code=303)
+
+@app.get('/ironnest-job/<job_id>',endpoint='ironnest_job_page')
+def ironnest_job_page(job_id):
+    with _JOB_LOCK: job=_JOBS.get(job_id)
+    if not job:return Response('<h2>Trabajo no encontrado.</h2>',404,content_type='text/html; charset=utf-8')
+    html=f'''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5"><title>IronNest {job_id}</title></head><body style="font-family:Arial,sans-serif;padding:24px;max-width:700px;margin:auto"><h1>Archivo recibido ✓</h1><p>Trabajo: <b>{job_id}</b></p><p>Estado actual: <b>{job.get('state')}</b></p><p>Esta página se actualiza sola cada 5 segundos. Ya podés confirmar que el SVG llegó al servidor.</p><p><a href="/ironnest-result/{job_id}">Ver estado/resultados</a></p></body></html>'''
+    return Response(html,200,content_type='text/html; charset=utf-8',headers={'Cache-Control':'no-store'})
+
+@app.get('/ironnest-result/<job_id>',endpoint='ironnest_job_result')
+def ironnest_job_result(job_id):
+    with _JOB_LOCK: job=_JOBS.get(job_id)
+    if not job:return jsonify(ok=False,error='Trabajo no encontrado'),404
+    if job.get('state') not in ('done','failed'):return jsonify(ok=True,jobId=job_id,state=job.get('state')),202
+    return jsonify(job),200
