@@ -72,9 +72,9 @@ def _extract_tagged_kits(svg_text,root):
         kits.append({'kitId':gid,'figure':figure,'priority':len(kits)+1,'parts':[part],'area':area,'envelope':envelope,'solidity':area/envelope})
     return kits
 
-def _extract_legacy_kits(svg_text,root):
+def _extract_legacy_kits(svg_text,root,solver_tolerance_mm=.18,max_vertices=360):
     source_w,source_h=_source_size_mm(root)
-    geom,_,_=core.svg_to_geometry(svg_text,source_w/10.0,source_h/10.0,solver_tolerance_mm=.18,max_vertices=360)
+    geom,_,_=core.svg_to_geometry(svg_text,source_w/10.0,source_h/10.0,solver_tolerance_mm=solver_tolerance_mm,max_vertices=max_vertices)
     if geom.geom_type=='Polygon': components=[geom]
     elif geom.geom_type=='MultiPolygon': components=list(geom.geoms)
     else: components=[g for g in getattr(geom,'geoms',[]) if g.geom_type=='Polygon']
@@ -188,3 +188,4 @@ def benchmark_private_fixture():
     try:
         svg_text=gzip.decompress(base64.b64decode(packed)).decode('utf-8-sig'); payload,status=_execute_svg(svg_text); return jsonify(payload),status
     except Exception as exc: return jsonify(ok=False,error=f'Fixture privado invalido: {exc}'),422
+
