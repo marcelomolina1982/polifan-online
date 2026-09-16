@@ -86,7 +86,28 @@ def _execute(svg_text,job_id=None):
     except Exception as exc:
         print(f'IRON_ERROR job={job_id} error={exc!r}',flush=True)
         return {'ok':False,'engine':'IronNest hard-bound','traceId':trace,'pieceCount':len(kits),'parser':parser,'error':str(exc)},422
-    validation,rows=br._validate_layout(kits,placements)
+    validation_kits=kits
+    validation_detail='parser'
+    if parser=='historical-connected-components':
+        expanded=br._expand_uses(svg_text) if '<use' in svg_text else svg_text
+        validation_kits=br._extract_legacy_kits(expanded,br.ET.fromstring(expanded),solver_tolerance_mm=.02,max_vertices=1500)
+        validation_detail='historical-connected-components-high-detail'
+        if len(validation_kits)!=len(kits):
+            return {'ok':False,'parser':parser,'pieceCount':len(kits),'validationPieceCount':len(validation_kits),'error':'El parser de alta precision detecto otra cantidad de piezas'},422
+        for original,detailed in zip(kits,validation_kits):
+            a=original['parts'][0]; b=detailed['parts'][0]
+            if abs(a['trimXmm']-b['trimXmm'])>1 or abs(a['trimYmm']-b['trimYmm'])>1:
+                return {'ok':False,'parser':parser,'error':'No se pudo emparejar una pieza con su contorno de alta precision'},422
+    validation,rows=br._validate_layout(validation_kits,placements)
+    strict_outside=[]
+    for placement,geom in rows:
+        x0,y0,x1,y1=geom.bounds
+        if x0 < -0.001 or y0 < -0.001 or x1 > br.PLATE_WIDTH_MM+0.001 or y1 > br.PLATE_HEIGHT_MM+0.001:
+            strict_outside.append(str(placement.get('instanceId')))
+    if strict_outside:
+        validation['ok']=False
+        validation['strictOutsidePlate']=strict_outside
+    validation['geometryDetail']=validation_detail
     # Parser kits are the business pieces used by the validator.  itemCount is
     # also returned explicitly so a kit/part cardinality mismatch cannot hide.
     all_placed=(len(placements)==item_count and not unplaced)
@@ -98,6 +119,7 @@ def _execute(svg_text,job_id=None):
     return {
       'ok':valid,'engine':'IronNest hard-bound sampling','traceId':trace,'parser':parser,
       'pieceCount':len(kits),'itemCount':item_count,'vertexCount':vertex_count,
+      'validationVertexCount':sum(len(p['geom'].exterior.coords)-1 for k in validation_kits for p in k['parts']),
       'placedCount':len(placements),'unplacedCount':len(unplaced),'unplacedItemIndexes':unplaced,
       'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
       'elapsedSeconds':elapsed,'layoutValidation':validation,
