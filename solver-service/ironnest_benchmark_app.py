@@ -21,7 +21,7 @@ IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=180
-IRON_COMPACT_SETTINGS={'strategy':'nfp','budget':60,'restarts':2,'separation_effort':'max'}
+IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':60,'restarts':2,'separation_effort':'max'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
