@@ -13,10 +13,11 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
 IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
-IRON_BUDGET=60
+IRON_BUDGET=40
 IRON_RESTARTS=1
 IRON_SEPARATION_EFFORT='fast'
-IRON_SIMPLIFY_MM=0.65
+IRON_STRATEGY='sampling'
+IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=120
 # Simplification can move each boundary by up to its tolerance. Keep a larger
 # solver clearance, then check every placement against the parser geometry.
@@ -34,7 +35,7 @@ def _solve_process(items, container, result_queue):
         result_queue.put(('ok', ironnest.nest(
             items, qty=[1]*len(items), container=container, holes=[],
             min_sep=IRON_SOLVER_GAP_MM, rotations=IRON_ROTATIONS, seed=1777,
-            budget=IRON_BUDGET, strategy='nfp', column_weight=3,
+            budget=IRON_BUDGET, strategy=IRON_STRATEGY, column_weight=3,
             restarts=IRON_RESTARTS, separation_effort=IRON_SEPARATION_EFFORT)))
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
@@ -48,7 +49,7 @@ def _run_ironnest(kits,job_id=None):
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
     vertex_count=sum(len(x) for x in items)
-    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} rotations={len(IRON_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
+    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={IRON_STRATEGY} rotations={len(IRON_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
@@ -92,13 +93,13 @@ def _execute(svg_text,job_id=None):
         br._BENCH_RESULTS[trace]=br._svg_preview(rows)
         preview=f'/benchmark-result/{trace}.svg'
     return {
-      'ok':valid,'engine':'IronNest hard-bound NFP','traceId':trace,'parser':parser,
+      'ok':valid,'engine':'IronNest hard-bound sampling','traceId':trace,'parser':parser,
       'pieceCount':len(kits),'itemCount':item_count,'vertexCount':vertex_count,
       'placedCount':len(placements),'unplacedCount':len(unplaced),'unplacedItemIndexes':unplaced,
       'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
       'elapsedSeconds':elapsed,'layoutValidation':validation,
       'placements':placements if valid else [],'previewSvgUrl':preview,
-      'settings':{'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT,'simplifyMm':IRON_SIMPLIFY_MM,'solverGapMm':IRON_SOLVER_GAP_MM,'timeoutSeconds':IRON_SOLVE_TIMEOUT_SECONDS},
+      'settings':{'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT,'simplifyMm':IRON_SIMPLIFY_MM,'solverGapMm':IRON_SOLVER_GAP_MM,'timeoutSeconds':IRON_SOLVE_TIMEOUT_SECONDS},
       'error':None if valid else 'IronNest no logro colocar y validar todas las piezas dentro del limite duro'
     },200 if valid else 422
 
@@ -115,12 +116,12 @@ def _worker(job_id,svg_text):
 
 @app.get('/ironnest-health',endpoint='ironnest_health')
 def ironnest_health():
-    return jsonify(ok=True,engine='IronNest hard-bound NFP',workspaceMm=[1230,580],gapMm=2.5,budget=IRON_BUDGET,rotations=IRON_ROTATIONS,restarts=IRON_RESTARTS,separationEffort=IRON_SEPARATION_EFFORT,solverGapMm=IRON_SOLVER_GAP_MM,timeoutSeconds=IRON_SOLVE_TIMEOUT_SECONDS)
+    return jsonify(ok=True,engine='IronNest hard-bound',strategy=IRON_STRATEGY,workspaceMm=[1230,580],gapMm=2.5,budget=IRON_BUDGET,rotations=IRON_ROTATIONS,restarts=IRON_RESTARTS,separationEffort=IRON_SEPARATION_EFFORT,solverGapMm=IRON_SOLVER_GAP_MM,timeoutSeconds=IRON_SOLVE_TIMEOUT_SECONDS)
 
 @app.route('/upload-ironnest',methods=['GET','POST'],endpoint='ironnest_upload')
 def ironnest_upload():
     if request.method=='GET':
-        html='''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IronNest bounded</title></head><body style="margin:0;background:#fff;color:#111;font-family:Arial,sans-serif"><main style="max-width:650px;margin:auto;padding:24px 18px"><h1>Prueba IronNest</h1><p>Placa 1230 × 580 mm · separación 2,5 mm.</p><form method="POST" action="/upload-ironnest" enctype="multipart/form-data"><div style="border:2px solid #222;border-radius:12px;padding:16px;background:#f3f3f3"><label for="svgfile" style="display:block;font-weight:bold;font-size:17px;margin-bottom:10px">1. Seleccioná pedido 08-08-2.svg</label><input id="svgfile" name="file" type="file" required style="display:block;width:100%;font-size:16px;background:#fff;border:1px solid #777;padding:12px;box-sizing:border-box"></div><button type="submit" style="margin-top:16px;width:100%;padding:18px;background:#111;color:#fff;border:0;border-radius:10px;font-size:18px;font-weight:bold">2. SUBIR Y PROBAR MOTOR</button></form><p style="margin-top:18px;font-size:13px;color:#666">Versión BOUNDED v7 · NFP rápido y medido. La subida termina inmediatamente y el cálculo continúa separado.</p></main></body></html>'''
+        html='''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IronNest bounded</title></head><body style="margin:0;background:#fff;color:#111;font-family:Arial,sans-serif"><main style="max-width:650px;margin:auto;padding:24px 18px"><h1>Prueba IronNest</h1><p>Placa 1230 × 580 mm · separación 2,5 mm.</p><form method="POST" action="/upload-ironnest" enctype="multipart/form-data"><div style="border:2px solid #222;border-radius:12px;padding:16px;background:#f3f3f3"><label for="svgfile" style="display:block;font-weight:bold;font-size:17px;margin-bottom:10px">1. Seleccioná pedido 08-08-2.svg</label><input id="svgfile" name="file" type="file" required style="display:block;width:100%;font-size:16px;background:#fff;border:1px solid #777;padding:12px;box-sizing:border-box"></div><button type="submit" style="margin-top:16px;width:100%;padding:18px;background:#111;color:#fff;border:0;border-radius:10px;font-size:18px;font-weight:bold">2. SUBIR Y PROBAR MOTOR</button></form><p style="margin-top:18px;font-size:13px;color:#666">Versión BOUNDED v8 · búsqueda medida. La subida termina inmediatamente y el cálculo continúa separado.</p></main></body></html>'''
         return Response(html,200,content_type='text/html; charset=utf-8',headers={'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0','Pragma':'no-cache'})
     up=request.files.get('file')
     if not up:return jsonify(ok=False,error='Falta archivo SVG'),400
