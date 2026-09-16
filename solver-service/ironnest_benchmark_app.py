@@ -90,8 +90,8 @@ def _execute(svg_text,job_id=None):
     validation_detail='parser'
     if parser=='historical-connected-components':
         expanded=br._expand_uses(svg_text) if '<use' in svg_text else svg_text
-        validation_kits=br._extract_legacy_kits(expanded,br.ET.fromstring(expanded),solver_tolerance_mm=.02,max_vertices=1500)
-        validation_detail='historical-connected-components-high-detail'
+        validation_kits=br._extract_legacy_kits(expanded,br.ET.fromstring(expanded),solver_tolerance_mm=.02,max_vertices=5000,curve_step_mm=1.0)
+        validation_detail='historical-connected-components-dense-curves-1mm'
         if len(validation_kits)!=len(kits):
             return {'ok':False,'parser':parser,'pieceCount':len(kits),'validationPieceCount':len(validation_kits),'error':'El parser de alta precision detecto otra cantidad de piezas'},422
         for original,detailed in zip(kits,validation_kits):
