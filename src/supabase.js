@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
 const client = createClient(
-  'https://mcmndnxrbsdlaxpfidsn.supabase.co',
-  'sb_publishable_jYJLmMGO5E0doDU2tf9xyA_tB6QsqyH'
+  'https://eftksimpkkvmyfurwqii.supabase.co',
+  'sb_publishable_RJheqVJ6VdJC7291e2z7WQ_0vsBsDWN'
 )
 
 const APP_CACHE_KEY='polifan-app-cache'
@@ -320,3 +320,4 @@ export const supabase=new Proxy(client,{get(target,prop){
   }
   const value=target[prop];return typeof value==='function'?value.bind(target):value
 }})
+
