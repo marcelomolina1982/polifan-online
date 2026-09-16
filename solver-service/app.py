@@ -48,7 +48,7 @@ def _points_attr(v):
     return list(zip(nums[0::2],nums[1::2]))
 
 
-def _sample_path(d, transform):
+def _sample_path(d, transform, step=8.0, max_steps=36):
     out=[]
     try:
         path=parse_path(d or '')
@@ -62,7 +62,7 @@ def _sample_path(d, transform):
             for seg in sub:
                 try: L=max(1.0,float(seg.length(error=1e-3)))
                 except: L=20.0
-                steps=max(2,min(36,int(math.ceil(L/8.0))))
+                steps=max(2,min(max_steps,int(math.ceil(L/step))))
                 for i in range(steps):
                     z=seg.point(i/steps); pts.append(_apply((z.real,z.imag),transform))
             z=sub[-1].end; pts.append(_apply((z.real,z.imag),transform))
@@ -135,7 +135,7 @@ def _solver_simplify_polygon(poly, original_bounds, tolerance_mm=0.35, max_verti
     return simp
 
 
-def svg_to_geometry(svg_text, width_cm, height_cm, solver_tolerance_mm=0.35, max_vertices=180):
+def svg_to_geometry(svg_text, width_cm, height_cm, solver_tolerance_mm=0.35, max_vertices=180, curve_step_mm=8.0):
     root=ET.fromstring(svg_text)
     vb=[_n(x) for x in re.split(r'[ ,]+',root.attrib.get('viewBox','').strip()) if x!='']
     if len(vb)!=4:
@@ -150,7 +150,7 @@ def svg_to_geometry(svg_text, width_cm, height_cm, solver_tolerance_mm=0.35, max
         tag=el.tag.split('}')[-1].lower()
         rings=[]
         if tag=='path':
-            rings=_sample_path(el.attrib.get('d',''),local)
+            rings=_sample_path(el.attrib.get('d',''),local,step=max(0.1,curve_step_mm/max(sx,sy)),max_steps=256 if curve_step_mm<8.0 else 36)
         elif tag in ('polygon','polyline'):
             pts=[_apply(p,local) for p in _points_attr(el.attrib.get('points',''))]
             if tag=='polygon' and len(pts)>=3:
@@ -1032,3 +1032,4 @@ def nest():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0",port=int(__import__("os").environ.get("PORT","10000")))
+
