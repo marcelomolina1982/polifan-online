@@ -14,13 +14,13 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
 IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
 IRON_EXTRA_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
-IRON_EXTRA_ROTATION_ITEM=4
+IRON_EXTRA_ROTATION_ITEMS=(4,12)
 IRON_BUDGET=60
-IRON_RESTARTS=1
+IRON_RESTARTS=2
 IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.2
-IRON_SOLVE_TIMEOUT_SECONDS=120
+IRON_SOLVE_TIMEOUT_SECONDS=180
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
@@ -50,9 +50,9 @@ def _run_ironnest(kits,job_id=None):
             ids.append(str(p.get('instanceId')))
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
-    rotation_sets=[IRON_EXTRA_ROTATIONS if i==IRON_EXTRA_ROTATION_ITEM else IRON_ROTATIONS for i in range(len(items))]
+    rotation_sets=[IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS for i in range(len(items))]
     vertex_count=sum(len(x) for x in items)
-    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={IRON_STRATEGY} rotations={len(IRON_ROTATIONS)} extra_item={IRON_EXTRA_ROTATION_ITEM} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
+    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={IRON_STRATEGY} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
@@ -102,7 +102,7 @@ def _execute(svg_text,job_id=None):
       'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
       'elapsedSeconds':elapsed,'layoutValidation':validation,
       'placements':placements if valid else [],'previewSvgUrl':preview,
-      'settings':{'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'extraRotationItem':IRON_EXTRA_ROTATION_ITEM,'extraRotations':IRON_EXTRA_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT,'simplifyMm':IRON_SIMPLIFY_MM,'solverGapMm':IRON_SOLVER_GAP_MM,'timeoutSeconds':IRON_SOLVE_TIMEOUT_SECONDS},
+      'settings':{'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'extraRotationItems':IRON_EXTRA_ROTATION_ITEMS,'extraRotations':IRON_EXTRA_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT,'simplifyMm':IRON_SIMPLIFY_MM,'solverGapMm':IRON_SOLVER_GAP_MM,'timeoutSeconds':IRON_SOLVE_TIMEOUT_SECONDS},
       'error':None if valid else 'IronNest no logro colocar y validar todas las piezas dentro del limite duro'
     },200 if valid else 422
 
