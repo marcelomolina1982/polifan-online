@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "case \"$VERCEL_PROJECT_ID:$VERCEL_GIT_COMMIT_REF\" in \"prj_ZDDrywKjX6lBXYL8LsYDNrhJhT01:app-v2-parallel\"|\"prj_BVH6xcl7iSdhFvUXp2XJJBvTLmJu:main\") exit 1;;*) exit 0;;esac",
+  "ignoreCommand": "case \"$VERCEL_PROJECT_ID:$VERCEL_GIT_COMMIT_REF\" in \"prj_ZDDrywKjX6lBXYL8LsYDNrhJhT01:app-v2-parallel\"|\"prj_BVH6xcl7iSdhFvUXp2XJJBvTLmJu:main\"|\"prj_hw2SAOWuhkiLA1N8MGBejl6RRzgB:motor-ironnest-hardbound-lab\") exit 1;;*) exit 0;;esac",
   "rewrites": [
     {
       "source": "/((?!assets/).*)",
@@ -46,3 +46,4 @@
     }
   ]
 }
+
