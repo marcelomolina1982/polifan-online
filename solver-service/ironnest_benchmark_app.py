@@ -1,4 +1,4 @@
-import time, uuid, threading
+import time, uuid, threading, multiprocessing, queue
 from flask import jsonify, request, Response, redirect, url_for
 import ironnest
 import benchmark_routes as br
@@ -6,21 +6,38 @@ import benchmark_routes as br
 app=br.app
 _JOBS={}
 _JOB_LOCK=threading.Lock()
+_SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 
 # IronNest budget is a SAMPLE budget, not seconds.  The previous benchmark used
 # the most expensive production-quality knobs at once (24 rotations, budget 900,
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
-IRON_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
-IRON_BUDGET=180
+IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
+IRON_BUDGET=60
 IRON_RESTARTS=1
 IRON_SEPARATION_EFFORT='fast'
+IRON_SIMPLIFY_MM=0.65
+IRON_SOLVE_TIMEOUT_SECONDS=120
+# Simplification can move each boundary by up to its tolerance. Keep a larger
+# solver clearance, then check every placement against the parser geometry.
+IRON_SOLVER_GAP_MM=br.GAP_MM+2*IRON_SIMPLIFY_MM+0.2
 
 def _outline(geom):
     if geom.geom_type=='MultiPolygon': geom=max(geom.geoms,key=lambda g:g.area)
+    geom=geom.simplify(IRON_SIMPLIFY_MM,preserve_topology=True)
     pts=[(float(x),float(y)) for x,y in list(geom.exterior.coords)[:-1]]
     if len(pts)<3: raise ValueError('Silueta con menos de 3 vertices')
     return pts
+
+def _solve_process(items, container, result_queue):
+    try:
+        result_queue.put(('ok', ironnest.nest(
+            items, qty=[1]*len(items), container=container, holes=[],
+            min_sep=IRON_SOLVER_GAP_MM, rotations=IRON_ROTATIONS, seed=1777,
+            budget=IRON_BUDGET, strategy='nfp', column_weight=3,
+            restarts=IRON_RESTARTS, separation_effort=IRON_SEPARATION_EFFORT)))
+    except Exception as exc:
+        result_queue.put(('error', repr(exc)))
 
 def _run_ironnest(kits,job_id=None):
     items=[]; ids=[]
@@ -28,24 +45,26 @@ def _run_ironnest(kits,job_id=None):
         for p in (k.get('parts') or []):
             items.append(_outline(p['geom']))
             ids.append(str(p.get('instanceId')))
-    container=[(0.,0.),(br.PLATE_WIDTH_MM,0.),(br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM),(0.,br.PLATE_HEIGHT_MM)]
+    inset=IRON_SIMPLIFY_MM+0.1
+    container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
     vertex_count=sum(len(x) for x in items)
-    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} rotations={len(IRON_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT}',flush=True)
+    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} rotations={len(IRON_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
     started=time.time()
-    placements,unplaced=ironnest.nest(
-        items,
-        qty=[1]*len(items),
-        container=container,
-        holes=[],
-        min_sep=br.GAP_MM,
-        rotations=IRON_ROTATIONS,
-        seed=1777,
-        budget=IRON_BUDGET,
-        strategy='nfp',
-        column_weight=3,
-        restarts=IRON_RESTARTS,
-        separation_effort=IRON_SEPARATION_EFFORT
-    )
+    ctx=multiprocessing.get_context('spawn')
+    result_queue=ctx.Queue(maxsize=1)
+    process=ctx.Process(target=_solve_process,args=(items,container,result_queue))
+    try:
+        process.start()
+        process.join(IRON_SOLVE_TIMEOUT_SECONDS)
+        if process.is_alive():
+            process.terminate(); process.join(5)
+            raise TimeoutError(f'IronNest supero {IRON_SOLVE_TIMEOUT_SECONDS} segundos')
+        try: state,payload=result_queue.get(timeout=2)
+        except queue.Empty: raise RuntimeError(f'IronNest termino sin resultado (exit={process.exitcode})')
+    finally:
+        result_queue.close()
+    if state=='error': raise RuntimeError(payload)
+    placements,unplaced=payload
     elapsed=round(time.time()-started,2)
     print(f'IRON_END job={job_id} elapsed={elapsed} placements={len(placements)} unplaced={len(unplaced)}',flush=True)
     out=[]
@@ -79,23 +98,24 @@ def _execute(svg_text,job_id=None):
       'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
       'elapsedSeconds':elapsed,'layoutValidation':validation,
       'placements':placements if valid else [],'previewSvgUrl':preview,
-      'settings':{'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT},
+      'settings':{'budget':IRON_BUDGET,'rotations':IRON_ROTATIONS,'restarts':IRON_RESTARTS,'separationEffort':IRON_SEPARATION_EFFORT,'simplifyMm':IRON_SIMPLIFY_MM,'solverGapMm':IRON_SOLVER_GAP_MM,'timeoutSeconds':IRON_SOLVE_TIMEOUT_SECONDS},
       'error':None if valid else 'IronNest no logro colocar y validar todas las piezas dentro del limite duro'
     },200 if valid else 422
 
 def _worker(job_id,svg_text):
-    with _JOB_LOCK:_JOBS[job_id]={'state':'running','startedAt':time.time()}
-    print(f'IRON_UPLOAD_RECEIVED job={job_id} bytes={len(svg_text.encode("utf-8"))}',flush=True)
-    try:
-        result,status=_execute(svg_text,job_id)
-        with _JOB_LOCK:_JOBS[job_id]={'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
-    except Exception as exc:
-        print(f'IRON_WORKER_ERROR job={job_id} error={exc!r}',flush=True)
-        with _JOB_LOCK:_JOBS[job_id]={'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
+    with _SOLVE_SEMAPHORE:
+        with _JOB_LOCK:_JOBS[job_id]={'state':'running','startedAt':time.time()}
+        print(f'IRON_UPLOAD_RECEIVED job={job_id} bytes={len(svg_text.encode("utf-8"))}',flush=True)
+        try:
+            result,status=_execute(svg_text,job_id)
+            with _JOB_LOCK:_JOBS[job_id]={'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
+        except Exception as exc:
+            print(f'IRON_WORKER_ERROR job={job_id} error={exc!r}',flush=True)
+            with _JOB_LOCK:_JOBS[job_id]={'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
 
 @app.get('/ironnest-health',endpoint='ironnest_health')
 def ironnest_health():
-    return jsonify(ok=True,engine='IronNest hard-bound NFP',workspaceMm=[1230,580],gapMm=2.5,budget=IRON_BUDGET,rotations=IRON_ROTATIONS,restarts=IRON_RESTARTS,separationEffort=IRON_SEPARATION_EFFORT)
+    return jsonify(ok=True,engine='IronNest hard-bound NFP',workspaceMm=[1230,580],gapMm=2.5,budget=IRON_BUDGET,rotations=IRON_ROTATIONS,restarts=IRON_RESTARTS,separationEffort=IRON_SEPARATION_EFFORT,solverGapMm=IRON_SOLVER_GAP_MM,timeoutSeconds=IRON_SOLVE_TIMEOUT_SECONDS)
 
 @app.route('/upload-ironnest',methods=['GET','POST'],endpoint='ironnest_upload')
 def ironnest_upload():
@@ -128,3 +148,4 @@ def ironnest_job_result(job_id):
     if not job:return jsonify(ok=False,error='Trabajo no encontrado'),404
     if job.get('state') not in ('done','failed'):return jsonify(ok=True,jobId=job_id,state=job.get('state')),202
     return jsonify(job),200
+
