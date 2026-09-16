@@ -21,6 +21,7 @@ IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=180
+IRON_COMPACT_SETTINGS={'strategy':'nfp','budget':60,'restarts':2,'separation_effort':'max'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
@@ -32,17 +33,19 @@ def _outline(geom):
     if len(pts)<3: raise ValueError('Silueta con menos de 3 vertices')
     return pts
 
-def _solve_process(items, container, rotation_sets, result_queue):
+def _solve_process(items, container, rotation_sets, result_queue, settings):
     try:
         result_queue.put(('ok', ironnest.nest(
             items, qty=[1]*len(items), container=container, holes=[],
             min_sep=IRON_SOLVER_GAP_MM, rotations=rotation_sets, seed=1777,
-            budget=IRON_BUDGET, strategy=IRON_STRATEGY, column_weight=3,
-            restarts=IRON_RESTARTS, separation_effort=IRON_SEPARATION_EFFORT)))
+            budget=settings['budget'], strategy=settings['strategy'], column_weight=3,
+            restarts=settings['restarts'], separation_effort=settings['separation_effort'])))
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
 
-def _run_ironnest(kits,job_id=None):
+def _run_ironnest(kits,job_id=None,settings=None):
+    settings=settings or {'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,
+                          'restarts':IRON_RESTARTS,'separation_effort':IRON_SEPARATION_EFFORT}
     items=[]; ids=[]; rotation_sets=[]
     for k in kits:
         for p in (k.get('parts') or []):
@@ -53,11 +56,11 @@ def _run_ironnest(kits,job_id=None):
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
     vertex_count=sum(len(x) for x in items)
-    print(f'IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={IRON_STRATEGY} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={IRON_BUDGET} restarts={IRON_RESTARTS} effort={IRON_SEPARATION_EFFORT} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}',flush=True)
+    print(f"IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={settings['strategy']} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={settings['budget']} restarts={settings['restarts']} effort={settings['separation_effort']} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}",flush=True)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
-    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue))
+    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue,settings))
     try:
         process.start()
         process.join(IRON_SOLVE_TIMEOUT_SECONDS)
@@ -217,8 +220,12 @@ def _industrial_kits(payload, detailed=False):
 
 def _execute_industrial(payload,job_id):
     kits=_industrial_kits(payload)
+    mode=str(payload.get('optimizationMode') or 'fast')
+    if mode not in ('fast','compact'):
+        return {'ok':False,'error':'Modo de optimizacion no admitido'},422
+    settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
     try:
-        placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id)
+        placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id,settings)
     except Exception as exc:
         return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
@@ -255,7 +262,7 @@ def _execute_industrial(payload,job_id):
     if rows:
         br._BENCH_RESULTS[trace]=br._svg_preview(rows)
         preview=f'/benchmark-result/{trace}.svg'
-    return {'ok':valid,'engine':'IronNest industrial lab','parser':'industrial-kits',
+    return {'ok':valid,'engine':'IronNest industrial lab','parser':'industrial-kits','optimizationMode':mode,
             'traceId':trace,'kitCount':len(kits),'pieceCount':item_count,'placedCount':len(placements),
             'unplacedItemIndexes':unplaced,'elapsedSeconds':elapsed,'vertexCount':vertex_count,
             'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
