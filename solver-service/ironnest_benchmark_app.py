@@ -223,6 +223,20 @@ def _execute_industrial(payload,job_id):
         return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
     validation,rows=br._validate_layout(detailed,placements)
+    exact_gap=None
+    exact_violations=[]
+    for i in range(len(rows)):
+        for j in range(i+1,len(rows)):
+            gap=float(rows[i][1].distance(rows[j][1]))
+            exact_gap=gap if exact_gap is None else min(exact_gap,gap)
+            if gap<br.ABSOLUTE_MIN_GAP_MM-0.000001:
+                exact_violations.append({'a':rows[i][0].get('instanceId'),
+                                         'b':rows[j][0].get('instanceId'),
+                                         'gapMm':round(gap,4)})
+    validation['minimumMeasuredGapMm']=round(exact_gap,4) if exact_gap is not None else None
+    if exact_violations:
+        validation['ok']=False
+        validation['gapViolations']=exact_violations[:12]
     strict_outside=[]
     for pose,geom in rows:
         x0,y0,x1,y1=geom.bounds
