@@ -135,7 +135,26 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 
   const ceiling=Math.min(available,Math.max(best.kitCount,Number(maxGrowth)||16))
   for(let target=best.kitCount+1;target<=ceiling;target++){
-    const grown=await tryTarget(target)
+    // Crecimiento útil: conservar los kits completos ya certificados y probar
+    // qué kit pendiente cabe entero en los huecos. Nunca agrega base/tapa suelta.
+    const selectedIds=new Set((best.selectedKits||[]).map(k=>k.kitId))
+    const pending=(kits||[])
+      .filter(k=>!selectedIds.has(k.kitId))
+      .sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||Number(a.priority||0)-Number(b.priority||0))
+      .slice(0,6)
+    let grown=null
+    for(let i=0;i<pending.length&&!grown;i++){
+      const candidate=[...(best.selectedKits||[]),pending[i]]
+      if(candidate.length!==target||completeKitPieceCount(candidate)>60)continue
+      onProgress?.({stage:`IronNest LAB · buscando figura completa ${target} (${i+1}/${pending.length})…`,percent:8,completeFigures:best.kitCount})
+      try{
+        const result=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
+        grown={...result,selectedKits:candidate,kitCount:candidate.length}
+      }catch(error){lastError=error}
+    }
+    // Si ningún kit individual encaja con la base certificada, permitimos unas
+    // pocas recombinaciones completas antes de declarar que no mejoró.
+    if(!grown)grown=await tryTarget(target)
     if(!grown)break
     best=grown
   }
