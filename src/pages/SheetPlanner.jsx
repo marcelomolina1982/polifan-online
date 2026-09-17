@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { pendingCutByDelivery, pendingCutRows } from '../lib/inventory'
 import { catalogProducts, normalizeCatalogProducts } from '../lib/catalog'
+import { solveCompleteKitsWithIronNestLab } from '../lib/ironnestLab'
 
 const COLORS=['#ec2c7c','#14b8b8','#087fc4','#7b3dbb','#f59e0b','#16a34a','#ef4444','#6366f1']
 const PX_PER_CM=10
@@ -844,7 +845,7 @@ function sheetProductionRows(sheet,multiplier=1){
 }
 
 export default function SheetPlanner({db,onSave}){
-  const [sheetW,setSheetW]=useState(122),[sheetH,setSheetH]=useState(58),[gap,setGap]=useState(.3)
+  const [sheetW,setSheetW]=useState(123),[sheetH,setSheetH]=useState(58),[gap,setGap]=useState(.25)
   const [items,setItems]=useState([]),[result,setResult]=useState({sheets:[],rejected:[],total:0,used:0,sheetArea:0}),[active,setActive]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[minFill,setMinFill]=useState(90),[useFillers,setUseFillers]=useState(true),[autoSummary,setAutoSummary]=useState(null),[sheetMultipliers,setSheetMultipliers]=useState({}),[modelSearch,setModelSearch]=useState(''),[modelQty,setModelQty]=useState(1)
   const [calcProgress,setCalcProgress]=useState(null)
   const [bestLive,setBestLive]=useState(null)
@@ -911,64 +912,41 @@ export default function SheetPlanner({db,onSave}){
       setCalcProgress({stage:'Motor CNC externo · preparando geometrías…',percent:3,elapsed:0,eta:45,completeFigures:0,efficiency:0})
       timer=setInterval(()=>setCalcProgress(v=>v?{...v,elapsed:(Date.now()-started)/1000,eta:Math.max(0,150-(Date.now()-started)/1000)}:v),1000)
 
-      const payload={
-        widthCm:num(sheetW,122),heightCm:num(sheetH,58),gapCm:Math.max(.25,num(gap,.3)),
-        targetDensity:80,
-        kits:kits.slice(0,32).map(k=>({kitId:k.kitId,figure:k.figure,priority:k.priority,date:k.date,source:k.source,parts:k.parts.map(part=>({
-          instanceId:part.instanceId,id:part.id,kitId:part.kitId,figure:part.figure,name:part.name,role:part.role,
-          sourceWidthCm:num(part.sourceWidth||part.width),sourceHeightCm:num(part.sourceHeight||part.height),
-          allowRotate:part.allowRotate!==false,svgText:part.svgText
-        }))}))
-      }
-      // v23: una sola ruta de cálculo. Sin fetch, sin Render y sin segundo algoritmo.
-      const local=await runStableLocalSolver(
-        kits,num(sheetW,122),num(sheetH,58),Math.max(.25,num(gap,.3)),{
-          target:Math.min(10,kits.length),targetEfficiency:Math.min(90,Math.max(80,num(minFill,90))),deadlineMs:110000,
-          shouldStop:()=>stopCalcRef.current,
-          onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:Math.max(0,110-(Date.now()-started)/1000)}))
-        }
-      )
-      const ls=local.sheets[0],validation=local.validation||{}
-      const xs=(ls.placed||[]).map(q=>num(q.x)),ys=(ls.placed||[]).map(q=>num(q.y))
-      const x2=(ls.placed||[]).map(q=>num(q.x)+num(q.w)),y2=(ls.placed||[]).map(q=>num(q.y)+num(q.h))
-      const usedW=xs.length?Math.max(...x2)-Math.min(...xs):0,usedH=ys.length?Math.max(...y2)-Math.min(...ys):0
-      const materialArea=Number(validation.materialArea||ls.used||0)
-      const compactness=usedW*usedH>0?Math.min(100,100*materialArea/(usedW*usedH)):0
-      const data={
-        ok:true,localStable:true,engine:'Motor Polifan v23 · local estable · silueta real',
-        completeFigures:Number(local.completeFigures||kitCountOnSheet(ls)),
-        placements:(ls.placed||[]).map(q=>({instanceId:q.instanceId,kitId:q.kitId,figure:q.figure,name:q.name,role:q.role,xCm:num(q.x),yCm:num(q.y),angle:num(q.angle),trimXCm:0,trimYCm:0})),
-        density:Number(validation.usage||ls.efficiency||0),compactness,usedWidthMm:usedW*10,usedHeightMm:usedH*10,
-        attempts:local.attempts||[],minimumTarget:Math.min(10,kits.length),reachedMinimum:Number(local.completeFigures||0)>=Math.min(10,kits.length),
-        reachedDensity:Number(validation.usage||0)>=Math.min(90,Math.max(80,num(minFill,90)))
-      }
-      const response={ok:true,status:200}
+      const targetComplete=Math.min(10,kits.length)
+      const data=await solveCompleteKitsWithIronNestLab(kits,{
+        targetComplete,maxGrowth:16,optimizationMode:'fast',
+        onProgress:p=>setCalcProgress(v=>({...v,...p,elapsed:(Date.now()-started)/1000,eta:null}))
+      })
+      if(!data?.layoutValidation?.ok)throw new Error('IronNest LAB devolvio una geometria sin validacion CNC.')
+      if(Number(data.workspaceMm?.[0])!==1230||Number(data.workspaceMm?.[1])!==580)throw new Error('IronNest LAB devolvio un tamaño de placa inesperado.')
+      const selectedKits=data.selectedKits||[]
       const placementMap=new Map((data.placements||[]).map(x=>[x.instanceId,x]))
       const sourceParts=new Map()
-      kits.forEach(k=>k.parts.forEach(part=>sourceParts.set(part.instanceId,part)))
+      selectedKits.forEach(k=>k.parts.forEach(part=>sourceParts.set(part.instanceId,part)))
       const placed=(data.placements||[]).map(pl=>{
         const part=sourceParts.get(pl.instanceId)
         if(!part)return null
         return {...part,x:num(pl.xCm),y:num(pl.yCm),angle:num(pl.angle),rotated:Math.abs(num(pl.angle)%360)>.001,
-          industrial:false,localFallback:false,localStable:true,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
+          industrial:true,localFallback:false,localStable:false,trimXCm:num(pl.trimXCm),trimYCm:num(pl.trimYCm),w:num(part.sourceWidth||part.width),h:num(part.sourceHeight||part.height)}
       }).filter(Boolean)
-      if(!placed.length)throw new Error('El motor local terminó sin componentes colocados.')
+      if(!placed.length)throw new Error('IronNest LAB terminó sin componentes colocados.')
       const kitIds=new Set(placed.map(x=>x.kitId).filter(Boolean))
       const completeFigures=kitIds.size
-      const finalCompactness=Math.max(0,Math.min(100,num(data.compactness)))
-      const density=Math.max(0,Math.min(100,num(data.density)))
-      const sheetArea=num(sheetW,122)*num(sheetH,58)
+      const sheetArea=123*58
+      const sourceArea=placed.reduce((sum,p)=>sum+num(p.sourceWidth||p.width)*num(p.sourceHeight||p.height),0)
+      const density=Math.max(0,Math.min(100,100*sourceArea/sheetArea))
+      const finalCompactness=density
       const one={number:1,placed,used:sheetArea*density/100,efficiency:density,groupCompactness:finalCompactness,industrial:true,materialDensity:density,usedWidthCm:num(data.usedWidthMm)/10,usedHeightCm:num(data.usedHeightMm)/10}
-      const reachedMinimum=completeFigures>=Number(data.minimumTarget||10)
+      const reachedMinimum=completeFigures>=targetComplete
       const finalResult={sheets:[one],rejected:[],total:placed.length,used:one.used,sheetArea,stale:false,automatic:true,industrial:true,precisionValidated:true,productionMinimumValidated:reachedMinimum,
-        threshold:num(minFill,90),fillers:[],materialDensity:density,engine:data.engine||'PackingSolver C++',attempts:data.attempts||[]}
+        threshold:num(minFill,90),fillers:[],materialDensity:density,engine:data.engine||'IronNest industrial lab',attempts:[],minimumMeasuredGapMm:data.layoutValidation?.minimumMeasuredGapMm}
       setItems(placed.map(x=>({...x,qty:1})));setResult(finalResult)
-      setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete:Number(data.minimumTarget||10),targetEfficiency:num(minFill,90),partial:!reachedMinimum})
-      setOptimizerStats({tested:(data.attempts||[]).length,improved:1,bestStrategy:'Motor Polifan v23 · subconjuntos completos'})
-      setCalcProgress({stage:`Finalizado · ${data.engine||'PackingSolver C++'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:finalCompactness})
+      setAutoSummary({groups,missing:[...new Set(missing)],fillers:[],complete:1,waiting:0,threshold:num(minFill,90),rejected:0,completeFigures,targetComplete,targetEfficiency:num(minFill,90),partial:!reachedMinimum})
+      setOptimizerStats({tested:1,improved:1,bestStrategy:'IronNest LAB · kits completos'})
+      setCalcProgress({stage:`Finalizado · ${data.engine||'IronNest industrial lab'}`,percent:100,elapsed:(Date.now()-started)/1000,eta:0,completeFigures,efficiency:finalCompactness})
 
     }catch(e){
-      const msg=e?.message||'No se pudo generar una placa válida con el motor estable.'
+      const msg=e?.message||'No se pudo generar una placa válida con IronNest LAB.'
       setError(msg);setCalcProgress(null);setResult({sheets:[],rejected:[],total:0,used:0,sheetArea:0})
     }finally{
       if(timer)clearInterval(timer)
@@ -1049,8 +1027,8 @@ export default function SheetPlanner({db,onSave}){
   }
 
   return <div className="sheet-planner-page">
-    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>Motor industrial PackingSolver: el cálculo automático se ejecuta con un solver C++ especializado en nesting irregular. React solo muestra el resultado; ya no decide las posiciones.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
-    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en cualquier ángulo; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El cálculo automático ya no usa el motor experimental del navegador. PackingSolver trabaja con polígonos no convexos, rotación libre y separación física entre piezas. El botón manual sigue disponible solo para pruebas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
+    <div className="page-title"><div><h1>Diseñar placas de corte</h1><p>IronNest LAB: el cálculo automático se ejecuta en el motor industrial aislado y React solo muestra la geometría validada.</p></div><div className="title-actions"><button className="ghost" onClick={loadPending}>Cargar manualmente</button><button className="ghost" onClick={generateAutomatic} disabled={busy}>{busy?'Calculando placa…':'Generar 1 placa automática'}</button><button className="primary" onClick={generate} disabled={busy}>{busy?'Calculando…':'Generar selección'}</button></div></div>
+    <div className="notice"><b>Escala bloqueada</b><span>Las medidas salen del SVG original. El catálogo solo sirve para reconocer el modelo. Se permite trasladar y rotar libremente en cualquier ángulo; no se permite escalar, deformar ni reflejar. Las diferencias de tapa/base que hayas aceptado manualmente en Biblioteca SVG sí pueden utilizarse, sin cambiar sus medidas.</span></div><div className="notice"><b>Cálculo rápido</b><span>El cálculo automático usa IronNest LAB con kits completos, validación geométrica de alta precisión y separación mínima de 2,5 mm. El botón manual sigue disponible solo para pruebas.</span></div><div className="notice"><b>Cola automática de producción</b><span>Genera una sola placa por vez. Coloca primero las entregas más cercanas y usa el espacio restante con pedidos de fechas siguientes. Lo que no entra queda pendiente para la próxima placa.</span></div>
     {calcProgress&&<section className="panel calc-progress-panel">
       <div className="calc-progress-head"><div><b>{calcProgress.stage}</b><small>{calcProgress.percent}% completado</small></div>{busy&&bestLive?.sheet&&<button className="ghost" onClick={requestBestCurrent}>Usar mejor resultado actual</button>}</div>
       <div className="calc-progress-bar"><span style={{width:`${calcProgress.percent}%`}}/></div>
@@ -1062,7 +1040,7 @@ export default function SheetPlanner({db,onSave}){
       <div className="ai-optimizer-stats"><span>🧠 Etapa del solver: <b>{calcProgress?.stage||'Preparando…'}</b></span><span>✓ Figuras completas detectadas: <b>{calcProgress?.completeFigures||0}</b></span><span>↻ Paso angular final: <b>{result?.attempts?.find?.(a=>a.stage==='repack-5'&&a.ok)?'5°':'en proceso'}</b></span></div>
       {busy&&<small>El cálculo industrial tiene un límite de 150 segundos. Si no termina, no genera una placa dudosa: informa el error para volver a intentar.</small>}
     </section>}
-    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" step=".1" value={sheetW} onChange={e=>setSheetW(e.target.value)}/></label><label>Alto (cm)<input type="number" step=".1" value={sheetH} onChange={e=>setSheetH(e.target.value)}/></label><label>Separación (cm)<input type="number" min=".25" step=".1" value={gap} onChange={e=>setGap(Math.max(.3,num(e.target.value,.3)))}/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">PackingSolver industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
+    <section className="panel planner-settings"><label>Ancho (cm)<input type="number" value={sheetW} readOnly title="IronNest LAB usa placa fija de 123 cm"/></label><label>Alto (cm)<input type="number" value={sheetH} readOnly title="IronNest LAB usa placa fija de 58 cm"/></label><label>Separación (cm)<input type="number" value={gap} readOnly title="IronNest LAB valida 2,5 mm"/></label><label>Objetivo de ocupación (%)<input type="number" min="50" max="100" value={minFill} onChange={e=>setMinFill(e.target.value)}/></label><label>Motor automático<select value={optimizerMode} onChange={e=>setOptimizerMode(e.target.value)} disabled={busy}><option value="max">IronNest LAB · industrial</option></select></label><label className="form-check"><input className="form-check-input" type="checkbox" checked={useFillers} onChange={e=>setUseFillers(e.target.checked)}/><span className="form-check-label">Completar con modelos de alta venta</span></label></section>
     <section className="panel model-picker"><div><label>Buscar figura por nombre<input list="svg-model-options" value={modelSearch} onChange={e=>setModelSearch(e.target.value)} placeholder="Ej.: Minnie Mouse"/></label><datalist id="svg-model-options">{libraryModels.map(m=><option key={m.id} value={m.name}/>)}</datalist></div><label>Cantidad de figuras<input type="number" min="1" value={modelQty} onChange={e=>setModelQty(e.target.value)}/></label><button className="primary" onClick={addModelByName}>Agregar figura completa</button><span>Al agregar una figura se cargan automáticamente su tapa y su base, o su SVG simple.</span></section>
     {autoSummary&&<div className="notice"><b>Plan automático</b><span>{autoSummary.completeFigures??0} figura(s) completa(s) · mínimo: {autoSummary.targetComplete??10} · objetivo de aprovechamiento: {autoSummary.targetEfficiency??90}% · prioridad por {autoSummary.groups.length} fecha(s){autoSummary.fillers.length?` · ${autoSummary.fillers.length} rellenos de alta venta`:``}.</span></div>}
     {error&&<div className="notice">{error}</div>}
