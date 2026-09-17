@@ -76,3 +76,69 @@ export async function solveWithIronNestLab(kits,{
   }
   throw new Error(`IronNest laboratorio supero ${Math.round(timeoutMs/1000)} segundos.`)
 }
+
+
+function completeKitPieceCount(kits){
+  return (kits||[]).reduce((sum,k)=>sum+(k.parts?.length||0),0)
+}
+
+function kitAreaScore(kit){
+  return (kit.parts||[]).reduce((sum,p)=>sum+Number(p.sourceWidth||p.width||0)*Number(p.sourceHeight||p.height||0),0)
+}
+
+function uniqueKitVariants(kits,target){
+  const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
+  const variants=[]
+  const push=list=>{
+    const picked=list.slice(0,target)
+    if(picked.length!==target||completeKitPieceCount(picked)>60)return
+    const key=picked.map(k=>k.kitId).join('|')
+    if(!variants.some(v=>v.key===key))variants.push({key,kits:picked})
+  }
+  push(ordered)
+  push([...ordered].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0)||kitAreaScore(a)-kitAreaScore(b)))
+  const urgent=ordered.slice(0,Math.max(target,Math.ceil(target*1.6)))
+  push([...urgent].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)))
+  return variants
+}
+
+export async function solveCompleteKitsWithIronNestLab(kits,{
+  targetComplete=10,
+  maxGrowth=16,
+  optimizationMode='fast',
+  signal,
+  onProgress
+}={}){
+  const available=Array.isArray(kits)?kits.length:0
+  if(!available)throw new Error('No hay kits completos para calcular.')
+  const startTarget=Math.min(Math.max(1,Number(targetComplete)||10),available)
+  let best=null,lastError=null
+
+  const tryTarget=async target=>{
+    const variants=uniqueKitVariants(kits,target)
+    for(let i=0;i<variants.length;i++){
+      if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
+      onProgress?.({stage:`IronNest LAB · probando ${target} figuras completas (${i+1}/${variants.length})…`,percent:5,completeFigures:best?.kitCount||0})
+      try{
+        const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress})
+        return {...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
+      }catch(error){lastError=error}
+    }
+    return null
+  }
+
+  best=await tryTarget(startTarget)
+  if(!best){
+    for(let target=startTarget-1;target>=1&&!best;target--)best=await tryTarget(target)
+  }
+  if(!best)throw lastError||new Error('IronNest LAB no encontro un subconjunto completo valido.')
+
+  const ceiling=Math.min(available,Math.max(best.kitCount,Number(maxGrowth)||16))
+  for(let target=best.kitCount+1;target<=ceiling;target++){
+    const grown=await tryTarget(target)
+    if(!grown)break
+    best=grown
+  }
+  onProgress?.({stage:`IronNest LAB · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
+  return best
+}
