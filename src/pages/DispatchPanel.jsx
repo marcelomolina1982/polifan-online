@@ -20,7 +20,10 @@ export default function DispatchPanel({db}){
   const [busy,setBusy]=useState('')
 
   const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
-  const ready=useMemo(()=>operationalOrders.filter(o=>effectiveJourneyEvent(o)===JOURNEY_EVENTS.PACKING),[operationalOrders])
+  const ready=useMemo(()=>operationalOrders.filter(o=>{
+    const event=effectiveJourneyEvent(o)
+    return event===JOURNEY_EVENTS.PRODUCTION_CUT||event===JOURNEY_EVENTS.PACKING
+  }),[operationalOrders])
 
   async function saveOrdersSafely(orders){
     const {data:revisionRows,error:revisionError}=await supabase.rpc('get_v2_section_revisions',{p_keys:['orders']})
@@ -92,7 +95,7 @@ export default function DispatchPanel({db}){
 
   if(!ready.length)return null
   return <div className="panel" style={{marginBottom:16}}>
-    <div className="panel-heading"><div><h3>Pedidos listos para despachar</h3><small>El seguimiento sólo pasa a Despachado cuando vos lo confirmás. Después se abre WhatsApp con el aviso, seguimiento y enlace de opinión.</small></div></div>
+    <div className="panel-heading"><div><h3>Pedidos listos para despachar</h3><small>Confirmación manual final. Aunque el cálculo automático todavía muestre Producción/corte o Para embalar, podés cerrar el pedido si físicamente ya está embalado o despachado. Después se abre WhatsApp con el aviso, seguimiento y enlace de opinión.</small></div></div>
     <div style={{display:'grid',gap:10,marginTop:12}}>{ready.map(o=><div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'12px 14px',border:'1px solid #e5e7eb',borderRadius:14}}><div><b>#{o.number} · {o.client}</b><small className="block">Fecha prevista: {o.delivery||'Sin fecha'}</small></div><button className="primary" disabled={busy===String(o.id||o.number)} onClick={()=>dispatch(o)}>{busy===String(o.id||o.number)?'Guardando…':isPickup(o)?'Marcar listo para retirar':'Marcar despachado'}</button></div>)}</div>
   </div>
 }
