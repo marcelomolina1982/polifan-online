@@ -227,6 +227,18 @@ def _execute_industrial(payload,job_id):
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
     try:
         placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id,settings)
+        if len(unplaced)==1 and item_count>=24:
+            first_elapsed=elapsed
+            best=(placements,unplaced,elapsed,item_count,vertex_count)
+            for repair_seed in (2713,6151):
+                try:
+                    trial=_run_ironnest(kits,f'{job_id}-repair-{repair_seed}',settings,seed=repair_seed,timeout_seconds=90)
+                    if len(trial[0])>len(best[0]): best=trial
+                    if not trial[1]: best=trial; break
+                except Exception as repair_exc:
+                    print(f'IRON_REPAIR_ERROR job={job_id} seed={repair_seed} error={repair_exc!r}',flush=True)
+            placements,unplaced,repair_elapsed,item_count,vertex_count=best
+            elapsed=round(first_elapsed + (repair_elapsed if best[2] != first_elapsed else 0),2)
     except Exception as exc:
         return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
