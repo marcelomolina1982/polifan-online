@@ -23,6 +23,10 @@ export default function DispatchPanel({db}){
   const ready=useMemo(()=>operationalOrders.filter(o=>{
     const event=effectiveJourneyEvent(o)
     return event===JOURNEY_EVENTS.PRODUCTION_CUT||event===JOURNEY_EVENTS.PACKING
+  }).sort((a,b)=>{
+    const dateA=String(a.delivery||'9999-12-31').slice(0,10)
+    const dateB=String(b.delivery||'9999-12-31').slice(0,10)
+    return dateA.localeCompare(dateB)||Number(a.number||0)-Number(b.number||0)
   }),[operationalOrders])
 
   async function saveOrdersSafely(orders){
