@@ -155,7 +155,7 @@ function purchaseDetailHtml(o){
   const subtotal=Math.max(0,Number(o.total||0))
   const delivery=deliveryParts(o.delivery)
   const isPickup=deliveryType(o)==='Retiro en el local'
-  const shipping=deliveryType(o)==='Logística'?Math.max(0,orderShipping(o)):0
+  const shipping=0
   const grandTotal=subtotal+shipping
   const customerData=isPickup
     ? `<p><b>Cliente:</b> ${esc(o.client)}</p><p><b>Teléfono:</b> ${esc(o.phone||'-')}</p><p><b>Email:</b> ${esc(orderEmail(o))}</p><p><b>Entrega:</b> Retiro gratuito en el local</p>`
