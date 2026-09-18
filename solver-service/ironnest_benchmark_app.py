@@ -33,17 +33,17 @@ def _outline(geom):
     if len(pts)<3: raise ValueError('Silueta con menos de 3 vertices')
     return pts
 
-def _solve_process(items, container, rotation_sets, result_queue, settings):
+def _solve_process(items, container, rotation_sets, result_queue, settings, seed):
     try:
         result_queue.put(('ok', ironnest.nest(
             items, qty=[1]*len(items), container=container, holes=[],
-            min_sep=IRON_SOLVER_GAP_MM, rotations=rotation_sets, seed=1777,
+            min_sep=IRON_SOLVER_GAP_MM, rotations=rotation_sets, seed=seed,
             budget=settings['budget'], strategy=settings['strategy'], column_weight=3,
             restarts=settings['restarts'], separation_effort=settings['separation_effort'])))
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
 
-def _run_ironnest(kits,job_id=None,settings=None):
+def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None):
     settings=settings or {'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,
                           'restarts':IRON_RESTARTS,'separation_effort':IRON_SEPARATION_EFFORT}
     items=[]; ids=[]; rotation_sets=[]
@@ -60,13 +60,14 @@ def _run_ironnest(kits,job_id=None,settings=None):
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
-    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue,settings))
+    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue,settings,seed))
     try:
         process.start()
-        process.join(IRON_SOLVE_TIMEOUT_SECONDS)
+        solve_timeout=timeout_seconds or IRON_SOLVE_TIMEOUT_SECONDS
+        process.join(solve_timeout)
         if process.is_alive():
             process.terminate(); process.join(5)
-            raise TimeoutError(f'IronNest supero {IRON_SOLVE_TIMEOUT_SECONDS} segundos')
+            raise TimeoutError(f'IronNest supero {solve_timeout} segundos')
         try: state,payload=result_queue.get(timeout=2)
         except queue.Empty: raise RuntimeError(f'IronNest termino sin resultado (exit={process.exitcode})')
     finally:
