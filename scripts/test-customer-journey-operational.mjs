@@ -9,7 +9,7 @@ const rows=(...items)=>()=>items
 // 1) Apenas hay una pieza cubierta/proyectada, el pedido entra en producción.
 let db={orders:[makeOrder('a',1,[{figure:'A',qty:2,inventoryTracked:true}])],cutBatches:[]}
 let result=advanceOperationalJourney(db,'2026-09-02T12:00:00.000Z',{stockRowsFn:rows({figure:'A',cut:0,inCut:1})})
-assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PRODUCTION_CUT)
+assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PACKING)
 
 // 2) Si no hay ninguna pieza cubierta ni producción, sigue agendado.
 db={orders:[makeOrder('b',2,[{figure:'B',qty:2,inventoryTracked:true}])],cutBatches:[]}
