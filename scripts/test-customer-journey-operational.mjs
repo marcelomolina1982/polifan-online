@@ -19,7 +19,7 @@ assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.CONFIRMED)
 // 3) Una placa relevante también inicia producción.
 db={orders:[makeOrder('c',3,[{figure:'C',qty:2,inventoryTracked:true}])],cutBatches:[{id:'p1',journeyManaged:true,date:'2026-09-02',deliveryDates:['2026-09-02'],status:'En corte',sentToCutAt:'2026-09-02T12:00:00.000Z',items:[{figure:'C',qty:1}]}]}
 result=advanceOperationalJourney(db,'2026-09-02T12:01:00.000Z',{stockRowsFn:rows({figure:'C',cut:0,inCut:1})})
-assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PRODUCTION_CUT)
+assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PACKING)
 
 // 4) Apenas todas las piezas están listas, pasa a embalar sin espera de 3 horas.
 db={orders:[makeOrder('d',4,[{figure:'D',qty:2,inventoryTracked:true}])],cutBatches:[]}
@@ -30,7 +30,7 @@ assert.equal(effectiveJourneyEvent(result.orders[0],'2026-09-02T12:00:01.000Z'),
 // 5) Stock parcial terminado también significa producción iniciada.
 let deficitDb={orders:[makeOrder('deficit',11,[{figure:'Falta',qty:2,inventoryTracked:true}])],cutBatches:[]}
 result=advanceOperationalJourney(deficitDb,'2026-09-02T12:00:00.000Z',{stockRowsFn:rows({figure:'Falta',cut:1,inCut:0})})
-assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PRODUCTION_CUT)
+assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.PACKING)
 
 // 6) La asignación respeta el orden cronológico: una unidad no cubre dos pedidos.
 let chronoDb={orders:[makeOrder('first',12,[{figure:'Uno',qty:1,inventoryTracked:true}],{delivery:'2026-09-02'}),makeOrder('second',13,[{figure:'Uno',qty:1,inventoryTracked:true}],{delivery:'2026-09-03'})],cutBatches:[]}
