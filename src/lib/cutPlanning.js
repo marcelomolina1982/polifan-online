@@ -1,4 +1,4 @@
-import { pendingCutByDelivery, normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty } from './inventory'
+import { pendingCutByDelivery, normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty } from './inventory.js'
 
 // Snapshot usado por Lista de corte/auditoría. Se conserva separado de la
 // planificación por componentes para no volver a colapsar tapa/base/completo.
