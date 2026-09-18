@@ -43,9 +43,9 @@ let serviceDb={orders:[makeOrder('service',15,[{figure:'Servicio',qty:1,inventor
 result=advanceOperationalJourney(serviceDb,'2026-09-02T12:00:00.000Z',{stockRowsFn:rows()})
 assert.equal(result.orders[0].journey.stage,JOURNEY_EVENTS.CONFIRMED)
 
-// 8) Despachado es exclusivamente manual y sólo desde Para embalar.
+// 8) Despachado es exclusivamente manual; se permite cerrar desde producción o Para embalar.
 const productionOrder={...makeOrder('prod',20,[{figure:'P',qty:1,inventoryTracked:true}]),journey:{...makeOrder('prod',20,[]).journey,stage:JOURNEY_EVENTS.PRODUCTION_CUT}}
-assert.notEqual(markJourneyFinal(productionOrder,'2026-09-02T16:00:00.000Z').journey.stage,JOURNEY_EVENTS.DISPATCHED)
+assert.equal(markJourneyFinal(productionOrder,'2026-09-02T16:00:00.000Z').journey.stage,JOURNEY_EVENTS.DISPATCHED)
 let packingOrder={...makeOrder('pack',21,[{figure:'P',qty:1,inventoryTracked:true}]),journey:{...makeOrder('pack',21,[]).journey,stage:JOURNEY_EVENTS.PACKING}}
 let final=markJourneyFinal(packingOrder,'2026-09-02T17:00:00.000Z')
 assert.equal(final.journey.stage,JOURNEY_EVENTS.DISPATCHED)
