@@ -33,17 +33,17 @@ def _outline(geom):
     if len(pts)<3: raise ValueError('Silueta con menos de 3 vertices')
     return pts
 
-def _solve_process(items, container, rotation_sets, result_queue, settings, seed):
+def _solve_process(items, container, rotation_sets, result_queue, settings, seed, column_weight):
     try:
         result_queue.put(('ok', ironnest.nest(
             items, qty=[1]*len(items), container=container, holes=[],
             min_sep=IRON_SOLVER_GAP_MM, rotations=rotation_sets, seed=seed,
-            budget=settings['budget'], strategy=settings['strategy'], column_weight=3,
+            budget=settings['budget'], strategy=settings['strategy'], column_weight=column_weight,
             restarts=settings['restarts'], separation_effort=settings['separation_effort'])))
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
 
-def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None):
+def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,column_weight=3):
     settings=settings or {'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,
                           'restarts':IRON_RESTARTS,'separation_effort':IRON_SEPARATION_EFFORT}
     items=[]; ids=[]; rotation_sets=[]
@@ -60,7 +60,7 @@ def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
-    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue,settings,seed))
+    process=ctx.Process(target=_solve_process,args=(items,container,rotation_sets,result_queue,settings,seed,column_weight))
     try:
         process.start()
         solve_timeout=timeout_seconds or IRON_SOLVE_TIMEOUT_SECONDS
@@ -228,15 +228,20 @@ def _execute_industrial(payload,job_id):
     try:
         placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id,settings)
         if len(unplaced)==1 and item_count>=24:
+            # Near-fit repair without spending minutes on full retries. Re-run the
+            # same complete batch briefly with different packing bias/seed; every
+            # candidate still goes through the dense hard validator below.
             first_elapsed=elapsed
             best=(placements,unplaced,elapsed,item_count,vertex_count)
-            for repair_seed in (2713,6151):
+            repair_specs=((2713,1),(6151,5),(9157,0))
+            for repair_seed,repair_weight in repair_specs:
                 try:
-                    trial=_run_ironnest(kits,f'{job_id}-repair-{repair_seed}',settings,seed=repair_seed,timeout_seconds=90)
+                    trial=_run_ironnest(kits,f'{job_id}-repair-{repair_seed}',settings,
+                                        seed=repair_seed,timeout_seconds=35,column_weight=repair_weight)
                     if len(trial[0])>len(best[0]): best=trial
                     if not trial[1]: best=trial; break
                 except Exception as repair_exc:
-                    print(f'IRON_REPAIR_ERROR job={job_id} seed={repair_seed} error={repair_exc!r}',flush=True)
+                    print(f'IRON_REPAIR_ERROR job={job_id} seed={repair_seed} weight={repair_weight} error={repair_exc!r}',flush=True)
             placements,unplaced,repair_elapsed,item_count,vertex_count=best
             elapsed=round(first_elapsed + (repair_elapsed if best[2] != first_elapsed else 0),2)
     except Exception as exc:
