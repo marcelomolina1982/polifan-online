@@ -14,7 +14,7 @@ const typeOf=o=>{
   if(k.includes('logística')||k.includes('logistica')) return 'Logística GBA/CABA'
   return raw||'Logística GBA/CABA'
 }
-const quotedShipping=o=>typeOf(o)==='Retiro en el local'?0:Math.max(0,Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0)
+const quotedShipping=o=>['Retiro en el local','Logística GBA/CABA'].includes(typeOf(o))?0:Math.max(0,Number(o.shippingCost||o.deliveryCost||o.shipping||0)||0)
 export function receiptHtml(o){
   const products=Number(o.total||0)
   const deliveryType=typeOf(o)
@@ -34,7 +34,7 @@ export function receiptHtml(o){
    <table><thead><tr><th>FIGURA / PRODUCTO</th><th>CANT.</th><th>PRECIO UNIT.</th><th>SUBTOTAL</th></tr></thead><tbody>${rows}</tbody></table>
    <div class="piece-total">${pieces(o)} PIEZAS EN TOTAL</div>
    <section class="totals"><p><span>Productos</span><b>${money(products)}</b></p><p class="grand"><span>TOTAL DEL PEDIDO</span><b>${money(products)}</b></p></section>
-   ${deliveryType!=='Retiro en el local'?`<section class="shipping-quote"><b>ENVÍO COTIZADO – ${esc(deliveryType).toUpperCase()}</b><p><span>Importe estimado</span><strong>${shipping>0?money(shipping):'A cotizar'}</strong></p><small>Valor sujeto a modificaciones al momento del despacho. El importe del envío se informa por separado y no está incluido en el total de productos.</small></section>`:''}
+   ${deliveryType!=='Retiro en el local'&&deliveryType!=='Logística GBA/CABA'?`<section class="shipping-quote"><b>ENVÍO COTIZADO – ${esc(deliveryType).toUpperCase()}</b><p><span>Importe estimado</span><strong>${shipping>0?money(shipping):'A cotizar'}</strong></p><small>Valor sujeto a modificaciones al momento del despacho. El importe del envío se informa por separado y no está incluido en el total de productos.</small></section>`:''}
    ${o.notes?`<div class="notes"><b>OBSERVACIONES</b><p>${esc(o.notes)}</p></div>`:''}
    <footer><b>POR FAVOR, CORROBORÁ QUE TODO ESTÉ CORRECTO</b><span>Revisá nombre, apellido, DNI, teléfono, correo, domicilio, localidad, provincia, código postal, fecha de entrega, piezas, cantidades y precios.</span><span>Si encontrás algún error, comunicate con nosotros antes de que el pedido ingrese a producción.</span></footer>
   </div>`
