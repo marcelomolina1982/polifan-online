@@ -152,9 +152,30 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         grown={...result,selectedKits:candidate,kitCount:candidate.length}
       }catch(error){lastError=error}
     }
-    // Si ningún kit individual encaja con la base certificada, permitimos unas
-    // pocas recombinaciones completas antes de declarar que no mejoró.
-    if(!grown)grown=await tryTarget(target)
+    // Reparación local por kits: si la inserción directa falla, conservamos casi
+    // toda la placa certificada. Quitamos sólo uno de los kits más grandes y
+    // probamos dos kits pendientes pequeños. Así ganamos +1 kit sin volver a
+    // explorar combinaciones de toda la cola.
+    if(!grown&&pending.length>=2){
+      const accepted=[...(best.selectedKits||[])]
+      const drops=[...accepted].sort((a,b)=>kitAreaScore(b)-kitAreaScore(a)).slice(0,2)
+      const adds=pending.slice(0,4)
+      outer:
+      for(const drop of drops){
+        for(let i=0;i<adds.length;i++){
+          for(let j=i+1;j<adds.length;j++){
+            const candidate=accepted.filter(k=>k.kitId!==drop.kitId).concat(adds[i],adds[j])
+            if(candidate.length!==target||completeKitPieceCount(candidate)>60)continue
+            onProgress?.({stage:`IronNest LAB · reparación local para ${target} figuras…`,percent:10,completeFigures:best.kitCount})
+            try{
+              const result=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
+              grown={...result,selectedKits:candidate,kitCount:candidate.length}
+              break outer
+            }catch(error){lastError=error}
+          }
+        }
+      }
+    }
     if(!grown)break
     best=grown
   }
