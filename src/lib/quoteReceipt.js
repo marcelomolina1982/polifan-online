@@ -14,7 +14,7 @@ export function quoteHtml(q){
   }).join('')
   const fullName=esc(q.client||q.customer?.name||[q.firstName,q.lastName].filter(Boolean).join(' ')||'-')
   const shippingType=deliveryType(q)
-  const hasShipping=!shippingType.toLowerCase().includes('retiro')
+  const hasShipping=!shippingType.toLowerCase().includes('retiro')&&!shippingType.toLowerCase().includes('logística')&&!shippingType.toLowerCase().includes('logistica')
   const shipping=Math.max(0,Number(q.shippingCost||q.deliveryCost||q.shipping||0)||0)
   return `<div class="quote-receipt">
     <header><img src="/logo-tu-vida-en-tinta.png"><div><small>TU VIDA EN TINTA · POLIFAN</small><h1>PRESUPUESTO</h1><p>${esc(q.code)} · ${esc(q.date||'')}</p></div></header>
