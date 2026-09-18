@@ -201,8 +201,10 @@ def _industrial_kits(payload, detailed=False):
                 raise ValueError(f'SVG invalido en {instance_id}')
             width_cm=float(raw.get('sourceWidthCm') or raw.get('widthCm') or 0)
             height_cm=float(raw.get('sourceHeightCm') or raw.get('heightCm') or 0)
-            if not (0<width_cm<=123 and 0<height_cm<=58):
+            if not (0<width_cm<=123 and 0<height_cm<=123) or min(width_cm,height_cm)>58:
                 raise ValueError(f'Medidas fisicas invalidas en {instance_id}')
+            # Una pieza puede superar 58 cm en su orientación guardada y aun ser válida
+            # si entra al rotarla 90°. La placa es 123 x 58 cm y IronNest ya prueba rotaciones.
             geom,trim_x,trim_y=br.core.svg_to_geometry(
                 svg_text,width_cm,height_cm,
                 solver_tolerance_mm=.02 if detailed else .18,
