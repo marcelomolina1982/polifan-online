@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react'
 import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
+import {solveCompleteKitsWithIronNestLab} from '../lib/ironnestLab'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const LAB_STORAGE='polifan-motor-lab-last-plan-v3'
@@ -46,7 +47,36 @@ export default function MotorDefinitivo({db,onSave}){
  async function runPayload(payload,multiplier){const jobId=await startJob(payload,multiplier),active=loadActiveJob();setProgress(`Sparrow calculando · trabajo ${jobId.slice(0,8)} · guardado`);return await waitJob(jobId,active?.startedAt||Date.now())}
  async function finishResult(data,multiplier,industrial){if(!data.ok)throw new Error(data.error||'Sparrow terminó sin placa válida');const completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))],selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean);if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.');const composed=composeIndustrialSvg(data.placements||[],industrial.partMap);setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${multiplier===2?'doble':'simple'} · V1.7 certificando…`);const cert=await certify(composed),gapOk=validCertifiedGap(cert.minGap),certified=okStatus(cert.status)&&gapOk&&Number(cert.conflicts)===0&&Number(cert.border)===0,produced=Math.min(pending.units.length,selectedUnits.length*multiplier),rejectedStatus=!gapOk&&Number.isFinite(Number(cert.minGap))?'RECHAZADO_GAP_MENOR_3MM':(cert.status||'NO_RESUELTO'),rejectedError=!gapOk&&Number.isFinite(Number(cert.minGap))?`Separación real ${Number(cert.minGap).toFixed(3)} mm: se requieren al menos ${MIN_CERTIFIED_GAP_MM.toFixed(1)} mm.`:(cert.error||'');const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:certified?'CERTIFICADO':rejectedStatus,minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:rejectedError,density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.stripWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||elapsed||0),rotationStep:data.rotationStep??'continua',reachedMinimum:true,candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-full-queue-v3',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:null,fixedHoleFill:Boolean(data.fillRounds>0),multiplier,produced};setPlans([plan]);savePlans([plan]);clearActiveJob()}
  async function resumeActiveJob(active){if(!active?.jobId)return;const multiplier=Number(active.multiplier||1),designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits);setBusy(true);setElapsed(Math.max(0,Math.round((Date.now()-Number(active.startedAt||Date.now()))/1000)));setProgress(`Recuperando cálculo ${String(active.jobId).slice(0,8)} después de la recarga…`);try{const data=await waitJob(active.jobId,active.startedAt);await finishResult(data,multiplier,industrial)}catch(error){clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}finally{setBusy(false);setProgress('')}}
- async function generateAutomatic(multiplier=1){setChoosingMode(false);if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.');const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits),earliestDate=designUnits.map(u=>u.date).filter(Boolean).sort()[0]||'',sameDateCount=earliestDate?designUnits.filter(u=>u.date===earliestDate).length:6,payload={widthCm:122,heightCm:58,gapCm:.3,kits:industrial.kits,budgetSeconds:180,urgentAnchorCount:Math.max(1,Math.min(12,sameDateCount||6))};setBusy(true);setPlans([]);setElapsed(0);setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · iniciando Sparrow full-queue…`);try{const data=await runPayload(payload,multiplier);await finishResult(data,multiplier,industrial)}catch(error){clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}finally{setBusy(false);setProgress('')}}
+ async function generateAutomatic(multiplier=1){
+  setChoosingMode(false)
+  if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
+  const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits)
+  setBusy(true);setPlans([]);setElapsed(0);setIronLab(null)
+  const started=Date.now()
+  setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · IronNest LAB · buscando 10 figuras completas…`)
+  try{
+    const data=await solveCompleteKitsWithIronNestLab(industrial.kits,{
+      targetComplete:Math.min(10,industrial.kits.length),maxGrowth:16,optimizationMode:'fast',
+      onProgress:p=>{setElapsed(Math.round((Date.now()-started)/1000));setProgress(p?.stage||'IronNest LAB calculando…')}
+    })
+    const validation=data?.layoutValidation||{}
+    if(!data?.ok||!validation.ok)throw new Error(data?.error||'IronNest LAB no devolvió una placa geométricamente válida.')
+    const selectedKits=data.selectedKits||[]
+    const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean)
+    if(!selectedUnits.length)throw new Error('IronNest LAB no devolvió figuras completas de los pedidos pendientes.')
+    const minGap=Number(validation.minimumMeasuredGapMm)
+    const conflicts=Number(validation.conflicts??validation.collisionCount??0)
+    const border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
+    if(!Number.isFinite(minGap)||minGap<MIN_CERTIFIED_GAP_MM||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
+    const composed=composeIndustrialSvg(data.placements||[],industrial.partMap,1230)
+    const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
+    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest industrial lab · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
+    setPlans([plan]);savePlans([plan]);clearActiveJob()
+    setProgress(`IronNest LAB finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
+  }catch(error){
+    clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+  }finally{setBusy(false)}
+ }
  async function generateIronNestLab(){
   if(!pending.units.length)return alert('No hay pedidos pendientes con SVG completo.');
   const industrial=buildIndustrialKits(pending.units),kits=[];let count=0;
