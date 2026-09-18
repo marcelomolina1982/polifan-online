@@ -227,23 +227,6 @@ def _execute_industrial(payload,job_id):
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
     try:
         placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id,settings)
-        if len(unplaced)==1 and item_count>=24:
-            # Near-fit repair without spending minutes on full retries. Re-run the
-            # same complete batch briefly with different packing bias/seed; every
-            # candidate still goes through the dense hard validator below.
-            first_elapsed=elapsed
-            best=(placements,unplaced,elapsed,item_count,vertex_count)
-            repair_specs=((2713,1),(6151,5),(9157,0))
-            for repair_seed,repair_weight in repair_specs:
-                try:
-                    trial=_run_ironnest(kits,f'{job_id}-repair-{repair_seed}',settings,
-                                        seed=repair_seed,timeout_seconds=35,column_weight=repair_weight)
-                    if len(trial[0])>len(best[0]): best=trial
-                    if not trial[1]: best=trial; break
-                except Exception as repair_exc:
-                    print(f'IRON_REPAIR_ERROR job={job_id} seed={repair_seed} weight={repair_weight} error={repair_exc!r}',flush=True)
-            placements,unplaced,repair_elapsed,item_count,vertex_count=best
-            elapsed=round(first_elapsed + (repair_elapsed if best[2] != first_elapsed else 0),2)
     except Exception as exc:
         return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
