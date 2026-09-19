@@ -42,7 +42,8 @@ export async function solveWithIronNestLab(kits,{
   pollMs=1500,
   timeoutMs=210000,
   signal,
-  onProgress
+  onProgress,
+  onJobStarted
 }={}){
   if(!Array.isArray(kits)||!kits.length)throw new Error('No hay kits completos para enviar a IronNest.')
   const pieceCount=kits.reduce((sum,k)=>sum+(k.parts?.length||0),0)
@@ -56,6 +57,7 @@ export async function solveWithIronNestLab(kits,{
   const started=await readJson(startResponse)
   if(!startResponse.ok||!started?.ok||!started?.jobId)throw new Error(started?.error||`No se pudo iniciar IronNest (${startResponse.status}).`)
   const jobId=started.jobId,start=Date.now()
+  onJobStarted?.({jobId,labUrl:base,startedAt:start})
   while(Date.now()-start<timeoutMs){
     if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
     await sleep(pollMs)
@@ -111,9 +113,8 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 }={}){
   const available=Array.isArray(kits)?kits.length:0
   if(!available)throw new Error('No hay kits completos para calcular.')
-  // PRODUCCIÓN: una sola resolución por placa. Evita encadenar trabajos que
-  // saturan la cola. IronNest recibe hasta 10 kits completos y devuelve esa
-  // placa certificada; la optimización extra puede volver más adelante.
+  // PRODUCCIÓN: resolver la base y luego crecer de a UN kit. Así 11/12/etc.
+  // sólo se intentan si la placa anterior ya fue válida, sin disparar una cartera de trabajos.
   const target=Math.min(Math.max(1,Number(targetComplete)||10),available,10)
   const variants=uniqueKitVariants(kits,target)
   let lastError=null
@@ -122,7 +123,18 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     onProgress?.({stage:`IronNest · calculando placa de ${target} figuras completas…`,percent:5,completeFigures:0})
     try{
       const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress})
-      const best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
+      let best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
+      const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
+      const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
+      for(let grow=target+1;grow<=limit;grow++){
+        const candidate=ordered.slice(0,grow)
+        if(candidate.length!==grow||completeKitPieceCount(candidate)>60)break
+        onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando ${grow}…`,percent:92,completeFigures:best.kitCount})
+        try{
+          const grown=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
+          best={...grown,selectedKits:candidate,kitCount:candidate.length}
+        }catch{break}
+      }
       onProgress?.({stage:`IronNest · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
       return best
     }catch(error){lastError=error}
