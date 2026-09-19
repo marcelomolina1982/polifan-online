@@ -168,7 +168,7 @@ function composeIndustrialSvg(placements,partMap){
     const transform=`translate(${x} ${y}) rotate(${angle}) translate(${-trimX} ${-trimY}) scale(${sx} ${sy}) translate(${-vx} ${-vy})`
     pieces.push(`<g data-industrial-piece="${n}" data-kit="${String(p.kitId||'')}" data-instance="${String(p.instanceId||'')}" data-partial-extra="${p.partialExtra?'1':'0'}" transform="${transform}">${cleanInner(parsed.root)}</g>`)
   })
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1220mm" height="580mm" viewBox="0 0 1220 580" overflow="visible">${pieces.join('')}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1230mm" height="580mm" viewBox="0 0 1230 580" overflow="hidden">${pieces.join('')}</svg>`
 }
 
 export default function MotorDefinitivo({db,onSave}){
