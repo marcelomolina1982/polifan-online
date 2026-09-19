@@ -143,7 +143,10 @@ function buildIndustrialKits(units){
     unitMap.set(kitId,unit)
     const parts=unit.components.map((comp,partIndex)=>{
       const instanceId=`${kitId}-p${partIndex}`
-      const physical=svgPhysicalCm(comp.svgText),widthCm=Number(comp.sourceWidthCm||comp.widthCm||comp.svgMeta?.widthCm||physical.widthCm),heightCm=Number(comp.sourceHeightCm||comp.heightCm||comp.svgMeta?.heightCm||physical.heightCm)
+      const physical=svgPhysicalCm(comp.svgText),parsed=parseSvg(comp.svgText),vb=parsed?.viewBox||[0,0,0,0],ratio=Number(vb[2])>0&&Number(vb[3])>0?Number(vb[2])/Number(vb[3]):0
+      let widthCm=Number(comp.sourceWidthCm||comp.widthCm||comp.svgMeta?.widthCm||physical.widthCm),heightCm=Number(comp.sourceHeightCm||comp.heightCm||comp.svgMeta?.heightCm||physical.heightCm)
+      if(!(widthCm>0&&heightCm>0)&&ratio>0){const knownW=Number(comp.originalWidthCm||comp.svgMeta?.originalWidthCm||0),knownH=Number(comp.originalHeightCm||comp.svgMeta?.originalHeightCm||0);if(knownW>0){widthCm=knownW;heightCm=knownW/ratio}else if(knownH>0){heightCm=knownH;widthCm=knownH*ratio}}
+      if(!(widthCm>0&&heightCm>0))throw new Error(`La Biblioteca SVG no tiene medidas físicas recuperables para ${unit.figure} (${comp.role||'pieza'}).`)
       const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:widthCm,sourceHeightCm:heightCm,widthCm,heightCm,allowRotate:true}
       partMap.set(instanceId,{...row,original:comp});return row
     })
