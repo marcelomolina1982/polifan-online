@@ -12,8 +12,8 @@ ET.register_namespace('',SVG_NS)
 _BENCH_RESULTS={}
 PLATE_WIDTH_MM=1230.0
 PLATE_HEIGHT_MM=580.0
-GAP_MM=2.5
-ABSOLUTE_MIN_GAP_MM=2.5
+GAP_MM=3.0
+ABSOLUTE_MIN_GAP_MM=3.0
 
 def _source_size_mm(root):
     vb=[float(x) for x in re.split(r'[ ,]+',str(root.attrib.get('viewBox') or '').strip()) if x]
