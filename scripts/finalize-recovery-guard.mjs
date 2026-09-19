@@ -47,7 +47,8 @@ function writeIfChanged(file,before,after){
   const old="  async function startJob(payload,multiplier){\n    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})"
   const next="  async function startJob(payload,multiplier){\n    const {data:{session}}=await supabase.auth.getSession()\n    const accessToken=String(session?.access_token||'').trim()\n    if(!accessToken)throw new Error('Tu sesión venció. Volvé a iniciar sesión antes de generar la placa.')\n    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...payload,_accessToken:accessToken})})"
   if(src.includes(old)) src=src.replace(old,next)
-  if(!src.includes('_accessToken:accessToken')) throw new Error('RECOVERY GUARD: no se pudo asegurar autenticación de Sparrow')
+  const usesSparrow=src.includes("fetch('/api/nest-start'")
+  if(usesSparrow&&!src.includes('_accessToken:accessToken')) throw new Error('RECOVERY GUARD: no se pudo asegurar autenticación de Sparrow')
   writeIfChanged(file,before,src)
 }
 
