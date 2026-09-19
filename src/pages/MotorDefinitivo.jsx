@@ -29,7 +29,7 @@ function downloadSvg(name,text){
   const url=URL.createObjectURL(new Blob([text],{type:'image/svg+xml'}))
   const a=document.createElement('a')
   a.href=url
-  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__SPARROW_CERTIFICADO.svg'
+  a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__IRONNEST_CERTIFICADO.svg'
   document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
 }
 function okStatus(status){return String(status||'').startsWith('CERTIFICADO')}
@@ -123,13 +123,14 @@ function pendingUnits(db,index){
   return {units,missing:[...missing.entries()].map(([figure,qty])=>({figure,qty}))}
 }
 function unitsForMultiplier(units,multiplier){
-  if(multiplier<=1)return units.slice()
+  const m=Math.max(1,Number(multiplier)||1)
+  if(m<=1)return units.slice()
   const seen=new Map()
   return units.filter(unit=>{
     const key=normalizeFigureKey(unit.figure)
     const n=seen.get(key)||0
     seen.set(key,n+1)
-    return n%multiplier===0
+    return n%m===0
   })
 }
 function summarizeUnits(units){
@@ -224,7 +225,7 @@ export default function MotorDefinitivo({db,onSave}){
     const selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
     if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
     const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-    setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${multiplier===2?'doble':'simple'} · V1.7 certificando…`)
+    setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${`×${multiplier}`} · V1.7 certificando…`)
     const cert=await certify(composed)
     const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
     const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
@@ -284,7 +285,7 @@ export default function MotorDefinitivo({db,onSave}){
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
     const now=new Date().toISOString()
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`Sparrow + V1.7 · ${plan.units.length} diseños · ${multiplier===2?'placa doble':'placa simple'} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`Sparrow + V1.7 · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
     const movements=items.map(i=>({id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Placa #${number} ${batch.name} · figura completa · corte ${multiplier===2?'doble':'simple'}`,createdAt:now}))
     const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})
     if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
@@ -292,7 +293,7 @@ export default function MotorDefinitivo({db,onSave}){
 
   return <>
     <Title title="Generar placas · Motor IronNest + Certificador" sub="IronNest prioriza figuras completas y después intenta agregar más mientras entren físicamente dentro de la placa." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
-    {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que IronNest calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Ejemplo: si faltan 3 Minnie, en doble se diseñan 2; al cortar ×2 salen 4 y sobra sólo 1.</small></div>}
+    {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que IronNest calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="primary" onClick={()=>generateAutomatic(3)}>Placa triple · ×3</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Elegí ×1, ×2 o ×3 según cuántas copias vas a cortar físicamente de la misma placa.</small></div>}
     <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1230 × 580 mm. IronNest sólo acepta placas que superan la validación geométrica y conservan figuras completas.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
@@ -305,11 +306,11 @@ export default function MotorDefinitivo({db,onSave}){
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
-        <td><b>Placa {plan.number}</b><small className="block">Modo: {Number(plan.multiplier||1)===2?'DOBLE ×2':'SIMPLE ×1'}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</small><small className="block">{plan.deferred} quedan pendientes</small></td>
-        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)===2?' (sale ×'+(x.qty*2)+')':''}`).join(', ')||'-'}</td>
+        <td><b>Placa {plan.number}</b><small className="block">Modo: {`×${Number(plan.multiplier||1)}`}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</small><small className="block">{plan.deferred} quedan pendientes</small></td>
+        <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
         <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
-        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1220 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=75?'green-text':'')}>{plan.density>=75?'Objetivo ≥75% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
+        <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1230 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=75?'green-text':'')}>{plan.density>=75?'Objetivo ≥75% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Registrar corte terminado</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</td>
       </tr>})}
       {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Primero te pregunta SIMPLE o DOBLE y, si hay una recarga, retoma automáticamente el trabajo activo.</td></tr>}
