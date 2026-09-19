@@ -251,8 +251,6 @@ def _execute_industrial(payload,job_id):
         if last_exc: raise last_exc
         return {'ok':False,'error':'IronNest no encontro una distribucion completa valida','pieceCount':sum(len(k['parts']) for k in kits)},422
     _,placements,unplaced,elapsed,item_count,vertex_count=best
-    except Exception as exc:
-        return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
     validation,rows=br._validate_layout(detailed,placements)
     exact_gap=None
