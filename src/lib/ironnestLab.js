@@ -3,7 +3,7 @@ const DEFAULT_IRONNEST_LAB_URL='https://polifan-ironnest-hardbound-lab.onrender.
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 
 export function ironNestLabUrl(){
-  const configured=String(import.meta.env.VITE_IRONNEST_LAB_URL||'').trim()
+  const configured=String((import.meta.env.VITE_IRONNEST_LAB_URL)||'').trim()
   return (configured||DEFAULT_IRONNEST_LAB_URL).replace(/\/$/,'')
 }
 
