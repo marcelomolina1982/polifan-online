@@ -64,6 +64,14 @@ function parseSvg(svg){
   }catch{return null}
 }
 function cleanInner(root){return [...root.childNodes].map(n=>new XMLSerializer().serializeToString(n)).join('')}
+function svgPhysicalCm(svgText){
+  try{
+    const root=new DOMParser().parseFromString(svgText,'image/svg+xml').documentElement
+    const toCm=value=>{const m=String(value||'').trim().match(/^([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*(mm|cm|in|pt|pc|px)?$/i);if(!m)return 0;const k={mm:.1,cm:1,in:2.54,pt:2.54/72,pc:2.54/6,px:2.54/96};return Number(m[1])*(k[(m[2]||'px').toLowerCase()]||0)}
+    return {widthCm:toCm(root.getAttribute('width')),heightCm:toCm(root.getAttribute('height'))}
+  }catch{return {widthCm:0,heightCm:0}}
+}
+
 function cleanAlias(value){return String(value||'').replace(/\.svg$/i,'').replace(/\s*[·_–—-]\s*(tapa|base|figura|simple|capa.*)$/i,'').trim()}
 function aliasesForItem(item){return [...new Set([item?.productName,item?.modelName,item?.name].map(cleanAlias).map(normalizeFigureKey).filter(Boolean))]}
 function completeComponents(items){
@@ -135,7 +143,8 @@ function buildIndustrialKits(units){
     unitMap.set(kitId,unit)
     const parts=unit.components.map((comp,partIndex)=>{
       const instanceId=`${kitId}-p${partIndex}`
-      const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:Number(comp.sourceWidthCm||comp.widthCm),sourceHeightCm:Number(comp.sourceHeightCm||comp.heightCm),widthCm:Number(comp.sourceWidthCm||comp.widthCm),heightCm:Number(comp.sourceHeightCm||comp.heightCm),allowRotate:true}
+      const physical=svgPhysicalCm(comp.svgText),widthCm=Number(comp.sourceWidthCm||comp.widthCm||comp.svgMeta?.widthCm||physical.widthCm),heightCm=Number(comp.sourceHeightCm||comp.heightCm||comp.svgMeta?.heightCm||physical.heightCm)
+      const row={instanceId,kitId,figure:unit.figure,name:comp.name||`${unit.figure} ${comp.role||'pieza'}`,role:comp.role||'simple',svgText:comp.svgText,sourceWidthCm:widthCm,sourceHeightCm:heightCm,widthCm,heightCm,allowRotate:true}
       partMap.set(instanceId,{...row,original:comp});return row
     })
     kits.push({kitId,figure:unit.figure,date:unit.date||'',priority:kitIndex,parts})
