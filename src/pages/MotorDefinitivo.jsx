@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react'
 import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
+import {solveCompleteKitsWithIronNestLab} from '../lib/ironnestLab'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const LAB_STORAGE='polifan-motor-lab-last-plan-v3'
@@ -234,21 +235,36 @@ export default function MotorDefinitivo({db,onSave}){
     }finally{setBusy(false);setProgress('')}
   }
 
-  async function generateAutomatic(multiplier=1){
-    setChoosingMode(false)
-    if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
-    const designUnits=unitsForMultiplier(pending.units,multiplier)
-    const industrial=buildIndustrialKits(designUnits)
-    const payload={widthCm:121.4,heightCm:58,gapCm:.3,targetDensity:75,kits:industrial.kits}
-    setBusy(true);setPlans([]);setElapsed(0);setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · iniciando Sparrow…`)
-    try{
-      const data=await runPayload(payload,multiplier)
-      await finishResult(data,multiplier,industrial)
-    }catch(error){
-      clearActiveJob()
-      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
-    }finally{setBusy(false);setProgress('')}
-  }
+ async function generateAutomatic(multiplier=1){
+  setChoosingMode(false)
+  if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
+  const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits)
+  setBusy(true);setPlans([]);setElapsed(0);setIronLab(null)
+  const started=Date.now()
+  setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · IronNest · buscando 10 figuras completas…`)
+  try{
+    const data=await solveCompleteKitsWithIronNestLab(industrial.kits,{
+      targetComplete:Math.min(10,industrial.kits.length),maxGrowth:16,optimizationMode:'fast',
+      onProgress:p=>{setElapsed(Math.round((Date.now()-started)/1000));setProgress(p?.stage||'IronNest calculando…')}
+    })
+    const validation=data?.layoutValidation||{}
+    if(!data?.ok||!validation.ok)throw new Error(data?.error||'IronNest no devolvió una placa geométricamente válida.')
+    const selectedKits=data.selectedKits||[]
+    const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean)
+    if(!selectedUnits.length)throw new Error('IronNest no devolvió figuras completas de los pedidos pendientes.')
+    const minGap=Number(validation.minimumMeasuredGapMm)
+    const conflicts=Number(validation.conflicts??validation.collisionCount??0)
+    const border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
+    if(!Number.isFinite(minGap)||minGap<MIN_CERTIFIED_GAP_MM||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
+    const composed=composeIndustrialSvg(data.placements||[],industrial.partMap,1230)
+    const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
+    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest industrial lab · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
+    setPlans([plan]);savePlans([plan]);clearActiveJob()
+    setProgress(`IronNest finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
+  }catch(error){
+    clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+  }finally{setBusy(false)}
+ }
 
   async function registerPlan(plan){
     if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
@@ -263,14 +279,14 @@ export default function MotorDefinitivo({db,onSave}){
   }
 
   return <>
-    <Title title="Generar placas · Motor Sparrow + Certificador V1.7" sub="Laboratorio aislado. Primero asegura 10 y después intenta agregar 11, 12, 13… mientras entren físicamente dentro de los 1220 × 580 mm. El cálculo activo queda guardado y se recupera después de una recarga." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
-    {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que Sparrow calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Ejemplo: si faltan 3 Minnie, en doble se diseñan 2; al cortar ×2 salen 4 y sobra sólo 1.</small></div>}
-    <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1220 × 580 mm. Sparrow diseña dentro de 1214 mm útiles para reservar 3 mm a cada lateral. Si la web se recarga mientras calcula, al volver retoma el mismo trabajo.</span></div>
+    <Title title="Generar placas · Motor IronNest + Certificador" sub="IronNest prioriza figuras completas y después intenta agregar más mientras entren físicamente dentro de la placa." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
+    {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que IronNest calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Ejemplo: si faltan 3 Minnie, en doble se diseñan 2; al cortar ×2 salen 4 y sobra sólo 1.</small></div>}
+    <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1230 × 580 mm. IronNest sólo acepta placas que superan la validación geométrica y conservan figuras completas.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
       <div><small>Criterio productivo</small><b className="block big">10 base · crecer mientras entre</b><small className="block">objetivo ≥75%, sin descartar 11/12 válidas</small></div>
-      <div><small>Arquitectura</small><b className="block big">Sparrow asíncrono · V1.7 certifica</b></div>
+      <div><small>Arquitectura</small><b className="block big">IronNest · certificación geométrica</b></div>
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
     {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Tiempo: {elapsed}s. El ID del trabajo queda guardado.</span></div>}
