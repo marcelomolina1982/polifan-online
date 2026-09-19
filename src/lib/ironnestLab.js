@@ -23,8 +23,8 @@ export function buildIronNestPayload(kits,{optimizationMode='fast'}={}){
         figure:part.figure,
         name:part.name,
         role:part.role||'simple',
-        sourceWidthCm:Number(part.sourceWidth||part.width),
-        sourceHeightCm:Number(part.sourceHeight||part.height),
+        sourceWidthCm:Number(part.sourceWidthCm??part.sourceWidth??part.widthCm??part.width),
+        sourceHeightCm:Number(part.sourceHeightCm??part.sourceHeight??part.heightCm??part.height),
         allowRotate:part.allowRotate!==false,
         svgText:part.svgText
       }))
