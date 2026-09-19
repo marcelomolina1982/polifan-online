@@ -15,13 +15,13 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 IRON_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
-IRON_BUDGET=180
-IRON_RESTARTS=4
+IRON_BUDGET=80
+IRON_RESTARTS=2
 IRON_SEPARATION_EFFORT='max'
-IRON_STRATEGY='nfp'
+IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=180
-IRON_COMPACT_SETTINGS={'strategy':'nfp','budget':260,'restarts':5,'separation_effort':'max'}
+IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':120,'restarts':3,'separation_effort':'max'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
@@ -230,7 +230,7 @@ def _execute_industrial(payload,job_id):
     # Production quality without multiplying frontend jobs: try a small deterministic
     # seed/column portfolio inside ONE Render job and keep the tightest valid layout.
     # Width is the primary objective because the cutting plate is 1230 x 580 mm.
-    attempts=[(1777,3),(2713,3),(6151,2)] if mode=='compact' else [(1777,3),(2713,2)]
+    attempts=[(1777,3),(2713,2)] if mode=='compact' else [(1777,3)]
     best=None; last_exc=None
     for attempt_no,(seed,column_weight) in enumerate(attempts,1):
         try:
