@@ -111,74 +111,34 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 }={}){
   const available=Array.isArray(kits)?kits.length:0
   if(!available)throw new Error('No hay kits completos para calcular.')
-  const startTarget=Math.min(Math.max(1,Number(targetComplete)||10),available)
-  let best=null,lastError=null
-
-  const tryTarget=async target=>{
-    const variants=uniqueKitVariants(kits,target)
-    for(let i=0;i<variants.length;i++){
+  // PRODUCCIÓN: una sola resolución por placa. Evita encadenar trabajos que
+  // saturan la cola. IronNest recibe hasta 10 kits completos y devuelve esa
+  // placa certificada; la optimización extra puede volver más adelante.
+  const target=Math.min(Math.max(1,Number(targetComplete)||10),available,10)
+  const variants=uniqueKitVariants(kits,target)
+  let lastError=null
+  for(let i=0;i<variants.length;i++){
+    if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
+    onProgress?.({stage:`IronNest · calculando placa de ${target} figuras completas…`,percent:5,completeFigures:0})
+    try{
+      const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress})
+      const best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
+      onProgress?.({stage:`IronNest · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
+      return best
+    }catch(error){lastError=error}
+  }
+  // Si 10 no entran, reducir de a un kit, sin crecimiento posterior.
+  for(let t=target-1;t>=1;t--){
+    const smaller=uniqueKitVariants(kits,t)
+    for(let i=0;i<smaller.length;i++){
       if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-      onProgress?.({stage:`IronNest LAB · probando ${target} figuras completas (${i+1}/${variants.length})…`,percent:5,completeFigures:best?.kitCount||0})
+      onProgress?.({stage:`IronNest · buscando placa válida de ${t} figuras completas…`,percent:5,completeFigures:0})
       try{
-        const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress})
-        return {...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
+        const result=await solveWithIronNestLab(smaller[i].kits,{optimizationMode,signal,onProgress})
+        return {...result,selectedKits:smaller[i].kits,kitCount:smaller[i].kits.length}
       }catch(error){lastError=error}
     }
-    return null
   }
-
-  best=await tryTarget(startTarget)
-  if(!best){
-    for(let target=startTarget-1;target>=1&&!best;target--)best=await tryTarget(target)
-  }
-  if(!best)throw lastError||new Error('IronNest LAB no encontro un subconjunto completo valido.')
-
-  const ceiling=Math.min(available,Math.max(best.kitCount,Number(maxGrowth)||16))
-  for(let target=best.kitCount+1;target<=ceiling;target++){
-    // Crecimiento útil: conservar los kits completos ya certificados y probar
-    // qué kit pendiente cabe entero en los huecos. Nunca agrega base/tapa suelta.
-    const selectedIds=new Set((best.selectedKits||[]).map(k=>k.kitId))
-    const pending=(kits||[])
-      .filter(k=>!selectedIds.has(k.kitId))
-      .sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||Number(a.priority||0)-Number(b.priority||0))
-      .slice(0,6)
-    let grown=null
-    for(let i=0;i<pending.length&&!grown;i++){
-      const candidate=[...(best.selectedKits||[]),pending[i]]
-      if(candidate.length!==target||completeKitPieceCount(candidate)>60)continue
-      onProgress?.({stage:`IronNest LAB · buscando figura completa ${target} (${i+1}/${pending.length})…`,percent:8,completeFigures:best.kitCount})
-      try{
-        const result=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
-        grown={...result,selectedKits:candidate,kitCount:candidate.length}
-      }catch(error){lastError=error}
-    }
-    // Reparación local por kits: si la inserción directa falla, conservamos casi
-    // toda la placa certificada. Quitamos sólo uno de los kits más grandes y
-    // probamos dos kits pendientes pequeños. Así ganamos +1 kit sin volver a
-    // explorar combinaciones de toda la cola.
-    if(!grown&&pending.length>=2){
-      const accepted=[...(best.selectedKits||[])]
-      const drops=[...accepted].sort((a,b)=>kitAreaScore(b)-kitAreaScore(a)).slice(0,2)
-      const adds=pending.slice(0,4)
-      outer:
-      for(const drop of drops){
-        for(let i=0;i<adds.length;i++){
-          for(let j=i+1;j<adds.length;j++){
-            const candidate=accepted.filter(k=>k.kitId!==drop.kitId).concat(adds[i],adds[j])
-            if(candidate.length!==target||completeKitPieceCount(candidate)>60)continue
-            onProgress?.({stage:`IronNest LAB · reparación local para ${target} figuras…`,percent:10,completeFigures:best.kitCount})
-            try{
-              const result=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
-              grown={...result,selectedKits:candidate,kitCount:candidate.length}
-              break outer
-            }catch(error){lastError=error}
-          }
-        }
-      }
-    }
-    if(!grown)break
-    best=grown
-  }
-  onProgress?.({stage:`IronNest LAB · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
-  return best
+  throw lastError||new Error('IronNest no encontró una placa completa válida.')
 }
+
