@@ -15,13 +15,13 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 IRON_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
-IRON_BUDGET=400
-IRON_RESTARTS=8
+IRON_BUDGET=180
+IRON_RESTARTS=4
 IRON_SEPARATION_EFFORT='max'
 IRON_STRATEGY='nfp'
 IRON_SIMPLIFY_MM=1.2
 IRON_SOLVE_TIMEOUT_SECONDS=180
-IRON_COMPACT_SETTINGS={'strategy':'nfp','budget':400,'restarts':8,'separation_effort':'max'}
+IRON_COMPACT_SETTINGS={'strategy':'nfp','budget':260,'restarts':5,'separation_effort':'max'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
@@ -227,8 +227,30 @@ def _execute_industrial(payload,job_id):
     if mode not in ('fast','compact'):
         return {'ok':False,'error':'Modo de optimizacion no admitido'},422
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
-    try:
-        placements,unplaced,elapsed,item_count,vertex_count=_run_ironnest(kits,job_id,settings)
+    # Production quality without multiplying frontend jobs: try a small deterministic
+    # seed/column portfolio inside ONE Render job and keep the tightest valid layout.
+    # Width is the primary objective because the cutting plate is 1230 x 580 mm.
+    attempts=[(1777,3),(2713,3),(6151,2)] if mode=='compact' else [(1777,3),(2713,2)]
+    best=None; last_exc=None
+    for attempt_no,(seed,column_weight) in enumerate(attempts,1):
+        try:
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',settings,seed=seed,column_weight=column_weight)
+            if u or len(p)!=n: continue
+            detailed_try=_industrial_kits(payload,detailed=True)
+            val,rows_try=br._validate_layout(detailed_try,p)
+            if not val.get('ok'): continue
+            if rows_try:
+                minx=min(g.bounds[0] for _,g in rows_try); maxx=max(g.bounds[2] for _,g in rows_try)
+                miny=min(g.bounds[1] for _,g in rows_try); maxy=max(g.bounds[3] for _,g in rows_try)
+                used_width=maxx-minx; used_height=maxy-miny
+            else: used_width=br.PLATE_WIDTH_MM; used_height=br.PLATE_HEIGHT_MM
+            score=(used_width,used_height,e)
+            if best is None or score<best[0]: best=(score,p,u,e,n,v)
+        except Exception as exc: last_exc=exc
+    if best is None:
+        if last_exc: raise last_exc
+        return {'ok':False,'error':'IronNest no encontro una distribucion completa valida','pieceCount':sum(len(k['parts']) for k in kits)},422
+    _,placements,unplaced,elapsed,item_count,vertex_count=best
     except Exception as exc:
         return {'ok':False,'error':str(exc),'pieceCount':sum(len(k['parts']) for k in kits)},422
     detailed=_industrial_kits(payload,detailed=True)
@@ -265,10 +287,17 @@ def _execute_industrial(payload,job_id):
     if rows:
         br._BENCH_RESULTS[trace]=br._svg_preview(rows)
         preview=f'/benchmark-result/{trace}.svg'
+    used_width_mm=0.0; used_height_mm=0.0; geometric_area_mm2=0.0
+    if rows:
+        used_width_mm=max(g.bounds[2] for _,g in rows)-min(g.bounds[0] for _,g in rows)
+        used_height_mm=max(g.bounds[3] for _,g in rows)-min(g.bounds[1] for _,g in rows)
+        geometric_area_mm2=sum(g.area for _,g in rows)
+    occupancy_pct=(geometric_area_mm2/(br.PLATE_WIDTH_MM*br.PLATE_HEIGHT_MM)*100.0) if rows else 0.0
     return {'ok':valid,'engine':'IronNest industrial lab','parser':'industrial-kits','optimizationMode':mode,
             'traceId':trace,'kitCount':len(kits),'pieceCount':item_count,'placedCount':len(placements),
             'unplacedItemIndexes':unplaced,'elapsedSeconds':elapsed,'vertexCount':vertex_count,
             'workspaceMm':[br.PLATE_WIDTH_MM,br.PLATE_HEIGHT_MM],'gapMm':br.GAP_MM,
+            'geometricOccupancyPct':round(occupancy_pct,3),'usedWidthMm':round(used_width_mm,3),'usedHeightMm':round(used_height_mm,3),
             'layoutValidation':validation,'placements':placements if valid else [],
             'previewSvgUrl':preview,
             'error':None if valid else 'No entraron y validaron todas las piezas del lote'},200 if valid else 422
