@@ -239,7 +239,7 @@ export default function MotorDefinitivo({db,onSave}){
   setChoosingMode(false)
   if(!pending.units.length)return alert(pending.missing.length?'No hay piezas generables. Revisá los SVG faltantes en Biblioteca SVG.':'No hay piezas pendientes para cortar.')
   const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits)
-  setBusy(true);setPlans([]);setElapsed(0);setIronLab(null)
+  setBusy(true);setPlans([]);setElapsed(0)
   const started=Date.now()
   setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · IronNest · buscando 10 figuras completas…`)
   try{
@@ -255,7 +255,7 @@ export default function MotorDefinitivo({db,onSave}){
     const minGap=Number(validation.minimumMeasuredGapMm)
     const conflicts=Number(validation.conflicts??validation.collisionCount??0)
     const border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
-    if(!Number.isFinite(minGap)||minGap<MIN_CERTIFIED_GAP_MM||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
+    if(!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
     const composed=composeIndustrialSvg(data.placements||[],industrial.partMap,1230)
     const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
     const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest industrial lab · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
