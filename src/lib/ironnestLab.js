@@ -37,6 +37,20 @@ async function readJson(response){
   try{return JSON.parse(text)}catch{throw new Error(`IronNest devolvio una respuesta invalida (${response.status})`)}
 }
 
+export async function resumeIronNestLabJob(jobId,{pollMs=1500,timeoutMs=210000,startedAt=Date.now(),signal,onProgress}={}){
+  if(!jobId)throw new Error('Falta el identificador del trabajo IronNest.')
+  const base=ironNestLabUrl(),start=Number(startedAt||Date.now())
+  while(Date.now()-start<timeoutMs){
+    if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
+    const statusResponse=await fetch(`${base}/ironnest/solve-status?id=${encodeURIComponent(jobId)}`,{signal})
+    const status=await readJson(statusResponse),elapsed=(Date.now()-start)/1000
+    if(statusResponse.status===202){onProgress?.({stage:`Recuperando trabajo IronNest · ${status.status||'calculando'}…`,elapsed});await sleep(pollMs);continue}
+    if(!statusResponse.ok||!status?.ok||!status?.result?.ok)throw new Error(status?.result?.error||status?.error||`IronNest rechazo el lote (${statusResponse.status}).`)
+    return {...status.result,jobId,labUrl:base}
+  }
+  throw new Error(`IronNest supero ${Math.round(timeoutMs/1000)} segundos.`)
+}
+
 export async function solveWithIronNestLab(kits,{
   optimizationMode='fast',
   pollMs=1500,
@@ -109,7 +123,8 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   maxGrowth=16,
   optimizationMode='fast',
   signal,
-  onProgress
+  onProgress,
+  onJobStarted
 }={}){
   const available=Array.isArray(kits)?kits.length:0
   if(!available)throw new Error('No hay kits completos para calcular.')
@@ -122,7 +137,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
     onProgress?.({stage:`IronNest · calculando placa de ${target} figuras completas…`,percent:5,completeFigures:0})
     try{
-      const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress})
+      const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:variants[i].kits.map(k=>k.kitId)})})
       let best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
       const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
       const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
@@ -131,7 +146,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         if(candidate.length!==grow||completeKitPieceCount(candidate)>60)break
         onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando ${grow}…`,percent:92,completeFigures:best.kitCount})
         try{
-          const grown=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress})
+          const grown=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
           best={...grown,selectedKits:candidate,kitCount:candidate.length}
         }catch{break}
       }
@@ -146,7 +161,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
       if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
       onProgress?.({stage:`IronNest · buscando placa válida de ${t} figuras completas…`,percent:5,completeFigures:0})
       try{
-        const result=await solveWithIronNestLab(smaller[i].kits,{optimizationMode,signal,onProgress})
+        const result=await solveWithIronNestLab(smaller[i].kits,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:smaller[i].kits.map(k=>k.kitId)})})
         return {...result,selectedKits:smaller[i].kits,kitCount:smaller[i].kits.length}
       }catch(error){lastError=error}
     }
