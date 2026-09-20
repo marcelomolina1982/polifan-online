@@ -141,14 +141,30 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
       let best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
       const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
       const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
-      for(let grow=target+1;grow<=limit;grow++){
-        const candidate=ordered.slice(0,grow)
-        if(candidate.length!==grow||completeKitPieceCount(candidate)>60)break
-        onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando ${grow}…`,percent:92,completeFigures:best.kitCount})
-        try{
-          const grown=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
-          best={...grown,selectedKits:candidate,kitCount:candidate.length}
-        }catch{break}
+      // Crecimiento protegido: la última placa válida siempre queda como respaldo.
+      // Si el próximo kit por prioridad no entra, probamos unos pocos kits alternativos
+      // (más chicos primero, sin alejarse demasiado de la prioridad) antes de detenernos.
+      while(best.kitCount<limit){
+        const selectedIds=new Set((best.selectedKits||[]).map(k=>String(k.kitId)))
+        const remaining=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
+        if(!remaining.length)break
+        const priorityWindow=remaining.slice(0,Math.min(8,remaining.length))
+        const candidates=[priorityWindow[0],...[...priorityWindow].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
+          .filter((kit,index,list)=>kit&&list.findIndex(x=>String(x.kitId)===String(kit.kitId))===index)
+          .slice(0,4)
+        let improved=false
+        for(const extra of candidates){
+          const candidate=[...(best.selectedKits||[]),extra]
+          if(candidate.length>limit||completeKitPieceCount(candidate)>60)continue
+          onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando agregar ${extra.kitId}…`,percent:92,completeFigures:best.kitCount})
+          try{
+            const grown=await solveWithIronNestLab(candidate,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
+            best={...grown,selectedKits:candidate,kitCount:candidate.length}
+            improved=true
+            break
+          }catch(error){lastError=error}
+        }
+        if(!improved)break
       }
       onProgress?.({stage:`IronNest · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
       return best
