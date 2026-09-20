@@ -4,7 +4,6 @@ import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
 import {solveCompleteKitsWithIronNestLab,resumeIronNestLabJob} from '../lib/ironnestLab'
 
-const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const LAB_STORAGE='polifan-motor-lab-last-plan-v3'
 const ACTIVE_JOB_STORAGE='polifan-ironnest-active-job-v2'
 
@@ -31,27 +30,6 @@ function downloadSvg(name,text){
   a.href=url
   a.download=String(name||'placa.svg').replace(/\.svg$/i,'')+'__IRONNEST_CERTIFICADO.svg'
   document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
-}
-function okStatus(status){return String(status||'').startsWith('CERTIFICADO')}
-function normalizeCertifiedLeftMargin(svgText,targetMm=3){
-  if(!svgText)return svgText
-  const rows=[]
-  const rx=/<g\b[^>]*data-polifan-piece="1"[^>]*transform="matrix\(([^\"]+)\)"[^>]*>/g
-  let m
-  while((m=rx.exec(String(svgText)))){
-    const nums=m[1].trim().split(/[ ,]+/).map(Number)
-    if(nums.length===6&&nums.every(Number.isFinite))rows.push(nums[4])
-  }
-  if(!rows.length)return svgText
-  const minX=Math.min(...rows)
-  const shift=targetMm-minX
-  if(Math.abs(shift)<0.001)return svgText
-  return String(svgText).replace(/(<g\b[^>]*data-polifan-piece="1"[^>]*transform="matrix\()([^\"]+)(\)"[^>]*>)/g,(full,prefix,matrix,suffix)=>{
-    const nums=matrix.trim().split(/[ ,]+/).map(Number)
-    if(nums.length!==6||nums.some(n=>!Number.isFinite(n)))return full
-    nums[4]=Number((nums[4]+shift).toFixed(6))
-    return prefix+nums.join(' ')+suffix
-  })
 }
 function parseSvg(svg){
   try{
@@ -187,51 +165,6 @@ export default function MotorDefinitivo({db,onSave}){
     if(active?.jobId){resumeActiveJob(active)}
   },[])
 
-  async function certify(svgText){
-    const response=await fetch('/api/motor-definitivo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({filename:'placa-sparrow.svg',svgText})})
-    let data={};try{data=await response.json()}catch{}
-    return {status:data.status||`HTTP ${response.status}`,minGap:data.validation?.min_gap_mm??data.min_gap_mm??'-',conflicts:data.validation?.conflicts??data.conflicts??'-',border:data.validation?.border_conflicts??data.border_conflicts??'-',seconds:data.seconds??'-',svgText:normalizeCertifiedLeftMargin(data.svgText||svgText,3),error:data.error||''}
-  }
-  async function startJob(payload,multiplier){
-    const response=await fetch('/api/nest-start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})
-    const data=await response.json().catch(()=>({}))
-    if(!response.ok&&!data.jobId)throw new Error(data.error||`No se pudo iniciar Sparrow (HTTP ${response.status})`)
-    if(!data.jobId)throw new Error('Render no devolvió el identificador del cálculo.')
-    saveActiveJob({jobId:data.jobId,multiplier:Number(multiplier||1),startedAt:Date.now()})
-    return data.jobId
-  }
-  async function waitJob(jobId,originalStartedAt=Date.now()){
-    for(;;){
-      await sleep(2000)
-      const response=await fetch('/api/nest-status?id='+encodeURIComponent(jobId),{cache:'no-store'})
-      const job=await response.json().catch(()=>({}))
-      const sec=Math.round((Date.now()-Number(originalStartedAt||Date.now()))/1000);setElapsed(Math.max(0,sec))
-      if(!response.ok)throw new Error(job.error||`No se pudo consultar el cálculo (HTTP ${response.status})`)
-      if(job.status==='done')return job.result||{}
-      if(job.status==='error')throw new Error(job.result?.error||'Sparrow terminó sin una placa válida.')
-      setProgress(`${job.stage||'Sparrow calculando…'} · ${Number(job.elapsedSeconds||sec).toFixed(0)} s · podés cambiar de pestaña sin perderlo`)
-      if(Date.now()-Number(originalStartedAt||Date.now())>25*60*1000)throw new Error('El trabajo lleva más de 25 minutos. Render puede haberse reiniciado; volvé a generar una vez.')
-    }
-  }
-  async function runPayload(payload,multiplier){
-    const jobId=await startJob(payload,multiplier)
-    const active=loadActiveJob()
-    setProgress(`Sparrow calculando · trabajo ${jobId.slice(0,8)} · guardado`)
-    return await waitJob(jobId,active?.startedAt||Date.now())
-  }
-  async function finishResult(data,multiplier,industrial){
-    if(!data.ok)throw new Error(data.error||'Sparrow terminó sin placa válida')
-    const completeIds=[...new Set((data.placements||[]).filter(p=>!p.partialExtra).map(p=>String(p.kitId||'')).filter(Boolean))]
-    const selectedUnits=completeIds.map(id=>industrial.unitMap.get(id)).filter(Boolean)
-    if(!selectedUnits.length)throw new Error('El resultado de Sparrow no coincide con los pendientes actuales. Generá nuevamente una vez.')
-    const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
-    setProgress(`Sparrow encontró ${selectedUnits.length} diseños · modo ${`×${multiplier}`} · V1.7 certificando…`)
-    const cert=await certify(composed)
-    const certified=okStatus(cert.status)&&Number(cert.conflicts)===0&&Number(cert.border)===0
-    const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
-    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:certified?'CERTIFICADO':cert.status||'NO_RESUELTO',minGap:cert.minGap,conflicts:cert.conflicts,border:cert.border,seconds:cert.seconds,svgText:cert.svgText||composed,error:cert.error||'',density:Number(data.density||0),stripWidthMm:Number(data.stripWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||elapsed||0),rotationStep:data.rotationStep??'-',reachedMinimum:Boolean(data.reachedMinimum),candidatePool:Number(data.candidatePool||industrial.kits.length),rejectedCount:Number(data.rejectedCount||0),source:data.selectionStrategy||data.engine||'sparrow-jagua-rs',partialExtra:data.partialExtraAllowed?data.partialExtra:null,targetDensityReached:Boolean(data.targetDensityReached),fixedHoleFill:Boolean(data.fixedHoleFill),multiplier,produced}
-    setPlans([plan]);savePlans([plan]);clearActiveJob()
-  }
   async function resumeActiveJob(active){
     if(!active?.jobId)return
     const multiplier=Math.max(1,Number(active.multiplier||1))
@@ -257,7 +190,7 @@ export default function MotorDefinitivo({db,onSave}){
   const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits)
   setBusy(true);setPlans([]);setElapsed(0)
   const started=Date.now()
-  setProgress(`Modo ${multiplier===2?'PLACA DOBLE':'PLACA SIMPLE'} · IronNest · buscando 10 figuras completas…`)
+  setProgress(`Modo PLACA ×${multiplier} · IronNest · buscando 10 figuras completas…`)
   try{
     const data=await solveCompleteKitsWithIronNestLab(industrial.kits,{
       targetComplete:Math.min(10,industrial.kits.length),maxGrowth:16,optimizationMode:'fast',
@@ -284,7 +217,7 @@ export default function MotorDefinitivo({db,onSave}){
  }
 
   async function registerPlan(plan){
-    if(!okStatus(plan.status)||!plan.svgText||plan.registered)return
+    if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered)return
     const multiplier=Number(plan.multiplier||1)
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
@@ -309,11 +242,11 @@ export default function MotorDefinitivo({db,onSave}){
     {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>Tiempo: {elapsed}s. El ID del trabajo queda guardado.</span></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
-      {plans.map(plan=>{const ok=okStatus(plan.status);return <tr key={plan.id}>
-        <td><b>Placa {plan.number}</b><small className="block">Modo: {`×${Number(plan.multiplier||1)}`}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block">{plan.units.length} diseños · hasta {plan.units.length*Number(plan.multiplier||1)} cortes completos</small><small className="block">{plan.deferred} quedan pendientes</small></td>
+      {plans.map(plan=>{const ok=String(plan.status||'').startsWith('CERTIFICADO');return <tr key={plan.id}>
+        <td><b>Placa {plan.number}</b><small className="block">Modo: {`×${Number(plan.multiplier||1)}`}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block"><b>{plan.units.length} figuras completas</b> · {plan.units.length*Number(plan.multiplier||1)} cortes reales</small><small className="block">{plan.deferred} quedan pendientes</small></td>
         <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
-        <td><b>{plan.minGap} mm</b></td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
+        <td><b>{plan.minGap} mm</b>{Number(plan.industrialSeconds)>0&&<small className="block">cálculo: {Number(plan.industrialSeconds).toFixed(1)} s</small>}</td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1230 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=75?'green-text':'')}>{plan.density>=75?'Objetivo ≥75% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Registrar corte terminado</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</td>
       </tr>})}
