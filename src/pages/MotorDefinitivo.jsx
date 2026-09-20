@@ -13,7 +13,7 @@ function loadSavedPlans(){
 }
 function savePlans(plans){
   try{
-    const compact=plans.map(p=>({...p,units:(p.units||[]).map(u=>({figure:u.figure,date:u.date||''}))}))
+    const compact=plans.map(p=>({...p,units:(p.units||[]).map(u=>({figure:u.figure,date:u.date||'',repairComponent:u.repairComponent||'complete'}))}))
     localStorage.setItem(LAB_STORAGE,JSON.stringify(compact))
   }catch{}
 }
@@ -94,9 +94,11 @@ function componentsForFigure(index,figure){
 function pendingUnits(db,index){
   const units=[],missing=new Map()
   pendingCutByDelivery(db).forEach(group=>group.rows.forEach(row=>{
-    const comps=componentsForFigure(index,row.figure)
-    if(!comps){missing.set(row.figure,(missing.get(row.figure)||0)+Number(row.qty||0));return}
-    for(let i=0;i<Number(row.qty||0);i++)units.push({figure:row.figure,date:group.date||'',orders:group.orders||[],components:comps})
+    const allComps=componentsForFigure(index,row.figure)
+    const component=row.component||'complete'
+    const comps=component==='complete'?allComps:(allComps||[]).filter(comp=>(comp.role||'simple')===component)
+    if(!comps?.length){const missingKey=component==='complete'?row.figure:`${row.figure} · ${component}`;missing.set(missingKey,(missing.get(missingKey)||0)+Number(row.qty||0));return}
+    for(let i=0;i<Number(row.qty||0);i++)units.push({figure:row.figure,date:group.date||'',orders:group.orders||[],components:comps,repairComponent:component})
   }))
   return {units,missing:[...missing.entries()].map(([figure,qty])=>({figure,qty}))}
 }
