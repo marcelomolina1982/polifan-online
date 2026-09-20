@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {JOURNEY_EVENTS,journeyMessage,shouldSendJourneyWhatsApp,eventForFinalAction,trackingUrl} from '../src/lib/customerJourney.js'
-import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal,markOrderDelivered,finalActionLabel,journeyEligible} from '../src/lib/customerJourneyOperational.js'
+import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal,markOrderDelivered,canMarkOrderDelivered,finalActionLabel,journeyEligible} from '../src/lib/customerJourneyOperational.js'
 
 const enabled=(order,at='2026-09-02T10:00:00.000Z')=>({...order,journey:{enabled:true,stage:JOURNEY_EVENTS.CONFIRMED,confirmedAt:at,whatsappConfirmedStatus:'simulated-private'}})
 const makeOrder=(id,number,items,extra={})=>enabled({id,number,client:`Cliente ${number}`,delivery:'2026-09-02',deliveryType:'Vía Cargo',status:'Ingresado',createdAt:'2026-09-02T10:00:00.000Z',items,...extra})
@@ -74,5 +74,7 @@ assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://polifan-online
 const delivered=markOrderDelivered(final,'2026-09-02T18:00:00.000Z')
 assert.equal(delivered.status,'Entregado')
 assert.equal(delivered.journey.deliveredAt,'2026-09-02T18:00:00.000Z')
+assert.equal(canMarkOrderDelivered(final),true)
+assert.equal(canMarkOrderDelivered({...final,journey:{...final.journey,stage:JOURNEY_EVENTS.PACKING}}),false)
 
 console.log('customer journey predeploy: reglas nuevas OK')
