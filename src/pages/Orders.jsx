@@ -6,7 +6,7 @@ import { statusColors } from '../lib/constants'
 import { money } from '../lib/format'
 import { downloadOrderReceiptJpg, receiptHtml, receiptCss } from '../lib/orderReceipt'
 import { JOURNEY_EVENTS, journeyMessage } from '../lib/customerJourney'
-import { markOrderDelivered } from '../lib/customerJourneyOperational.js'
+import { markOrderDelivered, canMarkOrderDelivered } from '../lib/customerJourneyOperational.js'
 
 const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch]))
 
@@ -239,7 +239,8 @@ export default function Orders({db,onSave,onEdit}){
 
   async function setStatusOrder(o,newStatus){
     const now=new Date().toISOString()
-    if(newStatus==='Entregado'&&!confirm(`¿Confirmás que el pedido #${o.number} fue entregado? Al confirmar, sus figuras dejan de quedar reservadas en stock.`))return
+    if(newStatus==='Entregado'&&!canMarkOrderDelivered(o))return alert(`El pedido #${o.number} todavía no fue marcado como despachado o listo para retirar. Primero cerrá ese paso desde Pedidos listos para despachar.`)
+    if(newStatus==='Entregado'&&!confirm(`¿Confirmás que el pedido #${o.number} fue entregado al cliente? Al confirmar, sus figuras dejan de quedar reservadas en stock.`))return
     await onSave({...db,orders:db.orders.map(x=>x.id===o.id?(newStatus==='Entregado'?markOrderDelivered(x,now):{...x,status:newStatus,updatedAt:now}):x)})
   }
 
