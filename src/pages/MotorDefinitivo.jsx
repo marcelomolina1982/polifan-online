@@ -2,11 +2,11 @@ import React,{useEffect,useMemo,useState} from 'react'
 import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
-import {solveCompleteKitsWithIronNestLab} from '../lib/ironnestLab'
+import {solveCompleteKitsWithIronNestLab,resumeIronNestLabJob} from '../lib/ironnestLab'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const LAB_STORAGE='polifan-motor-lab-last-plan-v3'
-const ACTIVE_JOB_STORAGE='polifan-motor-lab-active-job-v1'
+const ACTIVE_JOB_STORAGE='polifan-ironnest-active-job-v2'
 
 function loadSavedPlans(){
   try{return JSON.parse(localStorage.getItem(LAB_STORAGE)||'[]')||[]}
@@ -234,18 +234,21 @@ export default function MotorDefinitivo({db,onSave}){
   }
   async function resumeActiveJob(active){
     if(!active?.jobId)return
-    const multiplier=Number(active.multiplier||1)
-    const designUnits=unitsForMultiplier(pending.units,multiplier)
-    const industrial=buildIndustrialKits(designUnits)
+    const multiplier=Math.max(1,Number(active.multiplier||1))
+    const designUnits=unitsForMultiplier(pending.units,multiplier),industrial=buildIndustrialKits(designUnits)
+    const selectedKits=(active.kitIds||[]).map(id=>industrial.kits.find(k=>String(k.kitId)===String(id))).filter(Boolean)
+    if(!selectedKits.length){clearActiveJob();return}
     setBusy(true);setElapsed(Math.max(0,Math.round((Date.now()-Number(active.startedAt||Date.now()))/1000)))
-    setProgress(`Recuperando cálculo ${String(active.jobId).slice(0,8)} después de la recarga…`)
+    setProgress(`Recuperando trabajo IronNest ${String(active.jobId).slice(0,8)}…`)
     try{
-      const data=await waitJob(active.jobId,active.startedAt)
-      await finishResult(data,multiplier,industrial)
-    }catch(error){
-      clearActiveJob()
-      setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
-    }finally{setBusy(false);setProgress('')}
+      const data=await resumeIronNestLabJob(active.jobId,{startedAt:active.startedAt,onProgress:p=>{setElapsed(Math.round((Date.now()-Number(active.startedAt||Date.now()))/1000));setProgress(p?.stage||'Recuperando trabajo IronNest…')}})
+      const validation=data?.layoutValidation||{},minGap=Number(validation.minimumMeasuredGapMm),conflicts=Number(validation.conflicts??validation.collisionCount??0),border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
+      if(!data?.ok||!validation.ok||!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(data?.error||'El trabajo recuperado no superó la certificación geométrica.')
+      const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean),composed=composeIndustrialSvg(data.placements||[],industrial.partMap),produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
+      const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||0).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=10,candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · trabajo recuperado',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
+      setPlans([plan]);savePlans([plan]);clearActiveJob();setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
+    }catch(error){clearActiveJob();setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}
+    finally{setBusy(false)}
   }
 
  async function generateAutomatic(multiplier=1){
@@ -258,7 +261,8 @@ export default function MotorDefinitivo({db,onSave}){
   try{
     const data=await solveCompleteKitsWithIronNestLab(industrial.kits,{
       targetComplete:Math.min(10,industrial.kits.length),maxGrowth:16,optimizationMode:'fast',
-      onProgress:p=>{setElapsed(Math.round((Date.now()-started)/1000));setProgress(p?.stage||'IronNest calculando…')}
+      onProgress:p=>{setElapsed(Math.round((Date.now()-started)/1000));setProgress(p?.stage||'IronNest calculando…')},
+      onJobStarted:j=>saveActiveJob({jobId:j.jobId,kitIds:j.kitIds||[],multiplier,startedAt:j.startedAt||Date.now()})
     })
     const validation=data?.layoutValidation||{}
     if(!data?.ok||!validation.ok)throw new Error(data?.error||'IronNest no devolvió una placa geométricamente válida.')
@@ -271,7 +275,7 @@ export default function MotorDefinitivo({db,onSave}){
     if(!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
     const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
     const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
-    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest industrial lab · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
+    const plan={id:crypto.randomUUID(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
     setPlans([plan]);savePlans([plan]);clearActiveJob()
     setProgress(`IronNest finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
   }catch(error){
@@ -285,7 +289,7 @@ export default function MotorDefinitivo({db,onSave}){
     const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
     const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
     const now=new Date().toISOString()
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática Sparrow ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`Sparrow + V1.7 · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
+    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática IronNest ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`IronNest · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
     const movements=items.map(i=>({id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Placa #${number} ${batch.name} · figura completa · corte ×${multiplier}`,createdAt:now}))
     const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})
     if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
@@ -294,7 +298,7 @@ export default function MotorDefinitivo({db,onSave}){
   return <>
     <Title title="Generar placas · Motor IronNest + Certificador" sub="IronNest prioriza figuras completas y después intenta agregar más mientras entren físicamente dentro de la placa." actions={<button className="primary" disabled={busy||!pending.units.length} onClick={()=>setChoosingMode(true)}>{busy?'Calculando…':'Generar una placa'}</button>}/>
     {choosingMode&&<div className="panel" style={{border:'2px solid #d92d8a'}}><b className="block big">¿Qué vas a cortar?</b><span className="block" style={{margin:'8px 0 14px'}}>Elegilo antes de diseñar para que IronNest calcule las cantidades correctas.</span><div className="row-actions"><button className="ghost" onClick={()=>generateAutomatic(1)}>Placa simple · ×1</button><button className="primary" onClick={()=>generateAutomatic(2)}>Placa doble · ×2</button><button className="primary" onClick={()=>generateAutomatic(3)}>Placa triple · ×3</button><button className="primary" onClick={()=>generateAutomatic(4)}>Placa cuádruple · ×4</button><button className="ghost" onClick={()=>setChoosingMode(false)}>Cancelar</button></div><small className="block" style={{marginTop:10}}>Elegí ×1, ×2, ×3 o ×4 según cuántas copias vas a cortar físicamente de la misma placa.</small></div>}
-    <div className="notice"><b>Modo laboratorio protegido</b><span>La placa real es 1230 × 580 mm. IronNest sólo acepta placas que superan la validación geométrica y conservan figuras completas.</span></div>
+    <div className="notice"><b>Motor IronNest de producción</b><span>La placa real es 1230 × 580 mm. IronNest sólo acepta placas que superan la validación geométrica y conservan figuras completas.</span></div>
     <div className="panel"><div className="form-grid">
       <div><small>Figuras pendientes con SVG</small><b className="block big">{pending.units.length}</b></div>
       <div><small>Figuras sin SVG completo</small><b className={'block big '+(pending.missing.length?'red-text':'green-text')}>{pending.missing.reduce((a,x)=>a+x.qty,0)}</b></div>
@@ -313,7 +317,7 @@ export default function MotorDefinitivo({db,onSave}){
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1230 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=75?'green-text':'')}>{plan.density>=75?'Objetivo ≥75% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
         <td className="row-actions">{ok&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}`,plan.svgText)}>Descargar SVG</button>}{ok&&!plan.registered&&<button className="primary" onClick={()=>registerPlan(plan)}>Registrar corte terminado</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</td>
       </tr>})}
-      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Primero te pregunta SIMPLE o DOBLE y, si hay una recarga, retoma automáticamente el trabajo activo.</td></tr>}
+      {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Elegí ×1, ×2, ×3 o ×4. Si recargás o salís mientras calcula, IronNest retoma automáticamente el trabajo activo.</td></tr>}
     </tbody></table></div>
   </>
 }
