@@ -68,6 +68,6 @@ assert.equal(shouldSendJourneyWhatsApp(JOURNEY_EVENTS.PACKING),false)
 assert.equal(shouldSendJourneyWhatsApp(JOURNEY_EVENTS.DISPATCHED),true)
 assert.equal(journeyMessage(final,JOURNEY_EVENTS.PACKING),'')
 assert.match(journeyMessage(final,JOURNEY_EVENTS.DISPATCHED,{reviewUrl:'https://catalogo.example/opiniones'}),/Esperamos que disfrutes/)
-assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://tu-vida-en-tinta-catalogo-v2.vercel.app/p/token-prueba')
+assert.equal(trackingUrl({trackingToken:'token-prueba'}),'https://polifan-online.vercel.app/p/token-prueba')
 
 console.log('customer journey predeploy: reglas nuevas OK')
