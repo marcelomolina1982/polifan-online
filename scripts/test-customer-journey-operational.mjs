@@ -55,11 +55,13 @@ assert.deepEqual(markJourneyFinal(final,'2026-09-02T17:01:00.000Z'),final)
 // 9) Retiro en local conserva su evento interno, aunque el seguimiento público cierre en el paso final.
 assert.equal(eventForFinalAction({...packingOrder,deliveryType:'Retiro en el local'}),JOURNEY_EVENTS.READY_PICKUP)
 
-// 10) Pedidos vigentes se habilitan; vencidos no.
+// 10) Todo pedido activo con fecha se habilita, incluso si quedó vencido sin entregar.
 const legacyOrder={id:'legacy',number:99,delivery:'2026-09-02',status:'Ingresado',items:[{figure:'A',qty:1,inventoryTracked:true}]}
 result=advanceOperationalJourney({orders:[legacyOrder],cutBatches:[]},'2026-09-02T20:00:00.000Z',{stockRowsFn:rows({figure:'A',cut:9,inCut:0})})
 assert.equal(result.orders[0].journey.enabled,true)
-assert.equal(journeyEligible({...legacyOrder,delivery:'2026-09-01'},'2026-09-02T20:00:00.000Z'),false)
+assert.equal(journeyEligible({...legacyOrder,delivery:'2026-09-01'},'2026-09-02T20:00:00.000Z'),true)
+assert.equal(journeyEligible({...legacyOrder,delivery:'2026-09-01',status:'Entregado'},'2026-09-02T20:00:00.000Z'),false)
+assert.equal(journeyEligible({...legacyOrder,delivery:'2026-09-01',status:'Cancelado'},'2026-09-02T20:00:00.000Z'),false)
 
 // 11) Mensajería y enlace siguen intactos.
 assert.equal(shouldSendJourneyWhatsApp(JOURNEY_EVENTS.CONFIRMED),true)
