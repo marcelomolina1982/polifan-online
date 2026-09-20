@@ -241,14 +241,20 @@ export default function Orders({db,onSave,onEdit}){
   }
 
   async function openWhatsApp(o){
-    const digits=String(o.phone||'').replace(/\D/g,'')
-    if(!digits)return alert('Este pedido no tiene un teléfono cargado.')
-    const number=digits.startsWith('54')?digits:`54${digits.replace(/^0/,'')}`
+    let digits=String(o.phone||'').replace(/\D/g,'')
+    if(digits.startsWith('00'))digits=digits.slice(2)
+    if(digits.startsWith('0'))digits=digits.slice(1)
+    const number=digits.startsWith('549')?digits:digits.startsWith('54')&&digits.length===12?`549${digits.slice(2)}`:digits.length===10?`549${digits}`:digits
+    if(!number)return alert('Este pedido no tiene un teléfono cargado.')
     const whatsappWindow=window.open('about:blank','_blank')
     if(!whatsappWindow)return alert('El navegador bloqueó WhatsApp. Permití las ventanas emergentes e intentá nuevamente.')
     try{
+      const {data,error}=await supabase.rpc('get_order_tracking_admin_by_number',{p_order_number:String(o.number||'')})
+      if(error)throw error
+      const row=Array.isArray(data)?data[0]:data
+      const enriched=row?.token?{...o,trackingToken:row.token}:o
       await downloadOrderReceiptJpg(o)
-      whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(journeyMessage(o,JOURNEY_EVENTS.CONFIRMED))}`
+      whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(journeyMessage(enriched,JOURNEY_EVENTS.CONFIRMED,{trackingBaseUrl:window.location.origin}))}`
       alert(`Se descargó el comprobante del pedido #${o.number}. En WhatsApp, adjuntá ese JPG antes de enviar el mensaje al cliente.`)
     }catch(error){
       console.error(error)
