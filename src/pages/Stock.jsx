@@ -175,17 +175,10 @@ export default function Stock(props){
     })()
   },[db,onSave])
 
-  useEffect(()=>{
-    if(!db||!onSave||db.inventoryRecount?.id!==RECOUNT_ID||db.inventoryRecountCloseout?.id===CLOSEOUT_ID||closeoutRef.current)return
-    closeoutRef.current=true
-    ;(async()=>{
-      const next=buildRecountCloseoutState(db)
-      const result=await onSave(next)
-      if(result?.ok===false){closeoutRef.current=false;alert('No se pudo cerrar el recuento del 14/08. El inventario no se cambió. Volvé a entrar a Inventario para reintentar.');return}
-      const info=next.inventoryRecountCloseout
-      alert(`✅ Cierre 14/08 aplicado. ${info.closedOrders} pedido${info.closedOrders===1?'':'s'} entregado${info.closedOrders===1?'':'s'} hasta hoy dejaron de figurar en “Para cortar”. El stock físico de 170 se conserva sin doble descuento.`)
-    })()
-  },[db,onSave])
+  // El cierre histórico del 14/08 ya no se ejecuta automáticamente al abrir Inventario.
+  // Es una migración destructiva (cambia estados de pedidos y agrega movimientos), por lo que
+  // no debe bloquear ni alterar una pantalla de consulta. Si ya fue aplicado, se respeta tal cual.
+  // Si quedó pendiente en una base antigua, el inventario igualmente carga con sus datos actuales.
 
   return <div className="stock-no-projection"><style>{`
     .stock-no-projection .inventory-kpis > .panel:nth-child(5){display:none!important}
