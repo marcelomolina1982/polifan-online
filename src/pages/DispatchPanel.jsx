@@ -1,7 +1,7 @@
 import React,{useMemo,useState} from 'react'
 import {supabase} from '../supabase'
 import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal} from '../lib/customerJourneyOperational.js'
-import {JOURNEY_EVENTS} from '../lib/customerJourney.js'
+import {JOURNEY_EVENTS,journeyMessage} from '../lib/customerJourney.js'
 
 const REVIEW_URL='https://tu-vida-en-tinta-catalogo-v2.vercel.app/opiniones'
 const cleanPhone=value=>{
@@ -49,24 +49,11 @@ export default function DispatchPanel({db}){
   }
 
   function whatsappMessage(order,token){
-    const pickup=isPickup(order)
-    const statusLine=pickup?'Tu pedido ya está listo para retirar en nuestro local.':'Tu pedido ya fue despachado.'
-    const tracking=token?`${window.location.origin}/p/${token}`:''
-    return [
-      `¡Hola ${firstName(order)}! 😊`,
-      '',
-      `${statusLine} Pedido #${order.number}.`,
-      '',
-      '💗 ¡Muchas gracias por elegir Tu Vida en Tinta! Esperamos que disfrutes mucho tu pedido.',
-      tracking?'':null,
-      tracking?'Podés ver el seguimiento acá:':null,
-      tracking||null,
-      '',
-      '⭐ Si querés ayudarnos a seguir creciendo, nos encantaría que nos dejes tu opinión:',
-      REVIEW_URL,
-      '',
-      '¡Gracias por confiar en nosotros! 💕'
-    ].filter(line=>line!==null).join('\n')
+    const enriched=token?{...order,trackingToken:token}:order
+    return journeyMessage(enriched,isPickup(order)?JOURNEY_EVENTS.READY_PICKUP:JOURNEY_EVENTS.DISPATCHED,{
+      trackingBaseUrl:window.location.origin,
+      reviewUrl:REVIEW_URL
+    })
   }
 
   async function dispatch(order){
