@@ -7,7 +7,7 @@ export function customerName(order={}){const full=clean(order.client)||[order.fi
 export function customerFirstName(order={}){return customerName(order).split(/\s+/).filter(Boolean)[0]||'cliente'}
 export function deliveryMode(order={}){const raw=[order.deliveryType,order.carrier,order.shippingMethod,order.deliveryMethod].map(clean).join(' ').toLowerCase();if(raw.includes('via cargo')||raw.includes('vía cargo'))return 'via-cargo';if(raw.includes('retiro'))return 'pickup';return 'logistics'}
 
-export function trackingUrl(order={},baseUrl='https://tu-vida-en-tinta-catalogo-v2.vercel.app'){
+export function trackingUrl(order={},baseUrl='https://polifan-online.vercel.app'){
   const token=clean(order.trackingToken||order.customerTrackingToken)
   if(!token)return ''
   return `${String(baseUrl).replace(/\/$/,'')}/p/${encodeURIComponent(token)}`
