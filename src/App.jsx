@@ -19,6 +19,7 @@ const Settings=lazy(()=>import('./pages/Settings'))
 const CatalogAdmin=lazy(()=>import('./pages/CatalogAdmin'))
 const CustomerOrder=lazy(()=>import('./pages/CustomerOrder'))
 const OrderControl=lazy(()=>import('./pages/OrderControl'))
+const PublicTracking=lazy(()=>import('./pages/PublicTracking'))
 const Analytics=lazy(()=>import('./pages/Analytics'))
 const WebRequests=lazy(()=>import('./pages/WebRequestsGrouped'))
 const CatalogAssistant=lazy(()=>import('./pages/CatalogAssistant'))
@@ -93,7 +94,8 @@ function CatalogAccess(){
 }
 
 export default function App(){
-  const params=new URLSearchParams(window.location.search),controlMode=params.get('control'),customerMode=window.location.hash==='#pedido'||params.get('pedido')==='1'
+  const params=new URLSearchParams(window.location.search),controlMode=params.get('control'),customerMode=window.location.hash==='#pedido'||params.get('pedido')==='1',trackingMatch=window.location.pathname.match(/^\/p\/([^/]+)\/?$/)
+  if(trackingMatch)return <Suspense fallback={<Loading/>}><PublicTracking token={decodeURIComponent(trackingMatch[1])}/></Suspense>
   if(controlMode)return <Suspense fallback={<Loading/>}><OrderControl/></Suspense>
   if(customerMode)return <Suspense fallback={<Loading/>}><CustomerOrder/></Suspense>
   const [session,setSession]=useState(null)
