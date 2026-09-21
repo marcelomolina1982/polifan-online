@@ -17,21 +17,14 @@ function writeIfChanged(file,before,after){
   writeIfChanged(file,before,src)
 }
 
-// RECOVERY GUARD: el recuento/cierre físico del 14/08 es una migración histórica.
-// Nunca debe volver a ejecutarse automáticamente sólo por abrir Inventario.
-// Se bloquean exclusivamente los dos efectos automáticos; no se toca stock,
-// movimientos, pedidos, Para cortar ni las herramientas manuales de Inventario.
+// RECOVERY GUARD: el cierre histórico del 14/08 ya fue retirado de Stock.jsx.
+// El build sólo verifica que no reaparezca una auto-escritura destructiva.
+// No exige texto legado ni modifica el inventario durante la compilación.
 {
   const file='src/pages/Stock.jsx'
-  const before=fs.readFileSync(file,'utf8')
-  let src=before
-  const recount="    if(!db||!onSave||db.inventoryRecount?.id===RECOUNT_ID||applyingRef.current)return"
-  const closeout="    if(!db||!onSave||db.inventoryRecount?.id!==RECOUNT_ID||db.inventoryRecountCloseout?.id===CLOSEOUT_ID||closeoutRef.current)return"
-  if(src.includes(recount)) src=src.replace(recount,"    return // RECOVERY GUARD: recuento histórico 14/08 sólo manual")
-  if(src.includes(closeout)) src=src.replace(closeout,"    return // RECOVERY GUARD: cierre histórico 14/08 sólo manual")
-  if(src.includes(recount)||src.includes(closeout)) throw new Error('RECOVERY GUARD: quedaron auto-escrituras históricas de Inventario')
-  if(!src.includes('recuento histórico 14/08 sólo manual')||!src.includes('cierre histórico 14/08 sólo manual')) throw new Error('RECOVERY GUARD: no se pudo neutralizar Inventario 14/08')
-  writeIfChanged(file,before,src)
+  const src=fs.readFileSync(file,'utf8')
+  const legacyCloseout="if(!db||!onSave||db.inventoryRecount?.id!==RECOUNT_ID||db.inventoryRecountCloseout?.id===CLOSEOUT_ID||closeoutRef.current)return"
+  if(src.includes(legacyCloseout)||src.includes('buildRecountCloseoutState(db)')) throw new Error('RECOVERY GUARD: reapareció el cierre histórico automático de Inventario 14/08')
 }
 
 // RECOVERY GUARD: Sparrow requiere sesión. La app ya tiene una sesión Supabase
