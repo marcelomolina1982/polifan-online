@@ -220,14 +220,23 @@ export default function MotorDefinitivo({db,onSave}){
 
   async function registerPlan(plan){
     if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered)return
-    const multiplier=Number(plan.multiplier||1)
-    const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
-    const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
-    const now=new Date().toISOString()
-    const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática IronNest ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`IronNest · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
-    const movements=items.map(i=>{const component=i.component||'complete';const componentLabel=component==='tapa'?'tapa':component==='base'?'base':'figura completa';return {id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,component,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Placa #${number} ${batch.name} · ${componentLabel} · corte ×${multiplier}`,createdAt:now}})
-    const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})
-    if(result?.ok!==false)setPlans(list=>list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x))
+    if(!window.confirm('¿Confirmás que esta placa ya terminó de cortarse? Al confirmar se sumará la producción al Inventario.'))return
+    try{
+      const multiplier=Number(plan.multiplier||1)
+      const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
+      const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
+      if(!items.length)throw new Error('La placa no contiene figuras para registrar.')
+      const now=new Date().toISOString()
+      const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática IronNest ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`IronNest · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
+      const movements=items.map(i=>{const component=i.component||'complete';const componentLabel=component==='tapa'?'tapa':component==='base'?'base':'figura completa';return {id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,component,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Placa #${number} ${batch.name} · ${componentLabel} · corte ×${multiplier}`,createdAt:now}})
+      const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})
+      if(result?.ok===false)throw result.error||new Error('No se pudo guardar el corte en Supabase.')
+      setPlans(list=>{const next=list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x);savePlans(next);return next})
+      alert(`✅ Corte terminado registrado como placa #${number}. El Inventario ya recibió ${movements.reduce((n,m)=>n+Number(m.qty||0),0)} pieza(s).`)
+    }catch(error){
+      console.error('No se pudo registrar el corte terminado',error)
+      alert('No se pudo registrar el corte terminado. No se modificó el Inventario. '+(error?.message||'Error desconocido.'))
+    }
   }
 
   return <>
