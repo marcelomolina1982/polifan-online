@@ -4,7 +4,7 @@ import { today } from '../lib/format'
 import { stockRows, duplicateFigureGroups, mergeDuplicateFigures, catalogFigureInfo, mergeFigureInto } from '../lib/inventory'
 
 export default function Stock({db,onSave}){
-  const [form,setForm]=useState({date:today(),figure:db.figures[0]||'',component:'complete',type:'Entrada extra',qty:1,detail:''})
+  const [form,setForm]=useState({date:today(),figure:db?.figures?.[0]||'',component:'complete',type:'Entrada extra',qty:1,detail:''})
   const [search,setSearch]=useState('')
   const [quickQty,setQuickQty]=useState({})
   const [quickPart,setQuickPart]=useState({})
@@ -12,8 +12,8 @@ export default function Stock({db,onSave}){
   const [mergeB,setMergeB]=useState('')
   const [mergeKeep,setMergeKeep]=useState('')
   const allRows=useMemo(()=>stockRows(db),[db])
-  const rows=useMemo(()=>{const q=search.toLowerCase();return allRows.filter(r=>r.figure.toLowerCase().includes(q))},[allRows,search])
-  const sortedFigures=useMemo(()=>[...new Set([...(db.figures||[]),...(db.customerCatalog||[]).map(p=>p.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures,db.customerCatalog])
+  const rows=useMemo(()=>{const q=search.toLowerCase();return allRows.filter(r=>String(r?.figure||'').toLowerCase().includes(q))},[allRows,search])
+  const sortedFigures=useMemo(()=>[...new Set([...(db?.figures||[]),...(db?.customerCatalog||[]).map(p=>p?.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db?.figures,db?.customerCatalog])
   const duplicateGroups=useMemo(()=>duplicateFigureGroups(db),[db])
   const mergeInfoA=useMemo(()=>catalogFigureInfo(db,mergeA),[db,mergeA])
   const mergeInfoB=useMemo(()=>catalogFigureInfo(db,mergeB),[db,mergeB])
