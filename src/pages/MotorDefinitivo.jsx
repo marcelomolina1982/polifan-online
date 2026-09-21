@@ -224,7 +224,7 @@ export default function MotorDefinitivo({db,onSave}){
  }
 
   async function registerPlan(plan){
-    if(registeringId)return
+    if(registeringId){setRegisterMessage('Ya hay un registro de corte en proceso. Esperá a que termine.');return}
     if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered){setRegisterMessage('Esta placa no está disponible para registrar.');return}
     if(activeJob?.jobId){setRegisterMessage('Hay un cálculo IronNest en curso. Esperá a que termine antes de registrar el corte.');return}
     if(!plan.jobId){setRegisterMessage('Esta placa es anterior al sistema de identificación de trabajos. No se puede registrar con seguridad. Generá una placa nueva.');return}
@@ -269,7 +269,7 @@ export default function MotorDefinitivo({db,onSave}){
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
         <td><b>{plan.minGap} mm</b>{Number(plan.industrialSeconds)>0&&<small className="block">cálculo: {Number(plan.industrialSeconds).toFixed(1)} s</small>}</td><td className={Number(plan.conflicts)===0?'green-text':'red-text'}>{plan.conflicts}</td><td className={Number(plan.border)===0?'green-text':'red-text'}>{plan.border}</td>
         <td>{Number.isFinite(plan.density)?`${plan.density.toFixed(1)}%`:'-'}{Number(plan.stripWidthMm)>0&&<small className="block">ancho usado: {plan.stripWidthMm.toFixed(0)} / 1230 mm</small>}{Number.isFinite(plan.density)&&<small className={'block '+(plan.density>=75?'green-text':'')}>{plan.density>=75?'Objetivo ≥75% alcanzado':'Mejor placa válida encontrada'}</small>}</td>
-        <td className="row-actions">{ok&&!stale&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}-${planStamp(plan)}`,plan.svgText)}>Descargar SVG</button>}{ok&&!stale&&!plan.registered&&<button className="primary" disabled={registeringId===plan.id} onClick={()=>registerPlan(plan)}>{registeringId===plan.id?'Guardando…':'Registrar corte terminado'}</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</td>
+        <td className="row-actions">{ok&&!stale&&plan.svgText&&<button className="ghost" onClick={()=>downloadSvg(`pedido-${today()}-placa-${plan.number}-${planStamp(plan)}`,plan.svgText)}>Descargar SVG</button>}{ok&&!stale&&!plan.registered&&<button type="button" className="primary" disabled={Boolean(registeringId)} onClick={(event)=>{event.preventDefault();event.stopPropagation();setRegisterMessage('Botón recibido · preparando registro…');registerPlan(plan)}}>{registeringId===plan.id?'Guardando…':'Registrar corte terminado'}</button>}{plan.registered&&<span className="green-text"><b>Terminada #{plan.batchNumber}</b></span>}</td>
       </tr>})}
       {!plans.length&&<tr><td colSpan="8">Tocá “Generar una placa”. Elegí ×1, ×2, ×3 o ×4. Si recargás o salís mientras calcula, IronNest retoma automáticamente el trabajo activo.</td></tr>}
     </tbody></table></div>
