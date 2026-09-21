@@ -37,7 +37,7 @@ async function readJson(response){
   try{return JSON.parse(text)}catch{throw new Error(`IronNest devolvio una respuesta invalida (${response.status})`)}
 }
 
-export async function resumeIronNestLabJob(jobId,{pollMs=1500,timeoutMs=210000,startedAt=Date.now(),signal,onProgress}={}){
+export async function resumeIronNestLabJob(jobId,{pollMs=1500,timeoutMs=900000,startedAt=Date.now(),signal,onProgress}={}){
   if(!jobId)throw new Error('Falta el identificador del trabajo IronNest.')
   const base=ironNestLabUrl(),start=Number(startedAt||Date.now())
   while(Date.now()-start<timeoutMs){
@@ -54,7 +54,7 @@ export async function resumeIronNestLabJob(jobId,{pollMs=1500,timeoutMs=210000,s
 export async function solveWithIronNestLab(kits,{
   optimizationMode='fast',
   pollMs=1500,
-  timeoutMs=210000,
+  timeoutMs=900000,
   signal,
   onProgress,
   onJobStarted
@@ -156,7 +156,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         if(candidate.length>limit||completeKitPieceCount(candidate)>60)break
         onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando una figura más…`,percent:92,completeFigures:best.kitCount})
         try{
-          const grown=await solveWithIronNestLab(candidate,{optimizationMode,timeoutMs:120000,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
+          const grown=await solveWithIronNestLab(candidate,{optimizationMode,timeoutMs:300000,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
           best={...grown,selectedKits:candidate,kitCount:candidate.length}
         }catch(error){
           lastError=error
