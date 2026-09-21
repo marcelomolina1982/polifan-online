@@ -162,6 +162,8 @@ export default function MotorDefinitivo({db,onSave}){
   const [elapsed,setElapsed]=useState(0)
   const [choosingMode,setChoosingMode]=useState(false)
   const [activeJob,setActiveJob]=useState(()=>loadActiveJob())
+  const [registeringId,setRegisteringId]=useState('')
+  const [registerMessage,setRegisterMessage]=useState('')
   const [registeringId,setRegisteringId]=useState(null)
   const [confirmRegisterId,setConfirmRegisterId]=useState(null)
 
@@ -224,26 +226,28 @@ export default function MotorDefinitivo({db,onSave}){
  }
 
   async function registerPlan(plan){
-    if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered)return
-    if(confirmRegisterId!==plan.id){setConfirmRegisterId(plan.id);return}
-    setRegisteringId(plan.id)
+    if(registeringId)return
+    if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered){setRegisterMessage('Esta placa no está disponible para registrar.');return}
+    if(activeJob?.jobId){setRegisterMessage('Hay un cálculo IronNest en curso. Esperá a que termine antes de registrar el corte.');return}
+    if(!plan.jobId){setRegisterMessage('Esta placa es anterior al sistema de identificación de trabajos. No se puede registrar con seguridad. Generá una placa nueva.');return}
+    setRegisteringId(plan.id);setRegisterMessage('Registrando corte terminado…')
     try{
       const multiplier=Number(plan.multiplier||1)
       const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
       const items=[...(plan.units||[]).reduce((acc,unit)=>{const figure=unit.figure,component=unit.repairComponent||unit.component||'complete';const found=acc.find(x=>x.figure===figure&&x.component===component);if(found)found.qty+=1;else acc.push({figure,component,qty:1});return acc},[]),...(plan.partialExtras||[plan.partialExtra]).filter(Boolean)]
       if(!items.length)throw new Error('La placa no contiene figuras para registrar.')
       const now=new Date().toISOString()
-      const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática IronNest ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,notes:`IronNest · ${plan.units.length} diseños · ${`placa ×${multiplier}`} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
-      const movements=items.map(i=>{const component=i.component||'complete';const componentLabel=component==='tapa'?'tapa':component==='base'?'base':'figura completa';return {id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,component,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Placa #${number} ${batch.name} · ${componentLabel} · corte ×${multiplier}`,createdAt:now}})
+      const batch={id:crypto.randomUUID(),number,date:plan.date||today(),name:`Placa automática IronNest ${plan.date||today()}`,status:'Terminada',finishedAt:now,autoFinished:true,sourceJobId:String(plan.jobId),notes:`IronNest trabajo ${planStamp(plan)} · ${plan.units.length} diseños · placa ×${multiplier} · ocupación ${Number(plan.density||0).toFixed(1)}% · ancho usado ${Number(plan.stripWidthMm||0).toFixed(0)} mm · separación ${plan.minGap} mm`,multiplier,items,createdAt:now}
+      const movements=items.map(i=>{const component=i.component||'complete';const componentLabel=component==='tapa'?'tapa':component==='base'?'base':'figura completa';return {id:crypto.randomUUID(),batchId:batch.id,date:today(),figure:i.figure,component,type:'Entrada de corte',qty:Number(i.qty)*Math.max(1,multiplier),detail:`Alta automática desde SVG · Trabajo ${planStamp(plan)} · Placa #${number} · ${componentLabel} · corte ×${multiplier}`,createdAt:now}})
       const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches:[...(db.cutBatches||[]),batch]})
       if(result?.ok===false)throw result.error||new Error('No se pudo guardar el corte en Supabase.')
-      setPlans(list=>{const next=list.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x);savePlans(next);return next})
-      setConfirmRegisterId(null)
-      alert(`✅ Corte terminado registrado como placa #${number}. El Inventario ya recibió ${movements.reduce((n,m)=>n+Number(m.qty||0),0)} pieza(s).`)
+      const nextPlans=plans.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:number}:x)
+      setPlans(nextPlans);savePlans(nextPlans)
+      setRegisterMessage(`✅ Corte registrado · Trabajo ${planStamp(plan)} · Placa #${number} · ${movements.reduce((n,m)=>n+Number(m.qty||0),0)} piezas incorporadas.`)
     }catch(error){
       console.error('No se pudo registrar el corte terminado',error)
-      alert('No se pudo registrar el corte terminado. No se modificó el Inventario. '+(error?.message||'Error desconocido.'))
-    }finally{setRegisteringId(null)}
+      setRegisterMessage('❌ No se pudo registrar. El Inventario no fue modificado. '+(error?.message||'Error desconocido.'))
+    }finally{setRegisteringId('')}
   }
 
   return <>
@@ -258,6 +262,7 @@ export default function MotorDefinitivo({db,onSave}){
     </div>
     {pending.missing.length>0&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>Faltan SVG en Biblioteca</b><span>{pending.missing.map(x=>`${x.figure} × ${x.qty}`).join(' · ')}</span></div>}
     {progress&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{progress}</b><span>{activeJob?.jobId?`Trabajo ${String(activeJob.jobId).slice(0,8)} · modo ×${Number(activeJob.multiplier||1)} · iniciado ${new Date(Number(activeJob.overallStartedAt||activeJob.startedAt||Date.now())).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} · transcurrido ${Math.max(0,Math.round((Date.now()-Number(activeJob.overallStartedAt||activeJob.startedAt||Date.now()))/1000))}s`:`Tiempo total: ${elapsed}s`}</span></div>}
+    {registerMessage&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{registerMessage}</b></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
       {plans.map(plan=>{const ok=String(plan.status||'').startsWith('CERTIFICADO'),stale=Boolean(activeJob?.jobId);return <tr key={plan.id}>
