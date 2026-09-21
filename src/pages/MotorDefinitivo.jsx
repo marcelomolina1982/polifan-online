@@ -167,6 +167,12 @@ export default function MotorDefinitivo({db,onSave}){
 
   useEffect(()=>{if(plans.length)savePlans(plans)},[plans])
   useEffect(()=>{
+    if(!plans.length)return
+    let changed=false
+    const reconciled=plans.map(plan=>{if(!plan.jobId)return plan;const batch=(db.cutBatches||[]).find(b=>String(b.sourceJobId||'')===String(plan.jobId));if(batch&&!plan.registered){changed=true;return {...plan,registered:true,batchNumber:batch.number}}return plan})
+    if(changed){setPlans(reconciled);savePlans(reconciled)}
+  },[db.cutBatches])
+  useEffect(()=>{
     const active=loadActiveJob()
     if(active?.jobId){setActiveJob(active);resumeActiveJob(active)}
   },[])
@@ -228,6 +234,8 @@ export default function MotorDefinitivo({db,onSave}){
     if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered){setRegisterMessage('Esta placa no está disponible para registrar.');return}
     if(activeJob?.jobId){setRegisterMessage('Hay un cálculo IronNest en curso. Esperá a que termine antes de registrar el corte.');return}
     if(!plan.jobId){setRegisterMessage('Esta placa es anterior al sistema de identificación de trabajos. No se puede registrar con seguridad. Generá una placa nueva.');return}
+    const already=(db.cutBatches||[]).find(b=>String(b.sourceJobId||'')===String(plan.jobId))
+    if(already){const nextPlans=plans.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:already.number}:x);setPlans(nextPlans);savePlans(nextPlans);setRegisterMessage(`✅ Este trabajo ya estaba registrado como Placa #${already.number}. No se duplicó el Inventario.`);return}
     setRegisteringId(plan.id);setRegisterMessage('Registrando corte terminado…')
     try{
       const multiplier=Number(plan.multiplier||1)
