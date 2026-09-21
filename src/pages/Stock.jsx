@@ -60,8 +60,8 @@ export default function Stock(props){
   }
 
   useEffect(()=>{
-    const clean=()=>document.querySelectorAll('.stock-no-projection .inventory-explanation').forEach(el=>{if(el.textContent?.toLocaleLowerCase('es').includes('proyección'))el.style.display='none'})
-    clean();const observer=new MutationObserver(clean);const root=document.querySelector('.stock-no-projection');if(root)observer.observe(root,{childList:true,subtree:true});return()=>observer.disconnect()
+    const clean=()=>document.querySelectorAll('.inventory-page .inventory-explanation').forEach(el=>{if(el.textContent?.toLocaleLowerCase('es').includes('proyección'))el.style.display='none'})
+    clean();const observer=new MutationObserver(clean);const root=document.querySelector('.inventory-page');if(root)observer.observe(root,{childList:true,subtree:true});return()=>observer.disconnect()
   },[])
 
 
@@ -70,9 +70,9 @@ export default function Stock(props){
   // no debe bloquear ni alterar una pantalla de consulta. Si ya fue aplicado, se respeta tal cual.
   // Si quedó pendiente en una base antigua, el inventario igualmente carga con sus datos actuales.
 
-  return <div className="stock-no-projection"><style>{`
-    .stock-no-projection .inventory-kpis > .panel:nth-child(5){display:none!important}
-    .stock-no-projection .inventory-table th:nth-child(8),.stock-no-projection .inventory-table td:nth-child(8){display:none!important}
+  return <div className="inventory-page"><style>{`
+    .inventory-page .inventory-kpis > .panel:nth-child(5){display:none!important}
+    .inventory-page .inventory-table th:nth-child(8),.inventory-page .inventory-table td:nth-child(8){display:none!important}
     .bulk-recount{margin:14px 0;padding:16px}.bulk-head{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.bulk-table-wrap{overflow:auto;max-height:62vh;margin-top:12px}.bulk-table{width:100%;border-collapse:collapse}.bulk-table th,.bulk-table td{padding:8px;border-bottom:1px solid #ddd;text-align:left}.bulk-table input{width:88px}.bulk-actions{position:sticky;bottom:0;background:var(--panel,#fff);padding:12px 0;display:flex;gap:10px;justify-content:flex-end}.bulk-badge{font-weight:700}
   `}</style>
     {!bulkMode&&<div className="panel bulk-recount"><div className="bulk-head"><div><h3>🧮 Reajuste masivo de inventario</h3><p className="muted">Cargá todo el recuento físico y guardalo una sola vez al terminar.</p></div><button type="button" className="primary" onClick={startBulk}>Abrir reajuste masivo</button></div></div>}
