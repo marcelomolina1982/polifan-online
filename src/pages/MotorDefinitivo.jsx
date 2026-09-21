@@ -4,8 +4,9 @@ import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
 import {solveCompleteKitsWithIronNestLab,resumeIronNestLabJob} from '../lib/ironnestLab'
 
-const LAB_STORAGE='polifan-motor-lab-last-plan-v4'
-const ACTIVE_JOB_STORAGE='polifan-ironnest-active-job-v2'
+const LAB_STORAGE='polifan-motor-lab-last-plan-v5'
+const ACTIVE_JOB_STORAGE='polifan-ironnest-active-job-v3'
+const SESSION_STORAGE='polifan-ironnest-generation-session-v1'
 
 function loadSavedPlans(){
   try{return JSON.parse(localStorage.getItem(LAB_STORAGE)||'[]')||[]}
@@ -23,6 +24,9 @@ function loadActiveJob(){
 }
 function saveActiveJob(job){try{localStorage.setItem(ACTIVE_JOB_STORAGE,JSON.stringify(job))}catch{}}
 function clearActiveJob(){try{localStorage.removeItem(ACTIVE_JOB_STORAGE)}catch{}}
+function loadGenerationSession(){try{return JSON.parse(localStorage.getItem(SESSION_STORAGE)||'null')}catch{return null}}
+function saveGenerationSession(value){try{localStorage.setItem(SESSION_STORAGE,JSON.stringify(value))}catch{}}
+function clearGenerationSession(){try{localStorage.removeItem(SESSION_STORAGE)}catch{}}
 function planStamp(plan){return String(plan?.jobId||plan?.id||'').slice(0,8)||'sin-id'}
 function downloadSvg(name,text){
   if(!text)return
@@ -162,6 +166,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [elapsed,setElapsed]=useState(0)
   const [choosingMode,setChoosingMode]=useState(false)
   const [activeJob,setActiveJob]=useState(()=>loadActiveJob())
+  const [generationSession,setGenerationSession]=useState(()=>loadGenerationSession())
   const [registeringId,setRegisteringId]=useState('')
   const [registerMessage,setRegisterMessage]=useState('')
 
@@ -174,7 +179,7 @@ export default function MotorDefinitivo({db,onSave}){
   },[db.cutBatches])
   useEffect(()=>{
     const active=loadActiveJob()
-    if(active?.jobId){setActiveJob(active);resumeActiveJob(active)}
+    if(active?.jobId){setActiveJob(active);setGenerationSession(loadGenerationSession()||{sessionId:active.sessionId||active.jobId,jobId:active.jobId,multiplier:active.multiplier,startedAt:active.startedAt,status:'running'});resumeActiveJob(active)}
   },[])
 
   async function resumeActiveJob(active){
@@ -192,7 +197,7 @@ export default function MotorDefinitivo({db,onSave}){
       if(!data?.ok||!validation.ok||!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(data?.error||'El trabajo recuperado no superó la certificación geométrica.')
       const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean),composed=composeIndustrialSvg(data.placements||[],industrial.partMap),produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
       const plan={id:crypto.randomUUID(),jobId:String(active.jobId),createdAt:new Date().toISOString(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||0).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=10,candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · trabajo recuperado',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
-      setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
+      setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(loadGenerationSession()||{}),sessionId:active.sessionId||active.jobId,jobId:String(active.jobId),multiplier:Number(active.multiplier||1),status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession);setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
     }catch(error){clearActiveJob();setActiveJob(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}
     finally{setBusy(false)}
   }
@@ -222,10 +227,10 @@ export default function MotorDefinitivo({db,onSave}){
     const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
     const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
     const plan={id:crypto.randomUUID(),jobId:String(data.jobId||''),createdAt:new Date().toISOString(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
-    setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null)
+    setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(generationSession||{}),sessionId:generationSession?.sessionId||plan.jobId,jobId:plan.jobId,multiplier,status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession)
     setProgress(`IronNest finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
   }catch(error){
-    clearActiveJob();setActiveJob(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+    clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
   }finally{setBusy(false)}
  }
 
@@ -271,7 +276,7 @@ export default function MotorDefinitivo({db,onSave}){
     {registerMessage&&<div className="notice" style={{marginTop:12,marginBottom:0}}><b>{registerMessage}</b></div>}
     </div>
     <div className="panel table-wrap"><table><thead><tr><th>Placa</th><th>Contenido</th><th>Estado</th><th>Gap certificado</th><th>Conflictos</th><th>Borde</th><th>Ocupación</th><th>Acciones</th></tr></thead><tbody>
-      {plans.map(plan=>{const ok=String(plan.status||'').startsWith('CERTIFICADO'),stale=Boolean(activeJob?.jobId);return <tr key={plan.id}>
+      {plans.filter(plan=>!activeJob?.jobId||String(plan.jobId||'')===String(activeJob.jobId)).map(plan=>{const ok=String(plan.status||'').startsWith('CERTIFICADO'),stale=Boolean(activeJob?.jobId)&&String(plan.jobId||'')!==String(activeJob.jobId);return <tr key={plan.id}>
         <td><b>{stale?'Resultado anterior · ':''}Placa {plan.number}</b>{plan.jobId?<small className="block">Trabajo: {planStamp(plan)}</small>:<small className="block red-text"><b>Resultado legado · no registrar</b></small>}{stale&&<small className="block red-text"><b>NO corresponde al cálculo en curso</b></small>}<small className="block">Modo: {`×${Number(plan.multiplier||1)}`}</small><small className="block">Entrega prioritaria: {plan.date}</small><small className="block"><b>{plan.units.length} figuras completas</b> · {plan.units.length*Number(plan.multiplier||1)} cortes reales</small><small className="block">{plan.deferred} quedan pendientes</small></td>
         <td>{plan.summary.map(x=>`${x.figure} × ${x.qty}${Number(plan.multiplier||1)>1?' (sale ×'+(x.qty*Number(plan.multiplier||1))+')':''}`).join(', ')||'-'}</td>
         <td><b className={ok?'green-text':'red-text'}>{plan.status}</b>{plan.error&&<small className="block red-text">{plan.error}</small>}</td>
