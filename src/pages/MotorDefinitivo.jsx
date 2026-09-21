@@ -164,7 +164,6 @@ export default function MotorDefinitivo({db,onSave}){
   const [activeJob,setActiveJob]=useState(()=>loadActiveJob())
   const [registeringId,setRegisteringId]=useState('')
   const [registerMessage,setRegisterMessage]=useState('')
-  const [registeringId,setRegisteringId]=useState(null)
   const [confirmRegisterId,setConfirmRegisterId]=useState(null)
 
   useEffect(()=>{if(plans.length)savePlans(plans)},[plans])
