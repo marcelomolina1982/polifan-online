@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react'
 import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
-import {solveCompleteKitsWithIronNestLab,resumeIronNestLabJob} from '../lib/ironnestLab'
+import {solveCompleteKitsWithIronNestLab,resumeIronNestLabJob,isIronNestTransientError} from '../lib/ironnestLab'
 
 const LAB_STORAGE='polifan-motor-lab-last-plan-v5'
 const ACTIVE_JOB_STORAGE='polifan-ironnest-active-job-v3'
@@ -204,7 +204,7 @@ export default function MotorDefinitivo({db,onSave}){
       const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean),composed=composeIndustrialSvg(data.placements||[],industrial.partMap),produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
       const plan={id:crypto.randomUUID(),jobId:String(active.jobId),createdAt:new Date().toISOString(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||0).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=10,candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · trabajo recuperado',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
       setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(loadGenerationSession()||{}),sessionId:active.sessionId||active.jobId,jobId:String(active.jobId),multiplier:Number(active.multiplier||1),status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession);setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
-    }catch(error){clearActiveJob();setActiveJob(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}
+    }catch(error){if(isIronNestTransientError(error)){setProgress(`IronNest sigue pendiente · Trabajo ${String(active.jobId).slice(0,8)} conservado para reanudar.`);setPlans([])}else{clearActiveJob();setActiveJob(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])}}
     finally{setBusy(false)}
   }
 
@@ -236,7 +236,12 @@ export default function MotorDefinitivo({db,onSave}){
     setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(generationSession||{}),sessionId:generationSession?.sessionId||plan.jobId,jobId:plan.jobId,multiplier,status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession)
     setProgress(`IronNest finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
   }catch(error){
-    clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+    if(isIronNestTransientError(error)){
+      setProgress('La comunicación con IronNest se interrumpió o superó el tiempo de espera. El trabajo quedó guardado y se reanudará; no generes otra placa para reemplazarlo.')
+      setPlans([])
+    }else{
+      clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
+    }
   }finally{setBusy(false)}
  }
 
