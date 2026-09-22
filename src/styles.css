@@ -625,3 +625,9 @@ table tbody tr{transition:background .12s ease}table tbody tr:hover{background:#
   .operational-table .row-actions details{min-width:0}
   .operational-table .print-menu{max-width:calc(100vw - 48px)}
 }
+
+/* Clientes: acciones siempre accesibles, sin empujar la tarjeta fuera de pantalla. */
+.client-actions{display:flex;flex-wrap:wrap;min-width:0;gap:7px}
+.client-actions>*{flex:0 1 auto}
+@media(max-width:760px){.client-card-head{min-width:0}.client-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.client-actions>*{width:100%;min-width:0}}
+@media(max-width:430px){.client-actions{grid-template-columns:1fr}}
