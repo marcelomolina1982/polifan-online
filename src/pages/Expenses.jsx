@@ -40,8 +40,8 @@ export default function Expenses({db,onSave}){
   }
   function editIncome(x){setEditingIncome(x.id);setIncomeForm({...x,amount:String(x.amount||'')});window.scrollTo({top:0,behavior:'smooth'})}
   function editExpense(x){setEditingExpense(x.id);setExpenseForm({...x,amount:String(x.amount||'')});window.scrollTo({top:0,behavior:'smooth'})}
-  function removeIncome(x){if(confirm(`¿Eliminar el ingreso “${x.description}”?`)) onSave({...db,incomes:incomes.filter(i=>i.id!==x.id)})}
-  function removeExpense(x){if(confirm(`¿Eliminar el gasto “${x.description}”?`)) onSave({...db,expenses:expenses.filter(i=>i.id!==x.id)})}
+  async function removeIncome(x){if(!confirm(`¿Eliminar el ingreso “${x.description}”?`))return;await onSave({...db,incomes:incomes.filter(i=>i.id!==x.id)})}
+  async function removeExpense(x){if(!confirm(`¿Eliminar el gasto “${x.description}”?`))return;await onSave({...db,expenses:expenses.filter(i=>i.id!==x.id)})}
 
   return <>
     <Title title="Caja: ingresos y gastos" sub="Registrá toda la plata que entra y sale del negocio."/>
