@@ -13,10 +13,10 @@ export default function ProductionCalendar({db,onSave,go}){
   const [closing,setClosing]=useState(false)
   const closedDates=db.productionClosedDates||[]
   const days=useMemo(()=>Array.from({length:42},(_,i)=>add(todayArgentinaISO(),i)).filter(d=>new Date(d+'T12:00:00').getDay()!==0),[])
-  const byDate=useMemo(()=>db.orders.filter(o=>o.delivery&&o.status!=='Cancelado').reduce((acc,o)=>{(acc[o.delivery]??=[]).push(o);return acc},{}),[db.orders])
+  const byDate=useMemo(()=>db.orders.filter(o=>o.delivery&&!['Cancelado','Entregado'].includes(o.status)).reduce((acc,o)=>{(acc[o.delivery]??=[]).push(o);return acc},{}),[db.orders])
   const orders=byDate[selected]||[]
   const selectedClosed=closedDates.includes(selected)
-  const weeklyBoxes=useMemo(()=>{const start=todayArgentinaISO();const end=add(start,6);const grouped={};(db.orders||[]).filter(o=>o.delivery>=start&&o.delivery<=end&&o.status!=='Cancelado').forEach(o=>{const pack=packagingForPieces(orderPieces(o));pack.boxes.forEach(b=>{grouped[b.id]=grouped[b.id]||{...b,qty:0};grouped[b.id].qty+=b.qty})});return Object.values(grouped).sort((a,b)=>a.capacity-b.capacity)},[db.orders])
+  const weeklyBoxes=useMemo(()=>{const start=todayArgentinaISO();const end=add(start,6);const grouped={};(db.orders||[]).filter(o=>o.delivery>=start&&o.delivery<=end&&!['Cancelado','Entregado'].includes(o.status)).forEach(o=>{const pack=packagingForPieces(orderPieces(o));pack.boxes.forEach(b=>{grouped[b.id]=grouped[b.id]||{...b,qty:0};grouped[b.id].qty+=b.qty})});return Object.values(grouped).sort((a,b)=>a.capacity-b.capacity)},[db.orders])
 
   async function toggleClosed(){
     const action=selectedClosed?'reabrir':'cerrar'
