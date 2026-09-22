@@ -26,17 +26,17 @@ export default function Expenses({db,onSave}){
   const visibleIncomes=useMemo(()=>incomes.filter(x=>!filter||[x.category,x.description,x.notes,x.date].join(' ').toLowerCase().includes(filter.toLowerCase())).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.createdAt).localeCompare(String(a.createdAt))),[incomes,filter])
   const visibleExpenses=useMemo(()=>expenses.filter(x=>!filter||[x.category,x.description,x.notes,x.date].join(' ').toLowerCase().includes(filter.toLowerCase())).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.createdAt).localeCompare(String(a.createdAt))),[expenses,filter])
 
-  function saveIncome(e){
+  async function saveIncome(e){
     e.preventDefault(); const amount=Number(incomeForm.amount)
     if(!incomeForm.date||!incomeForm.description.trim()||!amount||amount<0) return alert('Completá fecha, detalle e importe del ingreso.')
     const next=editingIncome?incomes.map(x=>x.id===editingIncome?{...x,...incomeForm,amount,updatedAt:new Date().toISOString()}:x):[...incomes,{...incomeForm,id:crypto.randomUUID(),amount,createdAt:new Date().toISOString()}]
-    onSave({...db,incomes:next}); setIncomeForm(blankIncome()); setEditingIncome(null)
+    const saved=await onSave({...db,incomes:next}); if(saved?.ok===false)return; setIncomeForm(blankIncome()); setEditingIncome(null)
   }
-  function saveExpense(e){
+  async function saveExpense(e){
     e.preventDefault(); const amount=Number(expenseForm.amount)
     if(!expenseForm.date||!expenseForm.description.trim()||!amount||amount<0) return alert('Completá fecha, detalle e importe del gasto.')
     const next=editingExpense?expenses.map(x=>x.id===editingExpense?{...x,...expenseForm,amount,updatedAt:new Date().toISOString()}:x):[...expenses,{...expenseForm,id:crypto.randomUUID(),amount,createdAt:new Date().toISOString()}]
-    onSave({...db,expenses:next}); setExpenseForm(blankExpense()); setEditingExpense(null)
+    const saved=await onSave({...db,expenses:next}); if(saved?.ok===false)return; setExpenseForm(blankExpense()); setEditingExpense(null)
   }
   function editIncome(x){setEditingIncome(x.id);setIncomeForm({...x,amount:String(x.amount||'')});window.scrollTo({top:0,behavior:'smooth'})}
   function editExpense(x){setEditingExpense(x.id);setExpenseForm({...x,amount:String(x.amount||'')});window.scrollTo({top:0,behavior:'smooth'})}
