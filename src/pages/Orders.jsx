@@ -252,19 +252,32 @@ export default function Orders({db,onSave,onEdit}){
     if(!number)return alert('Este pedido no tiene un teléfono cargado.')
     const whatsappWindow=window.open('about:blank','_blank')
     if(!whatsappWindow)return alert('El navegador bloqueó WhatsApp. Permití las ventanas emergentes e intentá nuevamente.')
+    let enriched=o
+    let trackingWarning=false
+    let receiptDownloaded=false
     try{
       const {data,error}=await supabase.rpc('get_order_tracking_admin_by_number',{p_order_number:String(o.number||'')})
       if(error)throw error
       const row=Array.isArray(data)?data[0]:data
-      const enriched=row?.token?{...o,trackingToken:row.token}:o
-      await downloadOrderReceiptJpg(o)
-      whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(journeyMessage(enriched,JOURNEY_EVENTS.CONFIRMED,{trackingBaseUrl:window.location.origin}))}`
-      alert(`Se descargó el comprobante del pedido #${o.number}. En WhatsApp, adjuntá ese JPG antes de enviar el mensaje al cliente.`)
+      if(row?.token)enriched={...o,trackingToken:row.token}
+      else if(!o.trackingToken)trackingWarning=true
     }catch(error){
-      console.error(error)
-      whatsappWindow.close()
-      alert('No se pudo generar el comprobante JPG. Volvé a intentarlo.')
+      console.error('No se pudo recuperar el seguimiento; WhatsApp continúa.',error)
+      trackingWarning=!o.trackingToken
     }
+    try{
+      await downloadOrderReceiptJpg(o)
+      receiptDownloaded=true
+    }catch(error){
+      console.error('No se pudo descargar el comprobante; WhatsApp continúa.',error)
+    }
+    const message=journeyMessage(enriched,JOURNEY_EVENTS.CONFIRMED,{trackingBaseUrl:window.location.origin})
+    whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(message)}`
+    const notes=[]
+    if(receiptDownloaded)notes.push(`Se descargó el comprobante del pedido #${o.number}. Adjuntá ese JPG antes de enviar.`)
+    else notes.push('WhatsApp se abrió, pero el JPG no pudo descargarse. Podés descargarlo desde Imprimir → Comprobante cliente JPG.')
+    if(trackingWarning)notes.push('No se pudo recuperar el enlace de seguimiento en este intento.')
+    alert(notes.join('\\n\\n'))
   }
 
   function printLabel(o){
