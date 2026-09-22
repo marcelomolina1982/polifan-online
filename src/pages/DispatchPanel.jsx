@@ -65,13 +65,14 @@ export default function DispatchPanel({db}){
       const nextOrder=markJourneyFinal(order)
       const orders=operationalOrders.map(o=>o.id===order.id?nextOrder:o)
       await saveOrdersSafely(orders)
-      const token=await trackingTokenFor(nextOrder)
+      let token=''
+      try{token=await trackingTokenFor(nextOrder)}catch(error){console.error('No se pudo recuperar seguimiento para WhatsApp',error)}
       const phone=cleanPhone(order.phone)
       if(phone){
         const url=`https://wa.me/${phone}?text=${encodeURIComponent(whatsappMessage(nextOrder,token))}`
         if(popup)popup.location.href=url
         else window.open(url,'_blank','noopener,noreferrer')
-        alert(`Pedido #${order.number} marcado como ${action}. Se abrió WhatsApp con el mensaje preparado.`)
+        alert(`Pedido #${order.number} marcado como ${action}. Se abrió WhatsApp con el mensaje preparado.${token?'':' No se pudo recuperar el enlace de seguimiento; el despacho quedó guardado.'}`)
       }else{
         if(popup)popup.close()
         alert(`Pedido #${order.number} marcado como ${action}, pero no tiene un teléfono válido para abrir WhatsApp.`)
