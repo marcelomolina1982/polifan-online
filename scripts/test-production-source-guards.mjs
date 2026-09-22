@@ -4,6 +4,9 @@ const app=fs.readFileSync('src/AppV2.jsx','utf8')
 const cut=fs.readFileSync('src/pages/CutBatches.jsx','utf8')
 const motor=fs.readFileSync('src/pages/MotorDefinitivo.jsx','utf8')
 const stock=fs.readFileSync('src/pages/Stock.jsx','utf8')
+const stockBase=fs.readFileSync('src/pages/StockBase.jsx','utf8')
+const orders=fs.readFileSync('src/pages/Orders.jsx','utf8')
+const orderForm=fs.readFileSync('src/pages/OrderForm.jsx','utf8')
 
 const must=(ok,message)=>{if(!ok)throw new Error('PRODUCTION SOURCE GUARD: '+message)}
 
@@ -16,4 +19,7 @@ must(cut.includes('<option value="4">Cuádruple · 4 placas iguales</option>'),'
 must(motor.includes('generateAutomatic(3)')&&motor.includes('generateAutomatic(4)'),'Motor perdió ×3/×4')
 must(!motor.includes("fetch('/api/nest-start'"),'Motor volvió al backend Sparrow')
 must(!stock.includes('buildRecountCloseoutState(db)'),'reapareció cierre histórico automático de Inventario')
+must(stockBase.includes('Reserva de inventario hasta la entrega'),'Inventario volvió a explicar salida automática por fecha')
+must(orders.includes("const closed=['Entregado','Cancelado'].includes(o.status)"),'Pedidos volvió a archivar por fecha en vez de estado final')
+must(orderForm.includes("filter(x=>x!=='Entregado')"),'Formulario volvió a permitir Entregado sin circuito de despacho')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
