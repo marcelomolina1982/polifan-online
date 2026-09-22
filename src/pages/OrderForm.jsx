@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { statusColors } from '../lib/constants'
 import { money, pricePerUnit, today } from '../lib/format'
@@ -30,6 +30,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   })
   const [form,setForm]=useState(()=>{try{const saved=localStorage.getItem(DRAFT_KEY);if(!saved)return blank();const draft=JSON.parse(saved);return {...blank(),...draft,number:nextOrderNumber()}}catch{return blank()}})
   const [draftSaved,setDraftSaved]=useState(false)
+  const [savingAction,setSavingAction]=useState('')
+  const savingRef=useRef(false)
   const sortedFigures=useMemo(()=>{
     const byName=new Map()
     ;(db.figures||[]).forEach(value=>{const name=String(value||'').trim();if(name&&!byName.has(normalizeFigureName(name)))byName.set(normalizeFigureName(name),name)})
@@ -94,20 +96,25 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     return [...regular,...manual]
   }
   async function saveQuote(){
+    if(savingRef.current)return
     if(!form.firstName?.trim())return alert('Ingresá el nombre del cliente.')
     if(!form.lastName?.trim())return alert('Ingresá el apellido del cliente.')
     if(!form.phone?.trim())return alert('Ingresá el teléfono del cliente.')
     if(!regularItems.length&&!validManualItems.length)return alert('Agregá al menos una figura o un producto manual.')
+    savingRef.current=true;setSavingAction('quote')
+    try{
     const fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim(),code=nextQuoteCode()
     const quotedShipping=deliveryType==='Retiro en el local'||deliveryType==='Logística GBA/CABA'?0:Math.max(0,Number(form.shippingCost||0)||0)
     const quote={...form,id:crypto.randomUUID(),code,source:'Manual',status:'Pendiente',client:fullName,total,items:combinedItems(),date:today(),deliveryType,carrier:deliveryType,shippingCost:quotedShipping,shippingPaid:deliveryType==='Retiro en el local'?'No corresponde':(form.shippingPaid||'Pendiente de pago'),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
     const saved=await onSave({...db,quotes:[...(db.quotes||[]),quote]});if(saved?.ok===false)return
     try{await downloadQuoteJpg(quote)}catch(err){console.error(err)}
     localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit();alert(`${code} guardado. Podés aprobarlo desde VENTAS → Presupuestos.`)
+    }finally{savingRef.current=false;setSavingAction('')}
   }
 
   async function submit(e){
     e.preventDefault()
+    if(savingRef.current)return
     if(!form.firstName?.trim())return alert('Ingresá el nombre del cliente.')
     if(!form.lastName?.trim())return alert('Ingresá el apellido del cliente.')
     if(!form.phone.trim())return alert('Ingresá el teléfono del cliente.')
@@ -120,6 +127,8 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     if(!regularItems.length&&!validManualItems.length)return alert('Agregá al menos una figura o un producto manual.')
     if(form.delivery&&isSunday(form.delivery))return alert('Los domingos no se cuentan como días de producción. Elegí otra fecha de entrega.')
     if(qty>0&&form.delivery&&projectedPieces>=DAILY_PIECE_LIMIT){const excess=Math.max(0,projectedPieces-DAILY_PIECE_LIMIT);const message=projectedPieces===DAILY_PIECE_LIMIT?`Ese día llegará exactamente a ${DAILY_PIECE_LIMIT} piezas. ¿Querés guardar el pedido igualmente?`:`Ese día pasará a ${projectedPieces} piezas, superando el límite por ${excess}. ¿Querés seguir?`;if(!window.confirm(message))return}
+    savingRef.current=true;setSavingAction('order')
+    try{
     const automaticNumber=editing?form.number:nextOrderNumber(db.orders),fullName=[form.firstName,form.lastName].filter(Boolean).join(' ').trim()
     const final={...form,...(deliveryType==='Retiro en el local'?{address:'',betweenStreets:'',locality:'',district:'',province:'',postalCode:'',agencyDelivery:'',shippingCost:0,shippingPaid:'No corresponde',shippingPackaging:'No'}:deliveryType==='Logística GBA/CABA'?{shippingCost:0}:{}),deliveryType,carrier:deliveryType,client:fullName,zone:deliveryType==='Retiro en el local'?'Retiro en el local':[form.locality,form.district,form.province].filter(Boolean).join(' · '),number:automaticNumber,total,unitPrice:standardQty===qty&&qty?standardUnitPrice:null,productionSheets:sheets,productionDays,items:combinedItems(),manualItems:undefined,updatedAt:new Date().toISOString()}
     const orders=editing?db.orders.map(o=>o.id===final.id?final:o):[...db.orders,{...final,createdAt:new Date().toISOString()}]
@@ -127,6 +136,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     const saved=await onSave({...db,orders,clients});if(saved?.ok===false)return
     if(!editing){try{await downloadOrderReceiptJpg(final)}catch(err){console.error(err)}}
     localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(orders)});setDraftSaved(false);clearEdit();alert(editing?'Pedido actualizado.':'Pedido guardado.')
+    }finally{savingRef.current=false;setSavingAction('')}
   }
 
   return <>
@@ -167,7 +177,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       <div className="order-total production-totals">
         <div><small>Figuras de polifán</small><b>{qty}</b></div><div><small>Caja sugerida</small><b className="packaging-value">{qty?packaging.label:'Sin caja'}</b></div><div><small>Productos manuales</small><b>{manualQty}</b></div><div><small>Figuras</small><b>{money(regularTotal)}</b></div><div><small>Manual</small><b>{money(manualTotal)}</b></div><div><small>Valor productos</small><b>{money(total)}</b></div>{deliveryType==='Retiro en el local'?<div><small>Retiro</small><b>GRATIS</b></div>:deliveryType==='Logística GBA/CABA'?<div><small>Total productos</small><b>{money(total)}</b></div>:<><div><small>Envío</small><b>{money(Number(form.shippingCost||0))}</b></div><div><small>Total final</small><b>{money(total+Number(form.shippingCost||0))}</b></div></>}
       </div>
-      <div className="actions">{!editing&&<button type="button" className="ghost quote-button" onClick={saveQuote}>🧾 Guardar presupuesto + JPG</button>}<button className="primary">{editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
+      <div className="actions">{!editing&&<button type="button" className="ghost quote-button" disabled={Boolean(savingAction)} onClick={saveQuote}>{savingAction==='quote'?'Guardando presupuesto…':'🧾 Guardar presupuesto + JPG'}</button>}<button className="primary" disabled={Boolean(savingAction)}>{savingAction==='order'?'Guardando…':editing?'Guardar cambios':'Guardar pedido'}</button>{editing&&<button type="button" className="ghost" disabled={Boolean(savingAction)} onClick={()=>{localStorage.removeItem(DRAFT_KEY);setForm({...blank(),number:nextOrderNumber(db.orders)});setDraftSaved(false);clearEdit()}}>Cancelar</button>}</div>
     </form>
   </>
 }
