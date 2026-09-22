@@ -32,7 +32,7 @@ export default function CutBatches({db,onSave}){
       ...(component==='complete'?{}:{component}),
       type:component==='complete'?(positive?'Entrada de corte':'Ajuste negativo'):(positive?'Ajuste componente positivo':'Ajuste componente negativo'),
       qty,
-      detail:`${detailPrefix} · Placa #${batch.number} ${batch.name} · ${component==='complete'?'figura completa':component} · corte ${multiplier===2?'doble':'simple'}`,
+      detail:`${detailPrefix} · Placa #${batch.number} ${batch.name} · ${component==='complete'?'figura completa':component} · corte ${multiplier===4?'cuádruple':multiplier===3?'triple':multiplier===2?'doble':'simple'}`,
       createdAt:new Date().toISOString()
     }
   }
