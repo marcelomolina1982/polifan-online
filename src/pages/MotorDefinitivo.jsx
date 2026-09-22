@@ -236,8 +236,10 @@ export default function MotorDefinitivo({db,onSave}){
     setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(generationSession||{}),sessionId:generationSession?.sessionId||plan.jobId,jobId:plan.jobId,multiplier,status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession)
     setProgress(`IronNest finalizado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
   }catch(error){
-    if(isIronNestTransientError(error)){
-      setProgress('La comunicación con IronNest se interrumpió o superó el tiempo de espera. El trabajo quedó guardado y se reanudará; no generes otra placa para reemplazarlo.')
+    if(isIronNestTransientError(error)&&loadActiveJob()?.jobId){
+      const recoverable=loadActiveJob()
+      setActiveJob(recoverable)
+      setProgress(`La comunicación con IronNest se interrumpió. Trabajo ${String(recoverable.jobId).slice(0,8)} conservado para reanudar; no generes otra placa para reemplazarlo.`)
       setPlans([])
     }else{
       clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null);setPlans([{id:crypto.randomUUID(),number:1,units:[],summary:[],date:today(),registered:false,deferred:pending.units.length,status:'ERROR',error:error.message,minGap:'-',conflicts:'-',border:'-',seconds:'-',svgText:null,multiplier}])
