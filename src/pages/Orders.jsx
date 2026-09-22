@@ -232,8 +232,9 @@ export default function Orders({db,onSave,onEdit}){
 
   async function remove(id){
     if(confirm('¿Eliminar este pedido?')){
+      const saved=await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
+      if(saved?.ok===false)return
       setSelected(prev=>prev.filter(x=>x!==id))
-      await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
     }
   }
 
