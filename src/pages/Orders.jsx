@@ -205,8 +205,8 @@ export default function Orders({db,onSave,onEdit}){
   const [selected,setSelected]=useState([])
   const [view,setView]=useState('active')
   const todayKey=todayArgentinaISO()
-  const activeCount=useMemo(()=>db.orders.filter(o=>!o.delivery||String(o.delivery)>=todayKey).length,[db.orders,todayKey])
-  const historyCount=useMemo(()=>db.orders.filter(o=>o.delivery&&String(o.delivery)<todayKey).length,[db.orders,todayKey])
+  const activeCount=useMemo(()=>db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
+  const historyCount=useMemo(()=>db.orders.filter(o=>['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
 
   const list=useMemo(()=>{
     const term=q.trim().toLowerCase()
@@ -214,8 +214,8 @@ export default function Orders({db,onSave,onEdit}){
       const delivery=formatDelivery(o.delivery||'')
       const day=deliveryParts(o.delivery).day
       const haystack=(o.client+' '+o.phone+' '+o.number+' '+(o.delivery||'')+' '+delivery+' '+day+' '+(o.items||[]).map(i=>i.figure).join(' ')).toLowerCase()
-      const past=Boolean(o.delivery)&&String(o.delivery)<todayKey
-      const sectionMatch=view==='history'?past:!past
+      const closed=['Entregado','Cancelado'].includes(o.status)
+      const sectionMatch=view==='history'?closed:!closed
       return sectionMatch && haystack.includes(term) && (!status || o.status===status)
     })
     return filtered.slice().sort((a,b)=>{
@@ -224,7 +224,7 @@ export default function Orders({db,onSave,onEdit}){
       if(sort==='number-asc') return Number(a.number||0)-Number(b.number||0)
       return String(a.delivery||'9999-12-31').localeCompare(String(b.delivery||'9999-12-31')) || Number(a.number||0)-Number(b.number||0)
     })
-  },[db.orders,q,status,sort,view,todayKey])
+  },[db.orders,q,status,sort,view])
 
   const selectedOrders=useMemo(()=>db.orders.filter(o=>selected.includes(o.id)),[db.orders,selected])
   const visibleIds=list.map(o=>o.id)
@@ -333,7 +333,7 @@ export default function Orders({db,onSave,onEdit}){
   }
 
   return <>
-    <Title title="Pedidos" sub={view==='active'?'Pedidos de hoy en adelante. Los pedidos cuya fecha ya pasó se archivan automáticamente.':'Historial automático de pedidos con fecha de entrega anterior a hoy.'}/>
+    <Title title="Pedidos" sub={view==='active'?'Pedidos activos: permanecen aquí hasta Entregado o Cancelado.':'Historial de pedidos Entregados y Cancelados.'}/>
     <div className="request-tabs"><button className={view==='active'?'active':''} onClick={()=>changeView('active')}>Pedidos activos ({activeCount})</button><button className={view==='history'?'active':''} onClick={()=>changeView('history')}>Historial ({historyCount})</button></div>
     <div className="panel filters"><input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana / reciente primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select></div>
     <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>{view==='active'?'Se muestran los pedidos activos, incluso si pasó su fecha prevista, hasta Entregado o Cancelado.':'El historial conserva pedidos Entregados y Cancelados para consultar, imprimir o editar.'}</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
