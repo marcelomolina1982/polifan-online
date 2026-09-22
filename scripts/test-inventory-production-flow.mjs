@@ -1,0 +1,28 @@
+import {orderDemand,physicalStockBalance,activeCutQty,pendingCutByDelivery,stockRows} from '../src/lib/inventory.js'
+
+const must=(ok,message)=>{if(!ok)throw new Error('INVENTORY FLOW: '+message)}
+const qty=(groups,figure,component='complete')=>groups.flatMap(g=>g.rows).filter(r=>r.figure===figure&&r.component===component).reduce((n,r)=>n+Number(r.qty||0),0)
+const base={figures:['Arcoiris'],customerCatalog:[],stockMin:{},svgLibrary:[],movements:[{id:'m1',figure:'Arcoiris',type:'Entrada de corte',qty:5}],cutBatches:[],orders:[]}
+
+let db={...base,orders:[{id:'o1',number:1,status:'Ingresado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:3,inventoryTracked:true}]}]}
+must(orderDemand(db).Arcoiris===3,'pedido activo no reserva 3')
+must(physicalStockBalance(db).Arcoiris===5,'reservar pedido no debe consumir stock físico')
+must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'stock disponible no debe volver a corte')
+
+db={...base,orders:[{id:'o2',number:2,status:'Ingresado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:8,inventoryTracked:true}]}]}
+must(qty(pendingCutByDelivery(db),'Arcoiris')===3,'faltante 8-5 debe ser 3')
+db={...db,cutBatches:[{id:'b1',number:'001',status:'En corte',multiplier:3,items:[{figure:'Arcoiris',component:'complete',qty:1}]}]}
+must(activeCutQty(db).Arcoiris===3,'placa ×3 En corte debe representar 3 piezas')
+must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'piezas En corte deben cubrir el faltante sin duplicarlo')
+
+db={...base,orders:[{id:'o3',number:3,status:'Entregado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:3,inventoryTracked:true}]}]}
+must((orderDemand(db).Arcoiris||0)===0,'Entregado no debe seguir reservado')
+must(physicalStockBalance(db).Arcoiris===2,'Entregado debe consumir 3 de las 5 físicas')
+
+db={...base,movements:[{id:'t1',figure:'Arcoiris',component:'tapa',type:'Ajuste componente positivo',qty:2}],orders:[{id:'o4',number:4,status:'Ingresado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:2,inventoryTracked:true}]}]}
+must(qty(pendingCutByDelivery(db),'Arcoiris','base')===2,'2 tapas sueltas deben pedir 2 bases, no 2 figuras completas')
+must(qty(pendingCutByDelivery(db),'Arcoiris','complete')===0,'reparación por componente no debe convertirse en figura completa')
+
+db={...base,orders:[{id:'o5',number:5,status:'Cancelado',items:[{figure:'Arcoiris',qty:99,inventoryTracked:true}]}]}
+must((stockRows(db).find(r=>r.figure==='Arcoiris')?.ordered||0)===0,'Cancelado no debe reservar stock')
+console.log('INVENTORY FLOW OK · reserva, entrega, en corte, multiplicador y reparación por componente')
