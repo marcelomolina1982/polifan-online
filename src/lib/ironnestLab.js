@@ -1,6 +1,7 @@
 const DEFAULT_IRONNEST_LAB_URL='https://polifan-ironnest-hardbound-lab.onrender.com'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+export const isIronNestTransientError=error=>/supero \d+ segundos|timeout|timed out|failed to fetch|networkerror|network error|load failed|fetch/i.test(String(error?.message||error||''))
 
 export function ironNestLabUrl(){
   const configured=String((import.meta.env.VITE_IRONNEST_LAB_URL)||'').trim()
