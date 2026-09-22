@@ -120,7 +120,7 @@ export default function Stock({db,onSave}){
     <div className="notice inventory-explanation"><b>Armado automático de tapa + base</b><span>Cuando una figura tiene 1 tapa y 1 base sueltas, el inventario las convierte automáticamente en 1 figura completa. Las dos partes dejan de mostrarse como sueltas. La Proyección también tiene en cuenta las tapas y bases que todavía están En corte.</span></div>
     <div className="inventory-kpis">
       <div className="panel"><small>CORTADAS AHORA</small><b>{totals.cut}</b><span>Piezas físicas registradas</span></div>
-      <div className="panel"><small>PEDIDAS HOY / FUTURAS</small><b>{totals.ordered}</b><span>Comprometidas hasta su fecha de salida</span></div>
+      <div className="panel"><small>PEDIDAS ACTIVAS</small><b>{totals.ordered}</b><span>Reservadas hasta Entregado o Cancelado</span></div>
       <div className="panel"><small>EN CORTE</small><b>{totals.inCut}</b><span>Producción todavía no terminada</span></div>
       <div className={'panel '+(totals.free<0?'inventory-negative':'inventory-positive')}><small>SALDO ACTUAL</small><b>{totals.free>0?`+${totals.free}`:totals.free}</b><span>{totals.free<0?'Faltan piezas hoy':'Sobran piezas disponibles hoy'}</span></div>
       <div className={'panel '+(totals.projected<0?'inventory-negative':'inventory-positive')}><small>PROYECCIÓN</small><b>{totals.projected>0?`+${totals.projected}`:totals.projected}</b><span>Saldo cuando termine lo que está en corte</span></div>
