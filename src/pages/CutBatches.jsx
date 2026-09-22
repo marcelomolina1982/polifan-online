@@ -6,6 +6,7 @@ export default function CutBatches({db,onSave}){
   const blank=()=>({name:'Placa '+today(),date:today(),notes:'',multiplier:1,items:[{figure:'',component:'complete',qty:1}]})
   const [form,setForm]=useState(blank())
   const [editing,setEditing]=useState(null)
+  const actionRef=React.useRef(false)
   const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
   const sortedBatches=useMemo(()=>[...(db.cutBatches||[])].sort((a,b)=>{
     const ta=Date.parse(a.createdAt||a.updatedAt||a.finishedAt||a.date||'')||0
@@ -65,21 +66,25 @@ export default function CutBatches({db,onSave}){
   }
 
   async function finish(batch){
+    if(actionRef.current)return
     if(!confirm('¿Marcar esta placa como terminada y sumar sus piezas al inventario?'))return
+    actionRef.current=true
     const movements=inventoryMovements(batch,1,'Placa terminada')
     const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Terminada',finishedAt:new Date().toISOString()}:b)
-    await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches})
+    try{const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches});if(result?.ok===false)alert('No se pudo terminar la placa. No se confirmó ningún cambio.')}finally{actionRef.current=false}
   }
 
   async function cancel(batch){
+    if(actionRef.current)return
     const wasFinished=batch.status==='Terminada'
     const message=wasFinished
       ?'¿Anular este corte terminado? Se retirarán del inventario exactamente las piezas que esta placa había sumado.'
       :'¿Cancelar esta placa? Las piezas volverán a Pedidos para cortar.'
     if(!confirm(message))return
+    actionRef.current=true
     const reversals=wasFinished?inventoryMovements(batch,-1,'Corte anulado: retirar del inventario'):[]
     const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Cancelada',cancelledAt:new Date().toISOString()}:b)
-    await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches})
+    try{const result=await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches});if(result?.ok===false)alert('No se pudo actualizar la placa. No se confirmó ningún cambio.')}finally{actionRef.current=false}
   }
 
   function edit(batch){
