@@ -22,4 +22,7 @@ must(!stock.includes('buildRecountCloseoutState(db)'),'reapareció cierre histó
 must(stockBase.includes('Reserva de inventario hasta la entrega'),'Inventario volvió a explicar salida automática por fecha')
 must(orders.includes("const closed=['Entregado','Cancelado'].includes(o.status)"),'Pedidos volvió a archivar por fecha en vez de estado final')
 must(orderForm.includes("filter(x=>x!=='Entregado')"),'Formulario volvió a permitir Entregado sin circuito de despacho')
+must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.status)}"),'Formulario permite reabrir estados finales')
+must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)}"),'Lista de pedidos permite reabrir estados finales')
+must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volvió a liberar stock sin confirmación')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
