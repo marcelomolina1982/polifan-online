@@ -12,7 +12,7 @@ export default function DashboardV4({db,go}){
   const [q,setQ]=useState('')
   const today=todayArgentinaISO(),orders=db.orders||[]
   const active=orders.filter(o=>isOrderCommitted(o,today))
-  const todayOrders=orders.filter(o=>o.delivery===today&&o.status!=='Cancelado')
+  const todayOrders=orders.filter(o=>o.delivery===today&&!['Cancelado','Entregado'].includes(o.status))
   const todayPieces=todayOrders.reduce((s,o)=>s+orderPieces(o),0)
   const activePieces=active.reduce((s,o)=>s+orderPieces(o),0)
   const overdue=orders.filter(o=>o.delivery&&o.delivery<today&&!['Cancelado','Entregado'].includes(o.status))
@@ -26,7 +26,7 @@ export default function DashboardV4({db,go}){
   const boxes=packagingNeeds(db,{from:today,days:7}),packagingStock=db.packagingStock||{}
   const boxesToBuy=boxes.reduce((s,row)=>s+Math.max(0,row.qty-Number(packagingStock[row.name]||0)),0)
 
-  const upcoming=useMemo(()=>orders.filter(o=>o.delivery&&o.delivery>=today&&o.status!=='Cancelado').sort((a,b)=>String(a.delivery).localeCompare(String(b.delivery))).slice(0,7),[orders,today])
+  const upcoming=useMemo(()=>orders.filter(o=>o.delivery&&o.delivery>=today&&!['Cancelado','Entregado'].includes(o.status)).sort((a,b)=>String(a.delivery).localeCompare(String(b.delivery))).slice(0,7),[orders,today])
   const hits=useMemo(()=>{const term=q.trim().toLowerCase();if(term.length<2)return[];return orders.filter(o=>[o.number,name(o),o.phone,o.dni,o.locality,...(o.items||[]).map(i=>i.figure)].filter(Boolean).join(' ').toLowerCase().includes(term)).slice(0,6)},[q,orders])
   const priorities=useMemo(()=>{
     const list=[]
