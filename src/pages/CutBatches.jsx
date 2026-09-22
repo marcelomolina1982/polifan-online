@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { today } from '../lib/format'
 
@@ -6,7 +6,6 @@ export default function CutBatches({db,onSave}){
   const blank=()=>({name:'Placa '+today(),date:today(),notes:'',multiplier:1,items:[{figure:'',component:'complete',qty:1}]})
   const [form,setForm]=useState(blank())
   const [editing,setEditing]=useState(null)
-  const autoFinishRef=useRef(false)
   const sortedFigures=useMemo(()=>[...(db.figures||[])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db.figures])
   const sortedBatches=useMemo(()=>[...(db.cutBatches||[])].sort((a,b)=>{
     const ta=Date.parse(a.createdAt||a.updatedAt||a.finishedAt||a.date||'')||0
@@ -42,21 +41,6 @@ export default function CutBatches({db,onSave}){
     return (batch.items||[]).map(i=>movementForItem(batch,i,sign,detailPrefix)).filter(Boolean)
   }
 
-  useEffect(()=>{
-    if(autoFinishRef.current)return
-    const pending=(db.cutBatches||[]).filter(b=>b.status==='En corte' && String(b.name||'').startsWith('Placa automática Sparrow'))
-    if(!pending.length)return
-    autoFinishRef.current=true
-    ;(async()=>{
-      const now=new Date().toISOString()
-      const ids=new Set(pending.map(b=>b.id))
-      const movements=[...(db.movements||[])]
-      pending.forEach(batch=>movements.push(...inventoryMovements(batch,1,'Alta automática desde SVG')))
-      const cutBatches=(db.cutBatches||[]).map(b=>ids.has(b.id)?{...b,status:'Terminada',finishedAt:now,autoFinished:true}:b)
-      const result=await onSave({...db,movements,cutBatches})
-      if(result?.ok===false)autoFinishRef.current=false
-    })()
-  },[db.cutBatches,db.movements,onSave])
 
   async function submit(e){
     e.preventDefault()
@@ -105,14 +89,14 @@ export default function CutBatches({db,onSave}){
   }
 
   return <>
-    <Title title="En corte" sub="Las placas automáticas de Sparrow pasan a Terminadas al ingresar y suman su producción al inventario. Después podés modificarlas o anularlas y el stock se corrige automáticamente."/>
+    <Title title="En corte" sub="Las placas quedan En corte hasta que confirmes que terminaron. Recién entonces sus piezas se incorporan al inventario; después podés modificarlas o anularlas y el stock se corrige."/>
     <form className="panel" onSubmit={submit}>
       <h3>{editing?`Modificar placa #${editing.number}`:'Nueva placa de corte'}</h3>
       {editing?.status==='Terminada'&&<div className="notice"><b>Placa ya terminada</b><span>Al guardar cambios, la app quitará del inventario el contenido anterior y cargará el nuevo automáticamente.</span></div>}
       <div className="form-grid">
         <Field label="Nombre"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
         <Field label="Fecha"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
-        <Field label="Tipo de corte"><select value={form.multiplier||1} onChange={e=>setForm({...form,multiplier:Number(e.target.value)})}><option value="1">Simple · 1 placa</option><option value="2">Doble · 2 placas iguales</option></select></Field>
+        <Field label="Tipo de corte"><select value={form.multiplier||1} onChange={e=>setForm({...form,multiplier:Number(e.target.value)})}><option value="1">Simple · 1 placa</option><option value="2">Doble · 2 placas iguales</option><option value="3">Triple · 3 placas iguales</option><option value="4">Cuádruple · 4 placas iguales</option></select></Field>
       </div>
       {form.items.map((it,ix)=><div className="item-row" key={ix}>
         <input list={`cutfig-${ix}`} placeholder="🔍 Buscar figura" value={it.figure} onChange={e=>updateItem(ix,'figure',e.target.value)}/>
@@ -126,7 +110,7 @@ export default function CutBatches({db,onSave}){
       <div className="actions"><button className="primary">{editing?'Guardar modificación':'Guardar placa'}</button>{editing&&<button type="button" className="ghost" onClick={()=>{setEditing(null);setForm(blank())}}>Cancelar edición</button>}</div>
     </form>
     <div className="panel table-wrap operational-table"><table><thead><tr><th>Placa</th><th>Fecha</th><th>Piezas</th><th>Estado</th><th className="actions-cell">Acciones</th></tr></thead><tbody>
-      {sortedBatches.map(b=><tr key={b.id}><td data-label="Placa"><b>#{b.number} · {b.name}</b><small className="block">{b.notes}</small></td><td data-label="Fecha">{b.date}</td><td data-label="Piezas">{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(', ')}<small className="block">Corte {(Number(b.multiplier)||1)===2?'doble':'simple'}</small></td><td data-label="Estado"><span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')}>{b.status}</span></td><td className="row-actions actions-cell" data-label="Acciones">{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</td></tr>)}
+      {sortedBatches.map(b=><tr key={b.id}><td data-label="Placa"><b>#{b.number} · {b.name}</b><small className="block">{b.notes}</small></td><td data-label="Fecha">{b.date}</td><td data-label="Piezas">{(b.items||[]).map(i=>`${i.figure}${(i.component&&i.component!=='complete')?` · ${i.component}`:''} × ${Number(i.qty)*(Number(b.multiplier)||1)}`).join(', ')}<small className="block">Corte {(Number(b.multiplier)||1)===4?'cuádruple':(Number(b.multiplier)||1)===3?'triple':(Number(b.multiplier)||1)===2?'doble':'simple'}</small></td><td data-label="Estado"><span className={'status-text '+(b.status==='En corte'?'low':b.status==='Cancelada'?'':'ok')}>{b.status}</span></td><td className="row-actions actions-cell" data-label="Acciones">{b.status==='En corte'&&<><button className="primary" onClick={()=>finish(b)}>Terminar</button><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Cancelar</button></>}{b.status==='Terminada'&&<><button className="ghost" onClick={()=>edit(b)}>Modificar</button><button className="danger" onClick={()=>cancel(b)}>Anular corte</button></>}</td></tr>)}
       {!(db.cutBatches||[]).length&&<tr><td colSpan="5">Todavía no hay placas registradas.</td></tr>}
     </tbody></table></div>
   </>
