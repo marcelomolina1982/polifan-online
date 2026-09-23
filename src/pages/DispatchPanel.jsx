@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react'
+import React,{useMemo,useRef,useState} from 'react'
 import {supabase} from '../supabase'
 import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal} from '../lib/customerJourneyOperational.js'
 import {JOURNEY_EVENTS,journeyMessage} from '../lib/customerJourney.js'
@@ -18,6 +18,7 @@ const firstName=order=>String(order?.firstName||order?.client||'').trim().split(
 
 export default function DispatchPanel({db,onSave}){
   const [busy,setBusy]=useState('')
+  const dispatchRef=useRef(false)
 
   const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
   const ready=useMemo(()=>operationalOrders.filter(o=>{
@@ -46,8 +47,10 @@ export default function DispatchPanel({db,onSave}){
   }
 
   async function dispatch(order){
+    if(dispatchRef.current)return
+    dispatchRef.current=true
     const action=isPickup(order)?'listo para retirar':'despachado'
-    if(!window.confirm(`¿Marcar el pedido #${order.number} como ${action}?`))return
+    if(!window.confirm(`¿Marcar el pedido #${order.number} como ${action}?`)){dispatchRef.current=false;return}
     const popup=window.open('about:blank','_blank')
     setBusy(String(order.id||order.number))
     try{
@@ -71,7 +74,7 @@ export default function DispatchPanel({db,onSave}){
       if(popup)popup.close()
       console.error(error)
       alert('No se pudo marcar como despachado: '+(error?.message||'error de sincronización'))
-    }finally{setBusy('')}
+    }finally{dispatchRef.current=false;setBusy('')}
   }
 
   if(!ready.length)return null
