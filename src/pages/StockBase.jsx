@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { today } from '../lib/format'
 import { stockRows, duplicateFigureGroups, mergeDuplicateFigures, catalogFigureInfo, mergeFigureInto } from '../lib/inventory'
@@ -11,6 +11,7 @@ export default function Stock({db,onSave}){
   const [mergeA,setMergeA]=useState('')
   const [mergeB,setMergeB]=useState('')
   const [mergeKeep,setMergeKeep]=useState('')
+  const actionRef=useRef(false)
   const allRows=useMemo(()=>stockRows(db),[db])
   const rows=useMemo(()=>{const q=search.toLowerCase();return allRows.filter(r=>String(r?.figure||'').toLowerCase().includes(q))},[allRows,search])
   const sortedFigures=useMemo(()=>[...new Set([...(db?.figures||[]),...(db?.customerCatalog||[]).map(p=>p?.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db?.figures,db?.customerCatalog])
@@ -22,7 +23,7 @@ export default function Stock({db,onSave}){
   const rowByFigure=useMemo(()=>Object.fromEntries(allRows.map(r=>[r.figure,r])),[allRows])
   const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free,projected:a.projected+r.projected}),{cut:0,ordered:0,inCut:0,free:0,projected:0}),[rows])
 
-  async function add(e){e.preventDefault();if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]});setForm({...form,qty:1,detail:''})}
+  async function add(e){e.preventDefault();if(actionRef.current)return;if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');actionRef.current=true;try{const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};const saved=await onSave({...db,movements:[...(db.movements||[]),movement]});if(saved?.ok===false)return;setForm({...form,qty:1,detail:''})}finally{actionRef.current=false}}
   async function cleanDuplicates(){
     if(!duplicateGroups.length)return alert('No se encontraron nombres duplicados en el inventario.')
     const preview=duplicateGroups.slice(0,12).map(g=>`• ${g.names.join(' / ')} → ${g.canonical}${g.fromCatalog?' (catálogo)':''}`).join('\n')
@@ -55,8 +56,10 @@ export default function Stock({db,onSave}){
   }
 
   async function quick(figure,direction){
+    if(actionRef.current)return
     const qty=Math.max(0,Number(quickQty[figure]||0))
     if(!qty)return alert('Ingresá una cantidad mayor a 0.')
+    actionRef.current=true
     const positive=direction==='add'
     const component=quickPart[figure]||'complete'
     const isPart=component==='tapa'||component==='base'
@@ -97,8 +100,7 @@ export default function Stock({db,onSave}){
           createdAt:now
         })
       }
-      await onSave({...db,movements:[...(db.movements||[]),...movements]})
-      setQuickQty(v=>({...v,[figure]:''}))
+      try{const saved=await onSave({...db,movements:[...(db.movements||[]),...movements]});if(saved?.ok===false)return;setQuickQty(v=>({...v,[figure]:''}))}finally{actionRef.current=false}
       return
     }
 
@@ -110,8 +112,7 @@ export default function Stock({db,onSave}){
       detail:isPart?`${positive?'Agregar':'Quitar'} ${component}${qty===1?'':'s'} suelta${qty===1?'':'s'}`:(positive?'Ajuste manual: agregar figuras completas':'Ajuste manual: quitar figuras completas'),
       createdAt:new Date().toISOString()
     }
-    await onSave({...db,movements:[...(db.movements||[]),movement]})
-    setQuickQty(v=>({...v,[figure]:''}))
+    try{const saved=await onSave({...db,movements:[...(db.movements||[]),movement]});if(saved?.ok===false)return;setQuickQty(v=>({...v,[figure]:''}))}finally{actionRef.current=false}
   }
 
   return <>
