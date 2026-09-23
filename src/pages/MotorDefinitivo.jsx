@@ -1,4 +1,4 @@
-import React,{useEffect,useMemo,useState} from 'react'
+import React,{useEffect,useMemo,useRef,useState} from 'react'
 import {Title} from '../components/UI'
 import {pendingCutByDelivery,normalizeFigureKey} from '../lib/inventory'
 import {today} from '../lib/format'
@@ -168,6 +168,7 @@ export default function MotorDefinitivo({db,onSave}){
   const [activeJob,setActiveJob]=useState(()=>loadActiveJob())
   const [generationSession,setGenerationSession]=useState(()=>loadGenerationSession())
   const [registeringId,setRegisteringId]=useState('')
+  const registeringRef=useRef(false)
   const [registerMessage,setRegisterMessage]=useState('')
 
   useEffect(()=>{if(plans.length)savePlans(plans)},[plans])
@@ -248,13 +249,13 @@ export default function MotorDefinitivo({db,onSave}){
  }
 
   async function registerPlan(plan){
-    if(registeringId){setRegisterMessage('Ya hay un registro de corte en proceso. Esperá a que termine.');return}
+    if(registeringRef.current||registeringId){setRegisterMessage('Ya hay un registro de corte en proceso. Esperá a que termine.');return}
     if(!String(plan.status||'').startsWith('CERTIFICADO')||!plan.svgText||plan.registered){setRegisterMessage('Esta placa no está disponible para registrar.');return}
     if(activeJob?.jobId){setRegisterMessage('Hay un cálculo IronNest en curso. Esperá a que termine antes de registrar el corte.');return}
     if(!plan.jobId){setRegisterMessage('Esta placa es anterior al sistema de identificación de trabajos. No se puede registrar con seguridad. Generá una placa nueva.');return}
     const already=(db.cutBatches||[]).find(b=>String(b.sourceJobId||'')===String(plan.jobId))
     if(already){const nextPlans=plans.map(x=>x.id===plan.id?{...x,registered:true,batchNumber:already.number}:x);setPlans(nextPlans);savePlans(nextPlans);setRegisterMessage(`✅ Este trabajo ya estaba registrado como Placa #${already.number}. No se duplicó el Inventario.`);return}
-    setRegisteringId(plan.id);setRegisterMessage('Registrando corte terminado…')
+    registeringRef.current=true;setRegisteringId(plan.id);setRegisterMessage('Registrando corte terminado…')
     try{
       const multiplier=Number(plan.multiplier||1)
       const number=String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0')
@@ -271,7 +272,7 @@ export default function MotorDefinitivo({db,onSave}){
     }catch(error){
       console.error('No se pudo registrar el corte terminado',error)
       setRegisterMessage('❌ No se pudo registrar. El Inventario no fue modificado. '+(error?.message||'Error desconocido.'))
-    }finally{setRegisteringId('')}
+    }finally{registeringRef.current=false;setRegisteringId('')}
   }
 
   return <>
