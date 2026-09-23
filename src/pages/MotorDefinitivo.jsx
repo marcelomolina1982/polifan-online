@@ -157,6 +157,8 @@ function composeIndustrialSvg(placements,partMap){
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1230mm" height="580mm" viewBox="0 0 1230 580" overflow="hidden">${pieces.join('')}</svg>`
 }
 
+const REQUIRED_GAP_MM=2.5
+
 export default function MotorDefinitivo({db,onSave}){
   const index=useMemo(()=>libraryIndex(db),[db.svgLibrary])
   const pending=useMemo(()=>pendingUnits(db,index),[db,index])
@@ -201,7 +203,7 @@ export default function MotorDefinitivo({db,onSave}){
     try{
       const data=await resumeIronNestLabJob(active.jobId,{startedAt:jobStartedAt,onProgress:p=>{setElapsed(Math.round((Date.now()-overallStartedAt)/1000));setProgress(p?.stage||'Recuperando trabajo IronNest…')}})
       const validation=data?.layoutValidation||{},minGap=Number(validation.minimumMeasuredGapMm),conflicts=Number(validation.conflicts??validation.collisionCount??0),border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
-      if(!data?.ok||!validation.ok||!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(data?.error||'El trabajo recuperado no superó la certificación geométrica.')
+      if(!data?.ok||!validation.ok||!Number.isFinite(minGap)||minGap<REQUIRED_GAP_MM||conflicts!==0||border!==0)throw new Error(data?.error||'El trabajo recuperado no superó la certificación geométrica.')
       const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean),composed=composeIndustrialSvg(data.placements||[],industrial.partMap),produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
       const plan={id:crypto.randomUUID(),jobId:String(active.jobId),createdAt:new Date().toISOString(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||0).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=10,candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · trabajo recuperado',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
       setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(loadGenerationSession()||{}),sessionId:active.sessionId||active.jobId,jobId:String(active.jobId),multiplier:Number(active.multiplier||1),status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession);setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
@@ -230,7 +232,7 @@ export default function MotorDefinitivo({db,onSave}){
     const minGap=Number(validation.minimumMeasuredGapMm)
     const conflicts=Number(validation.conflicts??validation.collisionCount??0)
     const border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
-    if(!Number.isFinite(minGap)||minGap<3||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
+    if(!Number.isFinite(minGap)||minGap<REQUIRED_GAP_MM||conflicts!==0||border!==0)throw new Error(`La placa fue rechazada por el certificador geométrico: gap ${Number.isFinite(minGap)?minGap.toFixed(3):'-'} mm, conflictos ${conflicts}, borde ${border}.`)
     const composed=composeIndustrialSvg(data.placements||[],industrial.partMap)
     const produced=Math.min(pending.units.length,selectedUnits.length*multiplier)
     const plan={id:crypto.randomUUID(),jobId:String(data.jobId||''),createdAt:new Date().toISOString(),number:1,units:selectedUnits,summary:summarizeUnits(selectedUnits),date:selectedUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:minGap.toFixed(4),conflicts:0,border:0,seconds:Number(data.elapsedSeconds||((Date.now()-started)/1000)).toFixed(2),svgText:composed,error:'',density:Number(data.geometricOccupancyPct??data.density??0),stripWidthMm:Number(data.usedWidthMm||0),industrialSeconds:Number(data.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:selectedUnits.length>=Math.min(10,industrial.kits.length),candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-selectedUnits.length),source:'IronNest producción · crecimiento por kits completos',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
