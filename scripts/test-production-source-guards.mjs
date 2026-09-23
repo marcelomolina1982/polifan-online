@@ -37,4 +37,5 @@ must(orders.includes("if(!['Entregado','Cancelado'].includes(order.status))retur
 must(dispatch.includes('export default function DispatchPanel({db,onSave})'),'Despacho dejó de usar guardado coordinado de AppV2')
 must(dispatch.includes('const saved=await onSave({...db,orders})'),'Despacho volvió a escribir pedidos por fuera del guardado con control de conflictos')
 must(!dispatch.includes("patch_v2_sections_checked"),'Despacho volvió a sobrescribir la sección orders directamente')
+must(dispatch.includes('const dispatchRef=useRef(false)')&&dispatch.includes('if(dispatchRef.current)return')&&dispatch.includes('dispatchRef.current=true')&&dispatch.includes("finally{dispatchRef.current=false;setBusy('')}"),'Despacho perdió protección inmediata contra doble clic')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
