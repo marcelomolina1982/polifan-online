@@ -25,6 +25,8 @@ must(orders.includes("const closed=['Entregado','Cancelado'].includes(o.status)"
 must(orderForm.includes("filter(x=>x!=='Entregado')"),'Formulario volvió a permitir Entregado sin circuito de despacho')
 must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.status)}"),'Formulario permite reabrir estados finales')
 must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)}"),'Lista de pedidos permite reabrir estados finales')
+must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)} onClick={()=>onEdit(o)}"),'Lista de pedidos permite editar estados finales')
+must(orderForm.includes("if(editing&&['Entregado','Cancelado'].includes(editing.status))"),'Formulario permite guardar cambios sobre pedidos finales')
 must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volvió a liberar stock sin confirmación')
 must(orders.includes("if(!['Entregado','Cancelado'].includes(order.status))return alert("),'Pedidos activos volvieron a poder eliminarse y liberar reserva por accidente')
 must(dispatch.includes('export default function DispatchPanel({db,onSave})'),'Despacho dejó de usar guardado coordinado de AppV2')
