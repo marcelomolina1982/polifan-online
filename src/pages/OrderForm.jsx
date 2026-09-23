@@ -115,6 +115,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   async function submit(e){
     e.preventDefault()
     if(savingRef.current)return
+    if(editing&&['Entregado','Cancelado'].includes(editing.status))return alert(`El pedido #${editing.number} está cerrado como ${editing.status} y no puede modificarse.`)
     if(!form.firstName?.trim())return alert('Ingresá el nombre del cliente.')
     if(!form.lastName?.trim())return alert('Ingresá el apellido del cliente.')
     if(!form.phone.trim())return alert('Ingresá el teléfono del cliente.')
