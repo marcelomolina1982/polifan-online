@@ -46,4 +46,6 @@ must(dispatch.includes('const saved=await onSave({...db,orders})'),'Despacho vol
 must(!dispatch.includes("patch_v2_sections_checked"),'Despacho volvió a sobrescribir la sección orders directamente')
 must(dispatch.includes('const dispatchRef=useRef(false)')&&dispatch.includes('if(dispatchRef.current)return')&&dispatch.includes('dispatchRef.current=true')&&dispatch.includes("finally{dispatchRef.current=false;setBusy('')}"),'Despacho perdió protección inmediata contra doble clic')
 must(dispatch.includes('const current=(db.orders||[]).find(o=>o.id===order.id)')&&dispatch.includes('current.updatedAt!==order.updatedAt')&&dispatch.includes('markJourneyFinal(current)'),'Despacho volvió a guardar sobre una versión vieja del pedido')
+must(stockBase.includes('const saved=await onSave({...db,movements:')&&stockBase.includes('if(saved?.ok===false)return;setForm('),'Movimiento manual de Inventario volvió a limpiar el formulario aunque falle el guardado')
+must(stockBase.includes("try{const saved=await onSave({...db,movements:[...(db.movements||[]),movement]});if(saved?.ok===false)return;setQuickQty"),'Ajuste rápido de Inventario volvió a confirmar localmente aunque falle el guardado')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
