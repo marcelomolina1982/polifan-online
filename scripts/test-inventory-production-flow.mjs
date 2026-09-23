@@ -25,4 +25,7 @@ must(qty(pendingCutByDelivery(db),'Arcoiris','complete')===0,'reparación por co
 
 db={...base,orders:[{id:'o5',number:5,status:'Cancelado',items:[{figure:'Arcoiris',qty:99,inventoryTracked:true}]}]}
 must((stockRows(db).find(r=>r.figure==='Arcoiris')?.ordered||0)===0,'Cancelado no debe reservar stock')
+
+db={...base,movements:[{id:'wrong-batch',batchId:'batch-old',figure:'Arcoiris',component:'complete',type:'Entrada de corte',qty:1,detail:'Alta automática · Placa #007'}],cutBatches:[{id:'batch-new',number:'007',status:'Terminada',finishedAt:'2026-09-23T12:00:00',multiplier:1,items:[{figure:'Arcoiris',component:'complete',qty:1}]}],orders:[]}
+must(physicalStockBalance(db).Arcoiris===2,'un movimiento con batchId ajeno no debe atribuirse a otra placa sólo porque comparte número')
 console.log('INVENTORY FLOW OK · reserva, entrega, en corte, multiplicador y reparación por componente')
