@@ -17,6 +17,7 @@ must(!cut.includes("startsWith('Placa automática Sparrow')"),'reapareció auto-
 must(!cut.includes('autoFinishRef'), 'reapareció auto-escritura de cortes al montar la pantalla')
 must(cut.includes('<option value="3">Triple · 3 placas iguales</option>'),'En corte perdió multiplicador ×3')
 must(cut.includes('<option value="4">Cuádruple · 4 placas iguales</option>'),'En corte perdió multiplicador ×4')
+must(cut.includes('if(actionRef.current)return')&&cut.includes('actionRef.current=true'),'En corte perdió protección contra acciones duplicadas')
 must(motor.includes('generateAutomatic(3)')&&motor.includes('generateAutomatic(4)'),'Motor perdió ×3/×4')
 must(!motor.includes("fetch('/api/nest-start'"),'Motor volvió al backend Sparrow')
 must(!stock.includes('buildRecountCloseoutState(db)'),'reapareció cierre histórico automático de Inventario')
