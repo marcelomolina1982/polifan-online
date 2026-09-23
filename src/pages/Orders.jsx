@@ -20,11 +20,6 @@ function deliveryParts(value){
 }
 
 function formatDelivery(value){return deliveryParts(value).date}
-function todayArgentinaISO(){
-  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date())
-  const get=type=>parts.find(p=>p.type===type)?.value||''
-  return `${get('year')}-${get('month')}-${get('day')}`
-}
 function totalPieces(o){return (o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)}
 function orderAddress(o){return o.address||o.customer?.address||o.shippingAddress||'-'}
 function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zone||'-'}
@@ -204,7 +199,6 @@ export default function Orders({db,onSave,onEdit}){
   const [sort,setSort]=useState('delivery-asc')
   const [selected,setSelected]=useState([])
   const [view,setView]=useState('active')
-  const todayKey=todayArgentinaISO()
   const activeCount=useMemo(()=>db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
   const historyCount=useMemo(()=>db.orders.filter(o=>['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
 
@@ -231,11 +225,13 @@ export default function Orders({db,onSave,onEdit}){
   const allVisibleSelected=visibleIds.length>0 && visibleIds.every(id=>selected.includes(id))
 
   async function remove(id){
-    if(confirm('¿Eliminar este pedido?')){
-      const saved=await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
-      if(saved?.ok===false)return
-      setSelected(prev=>prev.filter(x=>x!==id))
-    }
+    const order=db.orders.find(o=>o.id===id)
+    if(!order)return
+    if(!['Entregado','Cancelado'].includes(order.status))return alert(`El pedido #${order.number} está activo. Para no liberar stock por error, primero cancelalo desde Estado.`)
+    if(!confirm(`¿Eliminar definitivamente el pedido #${order.number} del historial? Esta acción no se puede deshacer.`))return
+    const saved=await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
+    if(saved?.ok===false)return
+    setSelected(prev=>prev.filter(x=>x!==id))
   }
 
   async function setStatusOrder(o,newStatus){
