@@ -116,6 +116,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
     e.preventDefault()
     if(savingRef.current)return
     if(editing&&['Entregado','Cancelado'].includes(editing.status))return alert(`El pedido #${editing.number} está cerrado como ${editing.status} y no puede modificarse.`)
+    if(editing){const current=db.orders.find(o=>o.id===editing.id);if(!current)return alert(`El pedido #${editing.number} ya no existe. Recargá Pedidos antes de continuar.`);if(['Entregado','Cancelado'].includes(current.status))return alert(`El pedido #${editing.number} cambió a ${current.status} mientras lo estabas editando. Recargá Pedidos antes de continuar.`);if(current.updatedAt&&editing.updatedAt&&current.updatedAt!==editing.updatedAt)return alert(`El pedido #${editing.number} cambió mientras lo estabas editando. Recargá Pedidos y repetí sólo tus cambios.`)}
     if(!form.firstName?.trim())return alert('Ingresá el nombre del cliente.')
     if(!form.lastName?.trim())return alert('Ingresá el apellido del cliente.')
     if(!form.phone.trim())return alert('Ingresá el teléfono del cliente.')
