@@ -38,6 +38,7 @@ must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volv
 must(orders.includes("if(order.status==='Entregado')return alert("),'Pedidos entregados pueden borrarse y devolver stock físico por accidente')
 must(orders.includes("if(order.status!=='Cancelado')return alert("),'Pedidos activos volvieron a poder eliminarse y liberar reserva por accidente')
 must(orders.includes('const statusActionRef=useRef(false)')&&orders.includes('if(statusActionRef.current)return')&&orders.includes('statusActionRef.current=true')&&orders.includes('finally{statusActionRef.current=false}'),'Cambio de estado perdió protección inmediata contra doble acción')
+must(orders.includes('const current=db.orders.find(x=>x.id===o.id)')&&orders.includes('current.status!==o.status')&&orders.includes("newStatus==='Entregado'&&!canMarkOrderDelivered(current)"),'Cambio final de pedido perdió revalidación del estado actual')
 must(dispatch.includes('export default function DispatchPanel({db,onSave})'),'Despacho dejó de usar guardado coordinado de AppV2')
 must(dispatch.includes('const saved=await onSave({...db,orders})'),'Despacho volvió a escribir pedidos por fuera del guardado con control de conflictos')
 must(!dispatch.includes("patch_v2_sections_checked"),'Despacho volvió a sobrescribir la sección orders directamente')
