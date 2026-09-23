@@ -25,4 +25,5 @@ must(orderForm.includes("filter(x=>x!=='Entregado')"),'Formulario volvió a perm
 must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.status)}"),'Formulario permite reabrir estados finales')
 must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)}"),'Lista de pedidos permite reabrir estados finales')
 must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volvió a liberar stock sin confirmación')
+must(orders.includes("if(!['Entregado','Cancelado'].includes(order.status))return alert("),'Pedidos activos volvieron a poder eliminarse y liberar reserva por accidente')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
