@@ -42,6 +42,10 @@ export default function CutBatches({db,onSave}){
     return (batch.items||[]).map(i=>movementForItem(batch,i,sign,detailPrefix)).filter(Boolean)
   }
 
+  function currentBatch(id){
+    return (db.cutBatches||[]).find(b=>b.id===id)
+  }
+
 
   async function submit(e){
     e.preventDefault()
@@ -52,10 +56,12 @@ export default function CutBatches({db,onSave}){
     try{
       let saved
       if(editing){
-        const updated={...editing,...form,items,updatedAt:new Date().toISOString()}
+        const current=currentBatch(editing.id)
+        if(!current||current.status!==editing.status){alert('La placa cambió en otra sesión. Recargá En corte antes de modificarla.');return}
+        const updated={...current,...form,items,updatedAt:new Date().toISOString()}
         let movements=[...(db.movements||[])]
-        if(editing.status==='Terminada'){
-          movements.push(...inventoryMovements(editing,-1,'Corrección: retirar contenido anterior'))
+        if(current.status==='Terminada'){
+          movements.push(...inventoryMovements(current,-1,'Corrección: retirar contenido anterior'))
           movements.push(...inventoryMovements(updated,1,'Corrección: ingresar contenido modificado'))
         }
         const cutBatches=(db.cutBatches||[]).map(b=>b.id===editing.id?updated:b)
@@ -73,8 +79,10 @@ export default function CutBatches({db,onSave}){
     if(actionRef.current)return
     if(!confirm('¿Marcar esta placa como terminada y sumar sus piezas al inventario?'))return
     actionRef.current=true
-    const movements=inventoryMovements(batch,1,'Placa terminada')
-    const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Terminada',finishedAt:new Date().toISOString()}:b)
+    const current=currentBatch(batch.id)
+    if(!current||current.status!=='En corte'){actionRef.current=false;alert('La placa ya cambió de estado. Recargá En corte antes de continuar.');return}
+    const movements=inventoryMovements(current,1,'Placa terminada')
+    const cutBatches=(db.cutBatches||[]).map(b=>b.id===current.id?{...b,status:'Terminada',finishedAt:new Date().toISOString()}:b)
     try{const result=await onSave({...db,movements:[...(db.movements||[]),...movements],cutBatches});if(result?.ok===false)alert('No se pudo terminar la placa. No se confirmó ningún cambio.')}finally{actionRef.current=false}
   }
 
@@ -86,8 +94,10 @@ export default function CutBatches({db,onSave}){
       :'¿Cancelar esta placa? Las piezas volverán a Pedidos para cortar.'
     if(!confirm(message))return
     actionRef.current=true
-    const reversals=wasFinished?inventoryMovements(batch,-1,'Corte anulado: retirar del inventario'):[]
-    const cutBatches=(db.cutBatches||[]).map(b=>b.id===batch.id?{...b,status:'Cancelada',cancelledAt:new Date().toISOString()}:b)
+    const current=currentBatch(batch.id)
+    if(!current||current.status!==batch.status){actionRef.current=false;alert('La placa ya cambió de estado. Recargá En corte antes de continuar.');return}
+    const reversals=wasFinished?inventoryMovements(current,-1,'Corte anulado: retirar del inventario'):[]
+    const cutBatches=(db.cutBatches||[]).map(b=>b.id===current.id?{...b,status:'Cancelada',cancelledAt:new Date().toISOString()}:b)
     try{const result=await onSave({...db,movements:[...(db.movements||[]),...reversals],cutBatches});if(result?.ok===false)alert('No se pudo actualizar la placa. No se confirmó ningún cambio.')}finally{actionRef.current=false}
   }
 
