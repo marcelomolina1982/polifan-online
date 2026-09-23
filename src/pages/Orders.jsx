@@ -244,7 +244,13 @@ export default function Orders({db,onSave,onEdit}){
     if(newStatus==='Entregado'&&!confirm(`¿Confirmás que el pedido #${o.number} fue entregado al cliente? Al confirmar, sus figuras dejan de quedar reservadas en stock.`))return
     if(newStatus==='Cancelado'&&!confirm(`¿Confirmás cancelar el pedido #${o.number}? Sus figuras dejarán de quedar reservadas en stock.`))return
     statusActionRef.current=true
-    try{await onSave({...db,orders:db.orders.map(x=>x.id===o.id?(newStatus==='Entregado'?markOrderDelivered(x,now):{...x,status:newStatus,updatedAt:now}):x)})}finally{statusActionRef.current=false}
+    try{
+      const current=db.orders.find(x=>x.id===o.id)
+      if(!current||current.status!==o.status)return alert(`El pedido #${o.number} cambió de estado. Recargá Pedidos antes de continuar.`)
+      if(newStatus==='Entregado'&&!canMarkOrderDelivered(current))return alert(`El pedido #${o.number} ya no está listo para marcar como Entregado. Recargá Pedidos antes de continuar.`)
+      const saved=await onSave({...db,orders:db.orders.map(x=>x.id===current.id?(newStatus==='Entregado'?markOrderDelivered(current,now):{...current,status:newStatus,updatedAt:now}):x)})
+      if(saved?.ok===false)return
+    }finally{statusActionRef.current=false}
   }
 
   async function openWhatsApp(o){
