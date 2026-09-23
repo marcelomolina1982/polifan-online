@@ -1,4 +1,5 @@
 import {orderDemand,physicalStockBalance,activeCutQty,pendingCutByDelivery,stockRows} from '../src/lib/inventory.js'
+import {productionStockSnapshot} from '../src/lib/cutPlanning.js'
 
 const must=(ok,message)=>{if(!ok)throw new Error('INVENTORY FLOW: '+message)}
 const qty=(groups,figure,component='complete')=>groups.flatMap(g=>g.rows).filter(r=>r.figure===figure&&r.component===component).reduce((n,r)=>n+Number(r.qty||0),0)
@@ -18,6 +19,7 @@ must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'piezas En corte deben cubrir 
 db={...base,orders:[{id:'o3',number:3,status:'Entregado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:3,inventoryTracked:true}]}]}
 must((orderDemand(db).Arcoiris||0)===0,'Entregado no debe seguir reservado')
 must(physicalStockBalance(db).Arcoiris===2,'Entregado debe consumir 3 de las 5 físicas')
+must(productionStockSnapshot(db).find(r=>r.figure==='Arcoiris')?.physical===2,'snapshot de producción debe usar stock físico neto después de Entregado')
 
 db={...base,movements:[{id:'t1',figure:'Arcoiris',component:'tapa',type:'Ajuste componente positivo',qty:2}],orders:[{id:'o4',number:4,status:'Ingresado',delivery:'2026-09-22',items:[{figure:'Arcoiris',qty:2,inventoryTracked:true}]}]}
 must(qty(pendingCutByDelivery(db),'Arcoiris','base')===2,'2 tapas sueltas deben pedir 2 bases, no 2 figuras completas')
