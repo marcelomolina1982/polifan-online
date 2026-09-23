@@ -7,6 +7,7 @@ console.log('MOTOR COMPONENT REGISTRATION OK · base/tapa preservadas')
 
 if(!motor.includes("sourceJobId:String(plan.jobId)"))throw new Error('Motor: el lote perdió sourceJobId')
 if(!motor.includes("String(b.sourceJobId||'')===String(plan.jobId)"))throw new Error('Motor: falta idempotencia por sourceJobId')
+if(!motor.includes("const latestDuplicate=(db.cutBatches||[]).find(b=>String(b.sourceJobId||'')===String(plan.jobId))"))throw new Error('Motor: falta segunda comprobación de sourceJobId antes de guardar')
 if(!motor.includes("qty:Number(i.qty)*Math.max(1,multiplier)"))throw new Error('Motor: el movimiento no respeta multiplicador')
 if(!motor.includes('registeringRef.current=true')||!motor.includes("finally{registeringRef.current=false;setRegisteringId('')}"))throw new Error('Motor: Registrar corte perdió el bloqueo duro contra doble clic')
 if(!motor.includes("isIronNestTransientError(error)&&loadActiveJob()?.jobId"))throw new Error('Motor: recuperación transitoria ya no exige jobId real')
