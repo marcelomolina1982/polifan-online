@@ -34,6 +34,7 @@ must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.statu
 must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)}"),'Lista de pedidos permite reabrir estados finales')
 must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)} onClick={()=>onEdit(o)}"),'Lista de pedidos permite editar estados finales')
 must(orderForm.includes("if(editing&&['Entregado','Cancelado'].includes(editing.status))"),'Formulario permite guardar cambios sobre pedidos finales')
+must(orderForm.includes('const current=db.orders.find(o=>o.id===editing.id)')&&orderForm.includes("['Entregado','Cancelado'].includes(current.status)")&&orderForm.includes('current.updatedAt!==editing.updatedAt'),'Formulario volvió a permitir guardar una edición vieja sobre un pedido que cambió')
 must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volvió a liberar stock sin confirmación')
 must(orders.includes("if(order.status==='Entregado')return alert("),'Pedidos entregados pueden borrarse y devolver stock físico por accidente')
 must(orders.includes("if(order.status!=='Cancelado')return alert("),'Pedidos activos volvieron a poder eliminarse y liberar reserva por accidente')
