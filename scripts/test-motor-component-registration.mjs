@@ -1,5 +1,8 @@
 import fs from 'node:fs'
 const motor=fs.readFileSync('src/pages/MotorDefinitivo.jsx','utf8')
+if(!motor.includes('const REQUIRED_GAP_MM=2.5'))throw new Error('Motor: la certificación dejó de respetar la separación validada de 2,5 mm')
+if(!motor.includes('minGap<REQUIRED_GAP_MM'))throw new Error('Motor: la validación de gap no usa el umbral certificado')
+if(/minGap<3(?:\D|$)/.test(motor))throw new Error('Motor: reapareció el rechazo incorrecto de placas válidas entre 2,5 y 3 mm')
 if(!motor.includes("unit.repairComponent||unit.component||'complete'"))throw new Error('Motor: Registrar corte perdió base/tapa')
 if(!motor.includes("plan.partialExtras||[plan.partialExtra]"))throw new Error('Motor: Registrar corte perdió piezas residuales')
 if(/plan\.summary\.map\(x=>\(\{figure:x\.figure,component:'complete'/.test(motor))throw new Error('Motor: fuerza piezas como completas')
