@@ -14,6 +14,7 @@ const must=(ok,message)=>{if(!ok)throw new Error('PRODUCTION SOURCE GUARD: '+mes
 must(app.includes("target==='sheetplanner'?new Set(['orders','movements','cutBatches'])"),'Generar placas perdió refresco vivo de producción')
 must(app.includes("target==='orders'?new Set(['orders','movements','stockMin','figures','cutBatches'])"),'Pedidos/Despacho perdió refresco vivo de producción')
 must(app.includes("target==='cut'?new Set(['orders','movements','stockMin','figures','cutBatches'])"),'Para cortar perdió refresco vivo de producción')
+must(app.includes('saveRef=useRef(false)')&&app.includes('if(saveRef.current)')&&app.includes('saveRef.current=true')&&app.includes('finally{saveRef.current=false;setSaving(false)}'),'Guardado V2 volvió a permitir dos escrituras simultáneas desde la misma sesión')
 must(!cut.includes("startsWith('Placa automática Sparrow')"),'reapareció auto-finalización Sparrow')
 must(!cut.includes('autoFinishRef'), 'reapareció auto-escritura de cortes al montar la pantalla')
 must(cut.includes('<option value="3">Triple · 3 placas iguales</option>'),'En corte perdió multiplicador ×3')
