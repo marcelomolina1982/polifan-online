@@ -22,6 +22,7 @@ must(cut.includes('if(actionRef.current)return')&&cut.includes('actionRef.curren
 must(cut.includes("b.status==='En corte'&&<><button className=\"primary\" onClick={()=>finish(b)}>Terminar</button>"),'En corte permite volver a terminar una placa ya finalizada')
 must(cut.includes("b.status==='Terminada'&&<><button className=\"ghost\" onClick={()=>edit(b)}>Modificar</button>"),'En corte perdió corrección explícita de placas terminadas')
 must(cut.includes("batchId:batch.id"),'Movimientos de corte perdieron vínculo idempotente con la placa')
+must(cut.includes('function currentBatch(id)')&&cut.includes("current.status!=='En corte'")&&cut.includes('current.status!==batch.status'),'En corte perdió revalidación de estado antes de escribir Inventario')
 must(motor.includes('generateAutomatic(3)')&&motor.includes('generateAutomatic(4)'),'Motor perdió ×3/×4')
 must(!motor.includes("fetch('/api/nest-start'"),'Motor volvió al backend Sparrow')
 must(!stock.includes('buildRecountCloseoutState(db)'),'reapareció cierre histórico automático de Inventario')
