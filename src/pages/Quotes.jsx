@@ -7,7 +7,7 @@ import {supabase} from '../supabase'
 
 const active=q=>!['Aprobado','Cancelado'].includes(q.status)
 const nextOrderNumber=orders=>String(Math.max(0,...(orders||[]).map(o=>Number(o.number)||0))+1).padStart(3,'0')
-const phoneDigits=v=>String(v||'').replace(/\D/g,'')
+const whatsappNumber=value=>{let digits=String(value||'').replace(/\D/g,'');if(digits.startsWith('00'))digits=digits.slice(2);if(digits.startsWith('0'))digits=digits.slice(1);if(digits.startsWith('549'))return digits;if(digits.startsWith('54')&&digits.length===12)return `549${digits.slice(2)}`;if(digits.length===10)return `549${digits}`;return digits}
 
 export default function Quotes({db,onSave,onOpenOrder}){
  const [view,setView]=useState('pending')
@@ -35,7 +35,7 @@ export default function Quotes({db,onSave,onOpenOrder}){
   }finally{setBusy('')}
  }
  async function cancel(q){if(busy)return;if(!window.confirm(`¿Cancelar ${q.code}?`))return;setBusy(String(q.id||q.code));try{await onSave({...db,quotes:quotes.map(x=>x.id===q.id?{...x,status:'Cancelado',updatedAt:new Date().toISOString()}:x)})}finally{setBusy('')}}
- function whatsapp(q){const phone=phoneDigits(q.phone||q.customer?.phone);if(!phone)return alert('Este presupuesto no tiene WhatsApp.');const normalized=phone.startsWith('54')?phone:`54${phone}`;const text=encodeURIComponent(`Hola ${q.firstName||q.customer?.firstName||q.client||''}, te enviamos el presupuesto ${q.code} por ${money(q.total)}. Si estás de acuerdo, respondé APROBADO y lo pasamos a producción.`);window.open(`https://wa.me/${normalized}?text=${text}`,'_blank','noopener,noreferrer')}
+ function whatsapp(q){const normalized=whatsappNumber(q.phone||q.customer?.phone);if(!normalized)return alert('Este presupuesto no tiene WhatsApp.');const text=encodeURIComponent(`Hola ${q.firstName||q.customer?.firstName||q.client||''}, te enviamos el presupuesto ${q.code} por ${money(q.total)}. Si estás de acuerdo, respondé APROBADO y lo pasamos a producción.`);window.open(`https://wa.me/${normalized}?text=${text}`,'_blank','noopener,noreferrer')}
  function openAsOrder(q){if(typeof onOpenOrder!=='function')return alert('No se pudo abrir Nuevo pedido.');onOpenOrder(q)}
  return <>
   <Title title="Presupuestos" sub="Todos los presupuestos guardados quedan acá. Podés enviarlos, abrirlos como Nuevo pedido o aprobarlos directamente."/>
