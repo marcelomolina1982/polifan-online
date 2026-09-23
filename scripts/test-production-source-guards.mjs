@@ -7,6 +7,7 @@ const stock=fs.readFileSync('src/pages/Stock.jsx','utf8')
 const stockBase=fs.readFileSync('src/pages/StockBase.jsx','utf8')
 const orders=fs.readFileSync('src/pages/Orders.jsx','utf8')
 const orderForm=fs.readFileSync('src/pages/OrderForm.jsx','utf8')
+const dispatch=fs.readFileSync('src/pages/DispatchPanel.jsx','utf8')
 
 const must=(ok,message)=>{if(!ok)throw new Error('PRODUCTION SOURCE GUARD: '+message)}
 
@@ -26,4 +27,7 @@ must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.statu
 must(orders.includes("disabled={['Entregado','Cancelado'].includes(o.status)}"),'Lista de pedidos permite reabrir estados finales')
 must(orders.includes("if(newStatus==='Cancelado'&&!confirm("),'Cancelación volvió a liberar stock sin confirmación')
 must(orders.includes("if(!['Entregado','Cancelado'].includes(order.status))return alert("),'Pedidos activos volvieron a poder eliminarse y liberar reserva por accidente')
+must(dispatch.includes('export default function DispatchPanel({db,onSave})'),'Despacho dejó de usar guardado coordinado de AppV2')
+must(dispatch.includes('const saved=await onSave({...db,orders})'),'Despacho volvió a escribir pedidos por fuera del guardado con control de conflictos')
+must(!dispatch.includes("patch_v2_sections_checked"),'Despacho volvió a sobrescribir la sección orders directamente')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
