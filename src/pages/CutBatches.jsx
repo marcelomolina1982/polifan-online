@@ -45,24 +45,28 @@ export default function CutBatches({db,onSave}){
 
   async function submit(e){
     e.preventDefault()
+    if(actionRef.current)return
     const items=form.items.filter(i=>i.figure&&Number(i.qty)>0).map(i=>({...i,component:i.component||'complete',qty:Number(i.qty)}))
     if(!items.length)return alert('Agregá al menos una figura.')
-    let saved
-    if(editing){
-      const updated={...editing,...form,items,updatedAt:new Date().toISOString()}
-      let movements=[...(db.movements||[])]
-      if(editing.status==='Terminada'){
-        movements.push(...inventoryMovements(editing,-1,'Corrección: retirar contenido anterior'))
-        movements.push(...inventoryMovements(updated,1,'Corrección: ingresar contenido modificado'))
+    actionRef.current=true
+    try{
+      let saved
+      if(editing){
+        const updated={...editing,...form,items,updatedAt:new Date().toISOString()}
+        let movements=[...(db.movements||[])]
+        if(editing.status==='Terminada'){
+          movements.push(...inventoryMovements(editing,-1,'Corrección: retirar contenido anterior'))
+          movements.push(...inventoryMovements(updated,1,'Corrección: ingresar contenido modificado'))
+        }
+        const cutBatches=(db.cutBatches||[]).map(b=>b.id===editing.id?updated:b)
+        saved=await onSave({...db,movements,cutBatches})
+      }else{
+        const batch={...form,items,id:crypto.randomUUID(),number:String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),status:'En corte',createdAt:new Date().toISOString()}
+        saved=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
       }
-      const cutBatches=(db.cutBatches||[]).map(b=>b.id===editing.id?updated:b)
-      saved=await onSave({...db,movements,cutBatches})
-    }else{
-      const batch={...form,items,id:crypto.randomUUID(),number:String((Math.max(0,...(db.cutBatches||[]).map(b=>Number(b.number)||0))+1)).padStart(3,'0'),status:'En corte',createdAt:new Date().toISOString()}
-      saved=await onSave({...db,cutBatches:[...(db.cutBatches||[]),batch]})
-    }
-    if(saved?.ok===false)return
-    setEditing(null);setForm(blank())
+      if(saved?.ok===false)return
+      setEditing(null);setForm(blank())
+    }finally{actionRef.current=false}
   }
 
   async function finish(batch){
