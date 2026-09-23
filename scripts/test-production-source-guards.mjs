@@ -45,4 +45,5 @@ must(dispatch.includes('export default function DispatchPanel({db,onSave})'),'De
 must(dispatch.includes('const saved=await onSave({...db,orders})'),'Despacho volvió a escribir pedidos por fuera del guardado con control de conflictos')
 must(!dispatch.includes("patch_v2_sections_checked"),'Despacho volvió a sobrescribir la sección orders directamente')
 must(dispatch.includes('const dispatchRef=useRef(false)')&&dispatch.includes('if(dispatchRef.current)return')&&dispatch.includes('dispatchRef.current=true')&&dispatch.includes("finally{dispatchRef.current=false;setBusy('')}"),'Despacho perdió protección inmediata contra doble clic')
+must(dispatch.includes('const current=(db.orders||[]).find(o=>o.id===order.id)')&&dispatch.includes('current.updatedAt!==order.updatedAt')&&dispatch.includes('markJourneyFinal(current)'),'Despacho volvió a guardar sobre una versión vieja del pedido')
 console.log('PRODUCTION SOURCE GUARDS OK · build verifica, no reescribe')
