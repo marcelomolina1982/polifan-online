@@ -16,7 +16,7 @@ const cleanPhone=value=>{
 const isPickup=order=>String(order?.deliveryType||order?.carrier||'').toLocaleLowerCase('es').includes('retiro')
 const firstName=order=>String(order?.firstName||order?.client||'').trim().split(/\s+/)[0]||'Hola'
 
-export default function DispatchPanel({db}){
+export default function DispatchPanel({db,onSave}){
   const [busy,setBusy]=useState('')
 
   const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
@@ -28,17 +28,6 @@ export default function DispatchPanel({db}){
     const dateB=String(b.delivery||'9999-12-31').slice(0,10)
     return dateA.localeCompare(dateB)||Number(a.number||0)-Number(b.number||0)
   }),[operationalOrders])
-
-  async function saveOrdersSafely(orders){
-    const {data:revisionRows,error:revisionError}=await supabase.rpc('get_v2_section_revisions',{p_keys:['orders']})
-    if(revisionError)throw revisionError
-    const expected=Object.fromEntries((revisionRows||[]).map(r=>[r.section_key,r.updated_at||'']))
-    const {data:sessionData}=await supabase.auth.getSession()
-    const {data,error}=await supabase.rpc('patch_v2_sections_checked',{p_patch:{orders},p_expected_revisions:expected,p_updated_by:sessionData?.session?.user?.id||null})
-    if(error)throw error
-    const row=Array.isArray(data)?data[0]:data
-    if((row?.conflict_keys||[]).length)throw new Error('Otra sesión modificó Pedidos. Recargá y volvé a intentar.')
-  }
 
   async function trackingTokenFor(order){
     if(order?.trackingToken)return order.trackingToken
@@ -63,8 +52,9 @@ export default function DispatchPanel({db}){
     setBusy(String(order.id||order.number))
     try{
       const nextOrder=markJourneyFinal(order)
-      const orders=operationalOrders.map(o=>o.id===order.id?nextOrder:o)
-      await saveOrdersSafely(orders)
+      const orders=(db.orders||[]).map(o=>o.id===order.id?nextOrder:o)
+      const saved=await onSave({...db,orders})
+      if(saved?.ok===false)throw saved.error||new Error('No se pudo guardar el despacho.')
       let token=''
       try{token=await trackingTokenFor(nextOrder)}catch(error){console.error('No se pudo recuperar seguimiento para WhatsApp',error)}
       const phone=cleanPhone(order.phone)
@@ -77,7 +67,6 @@ export default function DispatchPanel({db}){
         if(popup)popup.close()
         alert(`Pedido #${order.number} marcado como ${action}, pero no tiene un teléfono válido para abrir WhatsApp.`)
       }
-      window.location.reload()
     }catch(error){
       if(popup)popup.close()
       console.error(error)
