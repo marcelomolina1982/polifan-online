@@ -12,6 +12,7 @@ const dispatch=fs.readFileSync('src/pages/DispatchPanel.jsx','utf8')
 const must=(ok,message)=>{if(!ok)throw new Error('PRODUCTION SOURCE GUARD: '+message)}
 
 must(app.includes("target==='sheetplanner'?new Set(['orders','movements','cutBatches'])"),'Generar placas perdió refresco vivo de producción')
+must(app.includes("target==='orders'?new Set(['orders','movements','stockMin','figures','cutBatches'])"),'Pedidos/Despacho perdió refresco vivo de producción')
 must(app.includes("target==='cut'?new Set(['orders','movements','stockMin','figures','cutBatches'])"),'Para cortar perdió refresco vivo de producción')
 must(!cut.includes("startsWith('Placa automática Sparrow')"),'reapareció auto-finalización Sparrow')
 must(!cut.includes('autoFinishRef'), 'reapareció auto-escritura de cortes al montar la pantalla')
