@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { Title } from '../components/UI'
@@ -199,6 +199,7 @@ export default function Orders({db,onSave,onEdit}){
   const [sort,setSort]=useState('delivery-asc')
   const [selected,setSelected]=useState([])
   const [view,setView]=useState('active')
+  const statusActionRef=useRef(false)
   const activeCount=useMemo(()=>db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
   const historyCount=useMemo(()=>db.orders.filter(o=>['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
 
@@ -227,20 +228,23 @@ export default function Orders({db,onSave,onEdit}){
   async function remove(id){
     const order=db.orders.find(o=>o.id===id)
     if(!order)return
-    if(!['Entregado','Cancelado'].includes(order.status))return alert(`El pedido #${order.number} está activo. Para no liberar stock por error, primero cancelalo desde Estado.`)
-    if(!confirm(`¿Eliminar definitivamente el pedido #${order.number} del historial? Esta acción no se puede deshacer.`))return
+    if(order.status==='Entregado')return alert(`El pedido #${order.number} está Entregado y forma parte del historial de salidas de Inventario. No se puede eliminar.`)
+    if(order.status!=='Cancelado')return alert(`El pedido #${order.number} está activo. Para no liberar stock por error, primero cancelalo desde Estado.`)
+    if(!confirm(`¿Eliminar definitivamente el pedido cancelado #${order.number} del historial? Esta acción no se puede deshacer.`))return
     const saved=await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
     if(saved?.ok===false)return
     setSelected(prev=>prev.filter(x=>x!==id))
   }
 
   async function setStatusOrder(o,newStatus){
+    if(statusActionRef.current)return
     const now=new Date().toISOString()
     if(['Entregado','Cancelado'].includes(o.status))return alert(`El pedido #${o.number} ya está cerrado como ${o.status}.`)
     if(newStatus==='Entregado'&&!canMarkOrderDelivered(o))return alert(`El pedido #${o.number} todavía no fue marcado como despachado o listo para retirar. Primero cerrá ese paso desde Pedidos listos para despachar.`)
     if(newStatus==='Entregado'&&!confirm(`¿Confirmás que el pedido #${o.number} fue entregado al cliente? Al confirmar, sus figuras dejan de quedar reservadas en stock.`))return
     if(newStatus==='Cancelado'&&!confirm(`¿Confirmás cancelar el pedido #${o.number}? Sus figuras dejarán de quedar reservadas en stock.`))return
-    await onSave({...db,orders:db.orders.map(x=>x.id===o.id?(newStatus==='Entregado'?markOrderDelivered(x,now):{...x,status:newStatus,updatedAt:now}):x)})
+    statusActionRef.current=true
+    try{await onSave({...db,orders:db.orders.map(x=>x.id===o.id?(newStatus==='Entregado'?markOrderDelivered(x,now):{...x,status:newStatus,updatedAt:now}):x)})}finally{statusActionRef.current=false}
   }
 
   async function openWhatsApp(o){
