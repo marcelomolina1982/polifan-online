@@ -15,6 +15,6 @@ must(!/catch\(error\)\{[\s\S]{0,250}whatsappWindow\.close\(\)/.test(orders),'un 
 must(orders.includes("digits.length===10?\`549\${digits}\`"),'se perdió normalización móvil Argentina')
 must(receipt.includes("a.download=\`comprobante-pedido-\${order.number}.jpg\`"),'se perdió descarga JPG')
 must(journey.includes('trackingToken'),'mensaje de seguimiento perdió token')
-must(quotes.includes("if(digits.length===10)return \`549\${digits}\`"),'Presupuestos perdió normalización móvil Argentina')
+must(quotes.includes("if(digits.length===10)return `549${digits}`"),'Presupuestos perdió normalización móvil Argentina')
 must(clients.includes("n=\`549\${n}\`"),'Clientes perdió normalización móvil Argentina')
 console.log('ORDER COMMUNICATION GUARDS OK · WhatsApp, JPG y seguimiento desacoplados')
