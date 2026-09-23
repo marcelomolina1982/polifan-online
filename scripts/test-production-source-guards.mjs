@@ -28,6 +28,7 @@ must(motor.includes('generateAutomatic(3)')&&motor.includes('generateAutomatic(4
 must(!motor.includes("fetch('/api/nest-start'"),'Motor volvió al backend Sparrow')
 must(!stock.includes('buildRecountCloseoutState(db)'),'reapareció cierre histórico automático de Inventario')
 must(stockBase.includes('Reserva de inventario hasta la entrega'),'Inventario volvió a explicar salida automática por fecha')
+must(stockBase.includes('const actionRef=useRef(false)')&&stockBase.includes('if(actionRef.current)return')&&stockBase.includes('actionRef.current=true')&&stockBase.includes('finally{actionRef.current=false}'),'Inventario perdió bloqueo inmediato contra ajustes manuales duplicados')
 must(orders.includes("const closed=['Entregado','Cancelado'].includes(o.status)"),'Pedidos volvió a archivar por fecha en vez de estado final')
 must(orderForm.includes("filter(x=>x!=='Entregado')"),'Formulario volvió a permitir Entregado sin circuito de despacho')
 must(orderForm.includes("disabled={['Entregado','Cancelado'].includes(form.status)}"),'Formulario permite reabrir estados finales')
