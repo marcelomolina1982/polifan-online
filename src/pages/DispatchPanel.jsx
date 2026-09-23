@@ -54,8 +54,10 @@ export default function DispatchPanel({db,onSave}){
     const popup=window.open('about:blank','_blank')
     setBusy(String(order.id||order.number))
     try{
-      const nextOrder=markJourneyFinal(order)
-      const orders=(db.orders||[]).map(o=>o.id===order.id?nextOrder:o)
+      const current=(db.orders||[]).find(o=>o.id===order.id)
+      if(!current||current.status!==order.status||current.updatedAt!==order.updatedAt)throw new Error(`El pedido #${order.number} cambió. Recargá Pedidos antes de despacharlo.`)
+      const nextOrder=markJourneyFinal(current)
+      const orders=(db.orders||[]).map(o=>o.id===current.id?nextOrder:o)
       const saved=await onSave({...db,orders})
       if(saved?.ok===false)throw saved.error||new Error('No se pudo guardar el despacho.')
       let token=''
