@@ -15,13 +15,18 @@ const cleanPhone=value=>{
 }
 const isPickup=order=>String(order?.deliveryType||order?.carrier||'').toLocaleLowerCase('es').includes('retiro')
 const firstName=order=>String(order?.firstName||order?.client||'').trim().split(/\s+/)[0]||'Hola'
+const localDateKey=()=>{
+  const now=new Date(),offset=now.getTimezoneOffset()*60000
+  return new Date(now.getTime()-offset).toISOString().slice(0,10)
+}
 
 export default function DispatchPanel({db,onSave}){
   const [busy,setBusy]=useState('')
+  const [showAll,setShowAll]=useState(false)
   const dispatchRef=useRef(false)
 
   const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
-  const ready=useMemo(()=>operationalOrders.filter(o=>{
+  const allReady=useMemo(()=>operationalOrders.filter(o=>{
     const event=effectiveJourneyEvent(o)
     return event===JOURNEY_EVENTS.PRODUCTION_CUT||event===JOURNEY_EVENTS.PACKING
   }).sort((a,b)=>{
@@ -29,6 +34,8 @@ export default function DispatchPanel({db,onSave}){
     const dateB=String(b.delivery||'9999-12-31').slice(0,10)
     return dateA.localeCompare(dateB)||Number(a.number||0)-Number(b.number||0)
   }),[operationalOrders])
+  const today=localDateKey()
+  const ready=useMemo(()=>showAll?allReady:allReady.filter(o=>String(o.delivery||'').slice(0,10)===today),[allReady,showAll,today])
 
   async function trackingTokenFor(order){
     if(order?.trackingToken)return order.trackingToken
@@ -79,9 +86,9 @@ export default function DispatchPanel({db,onSave}){
     }finally{dispatchRef.current=false;setBusy('')}
   }
 
-  if(!ready.length)return null
+  if(!allReady.length)return null
   return <div className="panel" style={{marginBottom:16}}>
-    <div className="panel-heading"><div><h3>Pedidos listos para despachar</h3><small>Confirmación manual final. Aunque el cálculo automático todavía muestre Producción/corte o Para embalar, podés cerrar el pedido si físicamente ya está embalado o despachado. Después se abre WhatsApp con el aviso, seguimiento y enlace de opinión.</small></div></div>
-    <div style={{display:'grid',gap:10,marginTop:12}}>{ready.map(o=><div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'12px 14px',border:'1px solid #e5e7eb',borderRadius:14}}><div><b>#{o.number} · {o.client}</b><small className="block">Fecha prevista: {o.delivery||'Sin fecha'}</small></div><button className="primary" disabled={busy===String(o.id||o.number)} onClick={()=>dispatch(o)}>{busy===String(o.id||o.number)?'Guardando…':isPickup(o)?'Marcar listo para retirar':'Marcar despachado'}</button></div>)}</div>
+    <div className="panel-heading"><div><h3>{showAll?'Pedidos listos para despachar':'Pedidos de hoy listos para despachar'}</h3><small>{showAll?'Vista completa de pendientes operativos.':'Por defecto se muestran únicamente los pedidos con fecha de entrega de hoy. Los anteriores y futuros siguen guardados y no cambian de estado.'}</small></div><button className="ghost" onClick={()=>setShowAll(v=>!v)}>{showAll?'Ver sólo hoy':`Ver todos (${allReady.length})`}</button></div>
+    {!ready.length?<div style={{padding:'16px 0 4px'}}><b>No hay pedidos de hoy listos para despachar.</b><small className="block">Podés usar “Ver todos” si necesitás consultar pendientes de otras fechas.</small></div>:<div style={{display:'grid',gap:10,marginTop:12}}>{ready.map(o=><div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'12px 14px',border:'1px solid #e5e7eb',borderRadius:14}}><div><b>#{o.number} · {o.client}</b><small className="block">Fecha prevista: {o.delivery||'Sin fecha'}</small></div><button className="primary" disabled={busy===String(o.id||o.number)} onClick={()=>dispatch(o)}>{busy===String(o.id||o.number)?'Guardando…':isPickup(o)?'Marcar listo para retirar':'Marcar despachado'}</button></div>)}</div>}
   </div>
 }
