@@ -10,7 +10,7 @@ export function normalizeDeliveryType(order){
 }
 
 export function activeOrders(db){return (db.orders||[]).filter(o=>!['Cancelado','Entregado'].includes(o.status))}
-export function ordersForDate(db,date=todayArgentinaISO()){return (db.orders||[]).filter(o=>o.delivery===date&&o.status!=='Cancelado')}
+export function ordersForDate(db,date=todayArgentinaISO()){return (db.orders||[]).filter(o=>o.delivery===date&&!['Cancelado','Entregado'].includes(o.status))}
 export function dispatchGroups(db,date=todayArgentinaISO()){
   const groups={}
   ordersForDate(db,date).forEach(order=>{const key=normalizeDeliveryType(order);(groups[key]||(groups[key]=[])).push(order)})
@@ -31,7 +31,7 @@ export function productionColumns(db){
 export function packagingNeeds(db,{from=todayArgentinaISO(),days=7}={}){
   const end=new Date(from+'T12:00:00');end.setDate(end.getDate()+days)
   const endIso=end.toISOString().slice(0,10), needs={}
-  ;(db.orders||[]).filter(o=>o.status!=='Cancelado'&&o.delivery>=from&&o.delivery<=endIso&&o.shippingPackaging==='Sí').forEach(order=>{
+  ;(db.orders||[]).filter(o=>!['Cancelado','Entregado'].includes(o.status)&&o.delivery>=from&&o.delivery<=endIso&&o.shippingPackaging==='Sí').forEach(order=>{
     packagingForPieces(orderPieces(order)).parts.forEach(p=>{needs[p.name]=(needs[p.name]||0)+Number(p.qty||1)})
   })
   return Object.entries(needs).map(([name,qty])=>({name,qty})).sort((a,b)=>b.qty-a.qty)

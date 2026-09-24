@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react'
+import React,{useMemo,useRef,useState} from 'react'
 import {supabase} from '../supabase'
 import {advanceOperationalJourney,effectiveJourneyEvent,markJourneyFinal} from '../lib/customerJourneyOperational.js'
 import {JOURNEY_EVENTS,journeyMessage} from '../lib/customerJourney.js'
@@ -16,8 +16,9 @@ const cleanPhone=value=>{
 const isPickup=order=>String(order?.deliveryType||order?.carrier||'').toLocaleLowerCase('es').includes('retiro')
 const firstName=order=>String(order?.firstName||order?.client||'').trim().split(/\s+/)[0]||'Hola'
 
-export default function DispatchPanel({db}){
+export default function DispatchPanel({db,onSave}){
   const [busy,setBusy]=useState('')
+  const dispatchRef=useRef(false)
 
   const operationalOrders=useMemo(()=>advanceOperationalJourney(db).orders||db.orders||[],[db.orders,db.movements,db.cutBatches])
   const ready=useMemo(()=>operationalOrders.filter(o=>{
@@ -28,17 +29,6 @@ export default function DispatchPanel({db}){
     const dateB=String(b.delivery||'9999-12-31').slice(0,10)
     return dateA.localeCompare(dateB)||Number(a.number||0)-Number(b.number||0)
   }),[operationalOrders])
-
-  async function saveOrdersSafely(orders){
-    const {data:revisionRows,error:revisionError}=await supabase.rpc('get_v2_section_revisions',{p_keys:['orders']})
-    if(revisionError)throw revisionError
-    const expected=Object.fromEntries((revisionRows||[]).map(r=>[r.section_key,r.updated_at||'']))
-    const {data:sessionData}=await supabase.auth.getSession()
-    const {data,error}=await supabase.rpc('patch_v2_sections_checked',{p_patch:{orders},p_expected_revisions:expected,p_updated_by:sessionData?.session?.user?.id||null})
-    if(error)throw error
-    const row=Array.isArray(data)?data[0]:data
-    if((row?.conflict_keys||[]).length)throw new Error('Otra sesión modificó Pedidos. Recargá y volvé a intentar.')
-  }
 
   async function trackingTokenFor(order){
     if(order?.trackingToken)return order.trackingToken
@@ -57,31 +47,36 @@ export default function DispatchPanel({db}){
   }
 
   async function dispatch(order){
+    if(dispatchRef.current)return
+    dispatchRef.current=true
     const action=isPickup(order)?'listo para retirar':'despachado'
-    if(!window.confirm(`¿Marcar el pedido #${order.number} como ${action}?`))return
+    if(!window.confirm(`¿Marcar el pedido #${order.number} como ${action}?`)){dispatchRef.current=false;return}
     const popup=window.open('about:blank','_blank')
     setBusy(String(order.id||order.number))
     try{
-      const nextOrder=markJourneyFinal(order)
-      const orders=operationalOrders.map(o=>o.id===order.id?nextOrder:o)
-      await saveOrdersSafely(orders)
-      const token=await trackingTokenFor(nextOrder)
+      const current=(db.orders||[]).find(o=>o.id===order.id)
+      if(!current||current.status!==order.status||current.updatedAt!==order.updatedAt)throw new Error(`El pedido #${order.number} cambió. Recargá Pedidos antes de despacharlo.`)
+      const nextOrder=markJourneyFinal(current)
+      const orders=(db.orders||[]).map(o=>o.id===current.id?nextOrder:o)
+      const saved=await onSave({...db,orders})
+      if(saved?.ok===false)throw saved.error||new Error('No se pudo guardar el despacho.')
+      let token=''
+      try{token=await trackingTokenFor(nextOrder)}catch(error){console.error('No se pudo recuperar seguimiento para WhatsApp',error)}
       const phone=cleanPhone(order.phone)
       if(phone){
         const url=`https://wa.me/${phone}?text=${encodeURIComponent(whatsappMessage(nextOrder,token))}`
         if(popup)popup.location.href=url
         else window.open(url,'_blank','noopener,noreferrer')
-        alert(`Pedido #${order.number} marcado como ${action}. Se abrió WhatsApp con el mensaje preparado.`)
+        alert(`Pedido #${order.number} marcado como ${action}. Se abrió WhatsApp con el mensaje preparado.${token?'':' No se pudo recuperar el enlace de seguimiento; el despacho quedó guardado.'}`)
       }else{
         if(popup)popup.close()
         alert(`Pedido #${order.number} marcado como ${action}, pero no tiene un teléfono válido para abrir WhatsApp.`)
       }
-      window.location.reload()
     }catch(error){
       if(popup)popup.close()
       console.error(error)
       alert('No se pudo marcar como despachado: '+(error?.message||'error de sincronización'))
-    }finally{setBusy('')}
+    }finally{dispatchRef.current=false;setBusy('')}
   }
 
   if(!ready.length)return null

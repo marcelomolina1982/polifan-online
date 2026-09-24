@@ -585,3 +585,49 @@ table tbody tr{transition:background .12s ease}table tbody tr:hover{background:#
 @media(max-width:760px){.actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.actions>*{min-width:0}.title-actions,.panel-heading .actions{width:100%}.panel{border-radius:15px!important}.kpi{border-radius:14px!important}input,select,textarea{font-size:16px}.table-wrap{overscroll-behavior-x:contain}.cards{gap:8px}}
 @media(max-width:430px){.actions{grid-template-columns:1fr}.studio-metrics{grid-template-columns:1fr}.studio-launchpad>div{grid-template-columns:1fr}.cards{grid-template-columns:1fr!important}.main{padding-left:10px!important;padding-right:10px!important}}
 
+
+/* Stabilization 2026-09-21: acciones visibles sin desplazamiento horizontal.
+   Se aplica sólo a tablas operativas; no altera cálculos ni persistencia. */
+.operational-table{overflow:visible}
+.operational-table table{table-layout:fixed;width:100%}
+.operational-table th,.operational-table td{white-space:normal;vertical-align:top;overflow-wrap:anywhere}
+.operational-table .row-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:7px;min-width:0}
+.operational-table .row-actions>*{flex:0 1 auto}
+.operational-table .actions-cell{width:250px}
+.operational-table .content-cell{min-width:0}
+.operational-table .content-cell{line-height:1.45}
+.motor-table .plate-cell{width:265px}
+.motor-table .status-cell{width:150px}
+.motor-table .gap-cell{width:130px}
+.motor-table .metric-cell{width:92px}
+.orders-table .select-cell{width:42px}
+.orders-table .order-cell{width:78px}
+.orders-table .delivery-cell{width:130px}
+.orders-table .pieces-cell{width:72px}
+.orders-table .status-cell{width:150px}
+.orders-table .total-cell{width:105px}
+@media(max-width:1100px){
+  .operational-table table,.operational-table thead,.operational-table tbody,.operational-table tr,.operational-table th,.operational-table td{display:block;width:100%!important}
+  .operational-table thead{display:none}
+  .operational-table tr{border:1px solid #e5e7eb;border-radius:14px;margin:0 0 12px;padding:12px;background:#fff}
+  .operational-table td{border:0;padding:7px 5px}
+  .operational-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:#667085;font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+  .operational-table .row-actions{position:static;width:100%;padding-top:10px;border-top:1px solid #edf0f4;margin-top:5px}
+  .operational-table .row-actions button,.operational-table .row-actions details{flex:1 1 145px;min-width:0}
+  .operational-table .row-actions button{width:100%}
+  .operational-table .select-cell{display:flex!important;align-items:center;gap:8px}
+  .operational-table .select-cell::before{margin:0}
+}
+@media(max-width:600px){
+  .operational-table{padding:10px}
+  .operational-table .row-actions{display:grid;grid-template-columns:1fr 1fr}
+  .operational-table .row-actions>*{width:100%}
+  .operational-table .row-actions details{min-width:0}
+  .operational-table .print-menu{max-width:calc(100vw - 48px)}
+}
+
+/* Clientes: acciones siempre accesibles, sin empujar la tarjeta fuera de pantalla. */
+.client-actions{display:flex;flex-wrap:wrap;min-width:0;gap:7px}
+.client-actions>*{flex:0 1 auto}
+@media(max-width:760px){.client-card-head{min-width:0}.client-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.client-actions>*{width:100%;min-width:0}}
+@media(max-width:430px){.client-actions{grid-template-columns:1fr}}

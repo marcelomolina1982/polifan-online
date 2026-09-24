@@ -1,21 +1,20 @@
-import { pendingCutByDelivery, normalizeFigureKey, manualBalance, looseComponentBalance, activeCutQty } from './inventory.js'
+import { pendingCutByDelivery, normalizeFigureKey, physicalStockBalance, activeCutQty } from './inventory.js'
+import { todayArgentinaISO } from './production.js'
 
 // Snapshot usado por Lista de corte/auditoría. Se conserva separado de la
 // planificación por componentes para no volver a colapsar tapa/base/completo.
 export function productionStockSnapshot(db){
-  const raw=manualBalance(db)
-  const loose=looseComponentBalance(db)
+  const physical=physicalStockBalance(db)
   const inCut=activeCutQty(db)
   const labels={}
   const rows={}
-  const names=new Set([...Object.keys(raw),...Object.keys(loose),...Object.keys(inCut)])
+  const names=new Set([...Object.keys(physical),...Object.keys(inCut)])
   names.forEach(name=>{
     const key=normalizeFigureKey(name)
     if(!key)return
     if(!labels[key])labels[key]=String(name).trim()
     if(!rows[key])rows[key]={key,figure:labels[key],physical:0,inCut:0}
-    const paired=Math.min(Number(loose[name]?.tapa||0),Number(loose[name]?.base||0))
-    rows[key].physical+=Math.max(0,Number(raw[name]||0)+paired)
+    rows[key].physical+=Math.max(0,Number(physical[name]||0))
     rows[key].inCut+=Math.max(0,Number(inCut[name]||0))
   })
   return Object.values(rows)
@@ -24,9 +23,10 @@ export function productionStockSnapshot(db){
 // La planificación de corte conserva el componente que realmente falta
 // (figura completa, tapa o base) y reserva stock cronológicamente.
 export function pendingCutPlan(db){
+  const today=todayArgentinaISO()
   return pendingCutByDelivery(db).map(group=>({
     ...group,
-    overdue:false,
+    overdue:Boolean(group.date&&group.date<today),
     auditRows:[],
     rows:(group.rows||[]).map(row=>({
       figure:row.figure,

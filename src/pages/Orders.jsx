@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { Title } from '../components/UI'
@@ -20,11 +20,6 @@ function deliveryParts(value){
 }
 
 function formatDelivery(value){return deliveryParts(value).date}
-function todayArgentinaISO(){
-  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date())
-  const get=type=>parts.find(p=>p.type===type)?.value||''
-  return `${get('year')}-${get('month')}-${get('day')}`
-}
 function totalPieces(o){return (o.items||[]).reduce((sum,item)=>sum+Number(item.qty||0),0)}
 function orderAddress(o){return o.address||o.customer?.address||o.shippingAddress||'-'}
 function orderLocality(o){return o.locality||o.customer?.locality||o.city||o.zone||'-'}
@@ -204,9 +199,9 @@ export default function Orders({db,onSave,onEdit}){
   const [sort,setSort]=useState('delivery-asc')
   const [selected,setSelected]=useState([])
   const [view,setView]=useState('active')
-  const todayKey=todayArgentinaISO()
-  const activeCount=useMemo(()=>db.orders.filter(o=>!o.delivery||String(o.delivery)>=todayKey).length,[db.orders,todayKey])
-  const historyCount=useMemo(()=>db.orders.filter(o=>o.delivery&&String(o.delivery)<todayKey).length,[db.orders,todayKey])
+  const statusActionRef=useRef(false)
+  const activeCount=useMemo(()=>db.orders.filter(o=>!['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
+  const historyCount=useMemo(()=>db.orders.filter(o=>['Entregado','Cancelado'].includes(o.status)).length,[db.orders])
 
   const list=useMemo(()=>{
     const term=q.trim().toLowerCase()
@@ -214,8 +209,8 @@ export default function Orders({db,onSave,onEdit}){
       const delivery=formatDelivery(o.delivery||'')
       const day=deliveryParts(o.delivery).day
       const haystack=(o.client+' '+o.phone+' '+o.number+' '+(o.delivery||'')+' '+delivery+' '+day+' '+(o.items||[]).map(i=>i.figure).join(' ')).toLowerCase()
-      const past=Boolean(o.delivery)&&String(o.delivery)<todayKey
-      const sectionMatch=view==='history'?past:!past
+      const closed=['Entregado','Cancelado'].includes(o.status)
+      const sectionMatch=view==='history'?closed:!closed
       return sectionMatch && haystack.includes(term) && (!status || o.status===status)
     })
     return filtered.slice().sort((a,b)=>{
@@ -224,24 +219,38 @@ export default function Orders({db,onSave,onEdit}){
       if(sort==='number-asc') return Number(a.number||0)-Number(b.number||0)
       return String(a.delivery||'9999-12-31').localeCompare(String(b.delivery||'9999-12-31')) || Number(a.number||0)-Number(b.number||0)
     })
-  },[db.orders,q,status,sort,view,todayKey])
+  },[db.orders,q,status,sort,view])
 
   const selectedOrders=useMemo(()=>db.orders.filter(o=>selected.includes(o.id)),[db.orders,selected])
   const visibleIds=list.map(o=>o.id)
   const allVisibleSelected=visibleIds.length>0 && visibleIds.every(id=>selected.includes(id))
 
   async function remove(id){
-    if(confirm('¿Eliminar este pedido?')){
-      setSelected(prev=>prev.filter(x=>x!==id))
-      await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
-    }
+    const order=db.orders.find(o=>o.id===id)
+    if(!order)return
+    if(order.status==='Entregado')return alert(`El pedido #${order.number} está Entregado y forma parte del historial de salidas de Inventario. No se puede eliminar.`)
+    if(order.status!=='Cancelado')return alert(`El pedido #${order.number} está activo. Para no liberar stock por error, primero cancelalo desde Estado.`)
+    if(!confirm(`¿Eliminar definitivamente el pedido cancelado #${order.number} del historial? Esta acción no se puede deshacer.`))return
+    const saved=await onSave({...db,orders:db.orders.filter(o=>o.id!==id)})
+    if(saved?.ok===false)return
+    setSelected(prev=>prev.filter(x=>x!==id))
   }
 
   async function setStatusOrder(o,newStatus){
+    if(statusActionRef.current)return
     const now=new Date().toISOString()
+    if(['Entregado','Cancelado'].includes(o.status))return alert(`El pedido #${o.number} ya está cerrado como ${o.status}.`)
     if(newStatus==='Entregado'&&!canMarkOrderDelivered(o))return alert(`El pedido #${o.number} todavía no fue marcado como despachado o listo para retirar. Primero cerrá ese paso desde Pedidos listos para despachar.`)
     if(newStatus==='Entregado'&&!confirm(`¿Confirmás que el pedido #${o.number} fue entregado al cliente? Al confirmar, sus figuras dejan de quedar reservadas en stock.`))return
-    await onSave({...db,orders:db.orders.map(x=>x.id===o.id?(newStatus==='Entregado'?markOrderDelivered(x,now):{...x,status:newStatus,updatedAt:now}):x)})
+    if(newStatus==='Cancelado'&&!confirm(`¿Confirmás cancelar el pedido #${o.number}? Sus figuras dejarán de quedar reservadas en stock.`))return
+    statusActionRef.current=true
+    try{
+      const current=db.orders.find(x=>x.id===o.id)
+      if(!current||current.status!==o.status)return alert(`El pedido #${o.number} cambió de estado. Recargá Pedidos antes de continuar.`)
+      if(newStatus==='Entregado'&&!canMarkOrderDelivered(current))return alert(`El pedido #${o.number} ya no está listo para marcar como Entregado. Recargá Pedidos antes de continuar.`)
+      const saved=await onSave({...db,orders:db.orders.map(x=>x.id===current.id?(newStatus==='Entregado'?markOrderDelivered(current,now):{...current,status:newStatus,updatedAt:now}):x)})
+      if(saved?.ok===false)return
+    }finally{statusActionRef.current=false}
   }
 
   async function openWhatsApp(o){
@@ -252,19 +261,32 @@ export default function Orders({db,onSave,onEdit}){
     if(!number)return alert('Este pedido no tiene un teléfono cargado.')
     const whatsappWindow=window.open('about:blank','_blank')
     if(!whatsappWindow)return alert('El navegador bloqueó WhatsApp. Permití las ventanas emergentes e intentá nuevamente.')
+    let enriched=o
+    let trackingWarning=false
+    let receiptDownloaded=false
     try{
       const {data,error}=await supabase.rpc('get_order_tracking_admin_by_number',{p_order_number:String(o.number||'')})
       if(error)throw error
       const row=Array.isArray(data)?data[0]:data
-      const enriched=row?.token?{...o,trackingToken:row.token}:o
-      await downloadOrderReceiptJpg(o)
-      whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(journeyMessage(enriched,JOURNEY_EVENTS.CONFIRMED,{trackingBaseUrl:window.location.origin}))}`
-      alert(`Se descargó el comprobante del pedido #${o.number}. En WhatsApp, adjuntá ese JPG antes de enviar el mensaje al cliente.`)
+      if(row?.token)enriched={...o,trackingToken:row.token}
+      else if(!o.trackingToken)trackingWarning=true
     }catch(error){
-      console.error(error)
-      whatsappWindow.close()
-      alert('No se pudo generar el comprobante JPG. Volvé a intentarlo.')
+      console.error('No se pudo recuperar el seguimiento; WhatsApp continúa.',error)
+      trackingWarning=!o.trackingToken
     }
+    try{
+      await downloadOrderReceiptJpg(o)
+      receiptDownloaded=true
+    }catch(error){
+      console.error('No se pudo descargar el comprobante; WhatsApp continúa.',error)
+    }
+    const message=journeyMessage(enriched,JOURNEY_EVENTS.CONFIRMED,{trackingBaseUrl:window.location.origin})
+    whatsappWindow.location.href=`https://wa.me/${number}?text=${encodeURIComponent(message)}`
+    const notes=[]
+    if(receiptDownloaded)notes.push(`Se descargó el comprobante del pedido #${o.number}. Adjuntá ese JPG antes de enviar.`)
+    else notes.push('WhatsApp se abrió, pero el JPG no pudo descargarse. Podés descargarlo desde Imprimir → Comprobante cliente JPG.')
+    if(trackingWarning)notes.push('No se pudo recuperar el enlace de seguimiento en este intento.')
+    alert(notes.join('\\n\\n'))
   }
 
   function printLabel(o){
@@ -320,10 +342,10 @@ export default function Orders({db,onSave,onEdit}){
   }
 
   return <>
-    <Title title="Pedidos" sub={view==='active'?'Pedidos de hoy en adelante. Los pedidos cuya fecha ya pasó se archivan automáticamente.':'Historial automático de pedidos con fecha de entrega anterior a hoy.'}/>
+    <Title title="Pedidos" sub={view==='active'?'Pedidos activos: permanecen aquí hasta Entregado o Cancelado.':'Historial de pedidos Entregados y Cancelados.'}/>
     <div className="request-tabs"><button className={view==='active'?'active':''} onClick={()=>changeView('active')}>Pedidos activos ({activeCount})</button><button className={view==='history'?'active':''} onClick={()=>changeView('history')}>Historial ({historyCount})</button></div>
     <div className="panel filters"><input placeholder="Buscar cliente, teléfono, número, figura o fecha de salida…" value={q} onChange={e=>setQ(e.target.value)}/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos los estados</option>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)}><option value="delivery-asc">Salida: más próxima primero</option><option value="delivery-desc">Salida: más lejana / reciente primero</option><option value="number-desc">Pedido: más nuevo primero</option><option value="number-asc">Pedido: más antiguo primero</option></select></div>
-    <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>{view==='active'?'Solo se muestran pedidos vigentes; los vencidos pasan solos al Historial.':'Los pedidos del historial siguen guardados y se pueden consultar, imprimir o editar.'}</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
-    <div className="panel table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th>Pedido</th><th>Entrega</th><th>Cliente</th><th>Piezas</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td>#{o.number}</td><td><b>{o.delivery||'Sin fecha'}</b></td><td><b>{o.client}</b><small className="block">{o.phone}</small></td><td>{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td><select value={o.status} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td><td>{money(o.total)}</td><td className="row-actions"><details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu"><button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button><button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button><button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button><button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button><button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button><button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button><button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button></div></details>{o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody></table>{!list.length&&<p>{view==='active'?'No hay pedidos activos con estos filtros.':'No hay pedidos en el historial con estos filtros.'}</p>}</div>
+    <div className="panel bulk-toolbar"><div><b>{selected.length} pedido{selected.length===1?'':'s'} seleccionado{selected.length===1?'':'s'}</b><small>{view==='active'?'Se muestran los pedidos activos, incluso si pasó su fecha prevista, hasta Entregado o Cancelado.':'El historial conserva pedidos Entregados y Cancelados para consultar, imprimir o eliminar con confirmación.'}</small></div><div className="bulk-actions"><button className="ghost" onClick={toggleVisible}>{allVisibleSelected?'Quitar selección visible':'Seleccionar visibles'}</button><button className="ghost" onClick={selectByDelivery}>Seleccionar por fecha</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,false)}>Imprimir seleccionados</button><button className="primary" disabled={!selected.length} onClick={()=>printOrders(selectedOrders,1,true)}>Lista de corte + pedidos</button>{selected.length>0&&<button className="ghost" onClick={()=>setSelected([])}>Cancelar selección</button>}</div></div>
+    <div className="panel table-wrap operational-table orders-table"><table><thead><tr><th className="select-cell"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Seleccionar pedidos visibles"/></th><th className="order-cell">Pedido</th><th className="delivery-cell">Entrega</th><th>Cliente</th><th className="pieces-cell">Piezas</th><th className="status-cell">Estado</th><th className="total-cell">Total</th><th className="actions-cell">Acciones</th></tr></thead><tbody>{list.map(o=><tr key={o.id} className={selected.includes(o.id)?'selected-row':''}><td className="select-cell" data-label="Seleccionar"><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggleOne(o.id)} aria-label={`Seleccionar pedido ${o.number}`}/></td><td className="order-cell" data-label="Pedido">#{o.number}</td><td className="delivery-cell" data-label="Entrega"><b>{o.delivery||'Sin fecha'}</b></td><td data-label="Cliente"><b>{o.client}</b><small className="block">{o.phone}</small></td><td className="pieces-cell" data-label="Piezas">{(o.items||[]).reduce((a,i)=>a+Number(i.qty||0),0)}</td><td className="status-cell" data-label="Estado"><select value={o.status} disabled={['Entregado','Cancelado'].includes(o.status)} onChange={e=>setStatusOrder(o,e.target.value)}>{Object.keys(statusColors).map(x=><option key={x}>{x}</option>)}</select></td><td className="total-cell" data-label="Total">{money(o.total)}</td><td className="row-actions actions-cell" data-label="Acciones"><details className="print-center"><summary>🖨️ Imprimir</summary><div className="print-menu"><button className="primary" onClick={()=>printOrders([o],1,false)}>Kit completo</button><button className="ghost" onClick={()=>printInternalOnly(o)}>Orden de trabajo</button><button className="ghost" onClick={()=>printLabelOnly(o)}>Solo etiqueta</button><button className="ghost" onClick={()=>printReceiptOnly(o)}>Comprobante cliente</button><button className="ghost" onClick={()=>downloadKitJpg(o)}>Kit JPG</button><button className="ghost" onClick={()=>downloadOrderReceiptJpg(o)}>Comprobante cliente JPG</button><button className="ghost" onClick={()=>downloadReceiptPdf(o)}>Comprobante cliente PDF</button></div></details>{o.phone&&<button className="whatsapp" onClick={()=>openWhatsApp(o)}>WhatsApp</button>}<button className="ghost" disabled={['Entregado','Cancelado'].includes(o.status)} onClick={()=>onEdit(o)}>Editar</button><button className="danger" onClick={()=>remove(o.id)}>Eliminar</button></td></tr>)}</tbody></table>{!list.length&&<p>{view==='active'?'No hay pedidos activos con estos filtros.':'No hay pedidos en el historial con estos filtros.'}</p>}</div>
   </>
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Title, Field } from '../components/UI'
 import { today } from '../lib/format'
 import { stockRows, duplicateFigureGroups, mergeDuplicateFigures, catalogFigureInfo, mergeFigureInto } from '../lib/inventory'
@@ -11,6 +11,7 @@ export default function Stock({db,onSave}){
   const [mergeA,setMergeA]=useState('')
   const [mergeB,setMergeB]=useState('')
   const [mergeKeep,setMergeKeep]=useState('')
+  const actionRef=useRef(false)
   const allRows=useMemo(()=>stockRows(db),[db])
   const rows=useMemo(()=>{const q=search.toLowerCase();return allRows.filter(r=>String(r?.figure||'').toLowerCase().includes(q))},[allRows,search])
   const sortedFigures=useMemo(()=>[...new Set([...(db?.figures||[]),...(db?.customerCatalog||[]).map(p=>p?.name).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),[db?.figures,db?.customerCatalog])
@@ -22,7 +23,7 @@ export default function Stock({db,onSave}){
   const rowByFigure=useMemo(()=>Object.fromEntries(allRows.map(r=>[r.figure,r])),[allRows])
   const totals=useMemo(()=>rows.reduce((a,r)=>({cut:a.cut+r.cut,ordered:a.ordered+r.ordered,inCut:a.inCut+r.inCut,free:a.free+r.free,projected:a.projected+r.projected}),{cut:0,ordered:0,inCut:0,free:0,projected:0}),[rows])
 
-  async function add(e){e.preventDefault();if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};await onSave({...db,movements:[...(db.movements||[]),movement]});setForm({...form,qty:1,detail:''})}
+  async function add(e){e.preventDefault();if(actionRef.current)return;if(!form.figure||Number(form.qty)<=0)return alert('Elegí una figura y una cantidad válida.');actionRef.current=true;try{const movement={...form,id:crypto.randomUUID(),component:form.component==='complete'?undefined:form.component,qty:Number(form.qty),createdAt:new Date().toISOString()};const saved=await onSave({...db,movements:[...(db.movements||[]),movement]});if(saved?.ok===false)return;setForm({...form,qty:1,detail:''})}finally{actionRef.current=false}}
   async function cleanDuplicates(){
     if(!duplicateGroups.length)return alert('No se encontraron nombres duplicados en el inventario.')
     const preview=duplicateGroups.slice(0,12).map(g=>`• ${g.names.join(' / ')} → ${g.canonical}${g.fromCatalog?' (catálogo)':''}`).join('\n')
@@ -55,8 +56,10 @@ export default function Stock({db,onSave}){
   }
 
   async function quick(figure,direction){
+    if(actionRef.current)return
     const qty=Math.max(0,Number(quickQty[figure]||0))
     if(!qty)return alert('Ingresá una cantidad mayor a 0.')
+    actionRef.current=true
     const positive=direction==='add'
     const component=quickPart[figure]||'complete'
     const isPart=component==='tapa'||component==='base'
@@ -97,8 +100,7 @@ export default function Stock({db,onSave}){
           createdAt:now
         })
       }
-      await onSave({...db,movements:[...(db.movements||[]),...movements]})
-      setQuickQty(v=>({...v,[figure]:''}))
+      try{const saved=await onSave({...db,movements:[...(db.movements||[]),...movements]});if(saved?.ok===false)return;setQuickQty(v=>({...v,[figure]:''}))}finally{actionRef.current=false}
       return
     }
 
@@ -110,8 +112,7 @@ export default function Stock({db,onSave}){
       detail:isPart?`${positive?'Agregar':'Quitar'} ${component}${qty===1?'':'s'} suelta${qty===1?'':'s'}`:(positive?'Ajuste manual: agregar figuras completas':'Ajuste manual: quitar figuras completas'),
       createdAt:new Date().toISOString()
     }
-    await onSave({...db,movements:[...(db.movements||[]),movement]})
-    setQuickQty(v=>({...v,[figure]:''}))
+    try{const saved=await onSave({...db,movements:[...(db.movements||[]),movement]});if(saved?.ok===false)return;setQuickQty(v=>({...v,[figure]:''}))}finally{actionRef.current=false}
   }
 
   return <>
@@ -120,12 +121,12 @@ export default function Stock({db,onSave}){
     <div className="notice inventory-explanation"><b>Armado automático de tapa + base</b><span>Cuando una figura tiene 1 tapa y 1 base sueltas, el inventario las convierte automáticamente en 1 figura completa. Las dos partes dejan de mostrarse como sueltas. La Proyección también tiene en cuenta las tapas y bases que todavía están En corte.</span></div>
     <div className="inventory-kpis">
       <div className="panel"><small>CORTADAS AHORA</small><b>{totals.cut}</b><span>Piezas físicas registradas</span></div>
-      <div className="panel"><small>PEDIDAS HOY / FUTURAS</small><b>{totals.ordered}</b><span>Comprometidas hasta su fecha de salida</span></div>
+      <div className="panel"><small>PEDIDAS ACTIVAS</small><b>{totals.ordered}</b><span>Reservadas hasta Entregado o Cancelado</span></div>
       <div className="panel"><small>EN CORTE</small><b>{totals.inCut}</b><span>Producción todavía no terminada</span></div>
       <div className={'panel '+(totals.free<0?'inventory-negative':'inventory-positive')}><small>SALDO ACTUAL</small><b>{totals.free>0?`+${totals.free}`:totals.free}</b><span>{totals.free<0?'Faltan piezas hoy':'Sobran piezas disponibles hoy'}</span></div>
       <div className={'panel '+(totals.projected<0?'inventory-negative':'inventory-positive')}><small>PROYECCIÓN</small><b>{totals.projected>0?`+${totals.projected}`:totals.projected}</b><span>Saldo cuando termine lo que está en corte</span></div>
     </div>
-    <div className="notice inventory-explanation"><b>Inventario automático por fecha de salida</b><span>No hace falta marcar pedidos como <b>Entregados</b>. Durante el día de salida las piezas siguen en <b>Pedidas</b>. Al comenzar el día siguiente, ese pedido sale automáticamente de Pedidas y sus piezas se descuentan de <b>Cortadas</b>. Si el cliente no retira o el envío se posterga, reprogramá la fecha de salida para que las piezas sigan reservadas.</span></div>
+    <div className="notice inventory-explanation"><b>Reserva de inventario hasta la entrega</b><span>Los pedidos activos permanecen en <b>Pedidas</b> aunque haya pasado su fecha prevista. Las piezas recién dejan de estar reservadas cuando el pedido se marca explícitamente como <b>Entregado</b>. Un pedido <b>Cancelado</b> también deja de reservar stock.</span></div>
     <div className="notice inventory-explanation"><b>Tapas y bases sueltas</b><span>Podés registrar partes por separado sin sumarlas como figura completa. Si hay más tapas que bases, el inventario te avisa cuántas bases faltan para emparejarlas, y viceversa.</span></div>
     <div className="notice inventory-explanation"><b>¿Qué significa Proyección?</b><span>Es el saldo futuro suponiendo que todas las placas que figuran <b>En corte</b> terminan correctamente. Fórmula: <b>Cortadas + En corte − Pedidas</b>. Ejemplo: tenés 10, te piden 14 y hay 6 en corte → proyección <b>+2</b>. Eso significa que, cuando termine la máquina, podrás cubrir los pedidos y sobrarán 2.</span></div>
     <div className={"notice inventory-explanation "+(duplicateGroups.length?"inventory-duplicate-alert":"")}><b>Duplicados del inventario</b><span>{duplicateGroups.length?`Encontré ${duplicateGroups.length} grupo(s) con el mismo nombre escrito de distintas maneras. Se conservará la versión vinculada al catálogo y se migrarán automáticamente los pedidos, movimientos y piezas en corte.`:'No se detectan nombres duplicados.'}</span>{duplicateGroups.length>0&&<button type="button" className="primary smallbtn" onClick={cleanDuplicates}>🧹 Unificar duplicados</button>}</div>
