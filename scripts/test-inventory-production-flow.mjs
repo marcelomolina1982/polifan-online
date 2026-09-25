@@ -6,12 +6,12 @@ const qty=(groups,figure,component='complete')=>groups.flatMap(g=>g.rows).filter
 const base={figures:['Arcoiris'],customerCatalog:[],stockMin:{},svgLibrary:[],movements:[{id:'m1',figure:'Arcoiris',type:'Entrada de corte',qty:5}],cutBatches:[],orders:[]}
 
 let db={...base,orders:[{id:'legacy',number:0,status:'Ingresado',delivery:'2026-09-02',items:[{figure:'Arcoiris',qty:99,inventoryTracked:true}]}]}
-must((orderDemand(db).Arcoiris||0)===0,'pedido histórico anterior al corte no debe volver a reservar stock')
-must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'pedido histórico anterior al corte no debe reaparecer en Para cortar')
-must(physicalStockBalance(db).Arcoiris===5,'ignorar demanda histórica no debe modificar stock físico')
+must((orderDemand(db).Arcoiris||0)===99,'pedido activo vencido debe seguir reservando stock')
+must(qty(pendingCutByDelivery(db),'Arcoiris')===94,'pedido activo vencido debe reaparecer en Para cortar sólo por el faltante neto')
+must(physicalStockBalance(db).Arcoiris===5,'reservar demanda vencida activa no debe modificar stock físico')
 
 db={...base,orders:[{id:'o1',number:1,status:'Ingresado',delivery:'2026-09-24',items:[{figure:'Arcoiris',qty:3,inventoryTracked:true}]}]}
-must(orderDemand(db).Arcoiris===3,'pedido activo desde el corte no reserva 3')
+must(orderDemand(db).Arcoiris===3,'pedido activo reserva 3')
 must(physicalStockBalance(db).Arcoiris===5,'reservar pedido no debe consumir stock físico')
 must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'stock disponible no debe volver a corte')
 
@@ -38,4 +38,4 @@ must(physicalStockBalance(db).Arcoiris===2,'un movimiento con batchId ajeno no d
 
 db={...base,movements:[{id:'neutral',figure:'Arcoiris',type:'Nota de auditoría',qty:4}],orders:[]}
 must((physicalStockBalance(db).Arcoiris||0)===0,'un tipo de movimiento desconocido no debe descontar stock como si fuera una salida')
-console.log('INVENTORY FLOW OK · corte histórico, reserva actual, entrega, en corte, multiplicador y reparación por componente')
+console.log('INVENTORY FLOW OK · vencidos activos, reserva, entrega, en corte, multiplicador y reparación por componente')
