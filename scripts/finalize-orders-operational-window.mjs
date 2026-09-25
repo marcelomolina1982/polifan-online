@@ -24,3 +24,27 @@ s=s.replace(
 
 fs.writeFileSync(path,s)
 console.log('ORDERS WINDOW OK · hoy/futuro en Pedidos; vencidos, Entregados y Cancelados en Historial')
+
+// Inventario: una placa Terminada no es una segunda fuente de stock.
+// El stock físico sale exclusivamente de movimientos reales. Antes, el reparador
+// reconstruía producción histórica de placas y podía volver a sumar piezas ya
+// consumidas (ej.: Te Amo / Margarita), inflando "Cortadas" y ocultando faltantes.
+const inventoryPath='src/lib/inventory.js'
+let inv=fs.readFileSync(inventoryPath,'utf8')
+const oldManual="export function manualBalance(db){const balance={};(db.movements||[]).forEach(m=>{if(!m.figure||['tapa','base'].includes(m.component))return;const q=Number(m.qty||0),positive=['Entrada extra','Ajuste positivo','Entrada de corte'].includes(m.type),negative=['Salida manual','Ajuste negativo'].includes(m.type);if(!positive&&!negative)return;balance[m.figure]=(balance[m.figure]||0)+(positive?q:-q)});Object.entries(missingFinishedBatchProduction(db).complete).forEach(([figure,qty])=>balance[figure]=(balance[figure]||0)+Number(qty||0));return balance}"
+const newManual="export function manualBalance(db){const balance={};(db.movements||[]).forEach(m=>{if(!m.figure||['tapa','base'].includes(m.component))return;const q=Number(m.qty||0),positive=['Entrada extra','Ajuste positivo','Entrada de corte'].includes(m.type),negative=['Salida manual','Ajuste negativo'].includes(m.type);if(!positive&&!negative)return;balance[m.figure]=(balance[m.figure]||0)+(positive?q:-q)});return balance}"
+if(inv.includes(oldManual)) inv=inv.replace(oldManual,newManual)
+else if(!inv.includes(newManual)) throw new Error('INVENTORY HISTORY FIX: no se encontró manualBalance esperado')
+
+const oldLoose="export function looseComponentBalance(db){const balance={};(db.movements||[]).forEach(m=>{if(!m.figure||!['tapa','base'].includes(m.component))return;const q=Number(m.qty||0),positive=['Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo'].includes(m.type),negative=['Salida manual','Ajuste negativo','Ajuste componente negativo'].includes(m.type);if(!positive&&!negative)return;if(!balance[m.figure])balance[m.figure]={tapa:0,base:0};balance[m.figure][m.component]+=positive?q:-q});Object.entries(missingFinishedBatchProduction(db).components).forEach(([figure,parts])=>{if(!balance[figure])balance[figure]={tapa:0,base:0};balance[figure].tapa+=Number(parts?.tapa||0);balance[figure].base+=Number(parts?.base||0)});Object.values(balance).forEach(v=>{v.tapa=Math.max(0,Number(v.tapa||0));v.base=Math.max(0,Number(v.base||0))});return balance}"
+const newLoose="export function looseComponentBalance(db){const balance={};(db.movements||[]).forEach(m=>{if(!m.figure||!['tapa','base'].includes(m.component))return;const q=Number(m.qty||0),positive=['Entrada extra','Ajuste positivo','Entrada de corte','Ajuste componente positivo'].includes(m.type),negative=['Salida manual','Ajuste negativo','Ajuste componente negativo'].includes(m.type);if(!positive&&!negative)return;if(!balance[m.figure])balance[m.figure]={tapa:0,base:0};balance[m.figure][m.component]+=positive?q:-q});Object.values(balance).forEach(v=>{v.tapa=Math.max(0,Number(v.tapa||0));v.base=Math.max(0,Number(v.base||0))});return balance}"
+if(inv.includes(oldLoose)) inv=inv.replace(oldLoose,newLoose)
+else if(!inv.includes(newLoose)) throw new Error('INVENTORY HISTORY FIX: no se encontró looseComponentBalance esperado')
+fs.writeFileSync(inventoryPath,inv)
+
+const testPath='scripts/test-inventory-production-flow.mjs'
+let test=fs.readFileSync(testPath,'utf8')
+test=test.replace("must(physicalStockBalance(db).Arcoiris===2,'un movimiento con batchId ajeno no debe atribuirse a otra placa sólo porque comparte número')","must(physicalStockBalance(db).Arcoiris===1,'una placa Terminada no debe reconstruirse como stock adicional: sólo cuentan movimientos reales')")
+if(!test.includes("physicalStockBalance(db).Arcoiris===1,'una placa Terminada no debe reconstruirse")) throw new Error('INVENTORY HISTORY FIX: no se pudo actualizar la regresión')
+fs.writeFileSync(testPath,test)
+console.log('INVENTORY HISTORY FIX OK · placas históricas no se vuelven a sumar como stock físico')
