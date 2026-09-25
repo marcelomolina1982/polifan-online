@@ -39,6 +39,31 @@ function dbForCutPlanning(db){
   }
 }
 
+function auditRowsForGroup(group){
+  const byFigure={}
+  ;(group.rows||[]).forEach(row=>{
+    const figure=String(row.figure||'').trim()
+    const key=normalizeFigureKey(figure)
+    if(!key)return
+    if(!byFigure[key])byFigure[key]={figure,ordered:0,covered:0,pending:0}
+    const pending=Math.max(0,Number(row.qty||row.pending||0))
+    const orderedRaw=Number(row.ordered)
+    const coveredRaw=Number(row.covered)
+    byFigure[key].pending+=pending
+    if(Number.isFinite(orderedRaw))byFigure[key].ordered+=Math.max(0,orderedRaw)
+    if(Number.isFinite(coveredRaw))byFigure[key].covered+=Math.max(0,coveredRaw)
+  })
+  return Object.values(byFigure).map(row=>{
+    // pendingCutByDelivery puede entregar ordered/covered en la fila. Si una
+    // versión anterior no los entrega, no inventamos stock: mostramos al menos
+    // el faltante real que originó la lista de corte.
+    if(row.ordered===0&&row.covered===0)row.ordered=row.pending
+    else if(row.ordered===0)row.ordered=row.covered+row.pending
+    else if(row.covered===0)row.covered=Math.max(0,row.ordered-row.pending)
+    return row
+  }).sort((a,b)=>b.pending-a.pending||a.figure.localeCompare(b.figure,'es',{sensitivity:'base'}))
+}
+
 // La planificación de corte conserva el componente que realmente falta
 // (figura completa, tapa o base) y reserva stock cronológicamente.
 export function pendingCutPlan(db){
@@ -47,8 +72,9 @@ export function pendingCutPlan(db){
   return pendingCutByDelivery(planningDb).map(group=>({
     ...group,
     overdue:Boolean(group.date&&group.date<today),
-    auditRows:[],
+    auditRows:auditRowsForGroup(group),
     rows:(group.rows||[]).map(row=>({
+      ...row,
       figure:row.figure,
       qty:Number(row.qty||0),
       component:row.component||'complete'
