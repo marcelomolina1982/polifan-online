@@ -32,4 +32,5 @@ db={...base,movements:[
 ]}
 must((physicalStockBalance(db).Arcoiris||0)===0,'un ajuste negativo de componente no debe regenerar bases ya producidas')
 
+// Preview validation trigger: no cambia la lógica del test.
 console.log('FINISHED BATCH REPAIR OK')
