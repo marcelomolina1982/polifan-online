@@ -20,11 +20,31 @@ export function productionStockSnapshot(db){
   return Object.values(rows)
 }
 
+function orderAlreadyLeftProduction(order){
+  const stage=String(order?.journey?.stage||'').trim().toLowerCase()
+  return stage==='dispatched'||Boolean(order?.journey?.dispatchedAt)||Boolean(order?.journey?.finalAt)
+}
+
+function dbForCutPlanning(db){
+  // Un pedido despachado ya consumió físicamente sus piezas. Algunos pedidos
+  // históricos conservan status="Ingresado" aunque journey ya esté despachado;
+  // si se los deja así, Para cortar vuelve a pedir esas mismas figuras.
+  return {
+    ...db,
+    orders:(db.orders||[]).map(order=>
+      orderAlreadyLeftProduction(order)&&order.status!=='Cancelado'
+        ? {...order,status:'Entregado'}
+        : order
+    )
+  }
+}
+
 // La planificación de corte conserva el componente que realmente falta
 // (figura completa, tapa o base) y reserva stock cronológicamente.
 export function pendingCutPlan(db){
   const today=todayArgentinaISO()
-  return pendingCutByDelivery(db).map(group=>({
+  const planningDb=dbForCutPlanning(db)
+  return pendingCutByDelivery(planningDb).map(group=>({
     ...group,
     overdue:Boolean(group.date&&group.date<today),
     auditRows:[],
