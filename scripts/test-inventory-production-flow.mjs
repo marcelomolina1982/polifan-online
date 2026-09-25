@@ -3,12 +3,12 @@ import {productionStockSnapshot} from '../src/lib/cutPlanning.js'
 
 const must=(ok,message)=>{if(!ok)throw new Error('INVENTORY FLOW: '+message)}
 const qty=(groups,figure,component='complete')=>groups.flatMap(g=>g.rows).filter(r=>r.figure===figure&&r.component===component).reduce((n,r)=>n+Number(r.qty||0),0)
-const base={figures:['Arcoiris'],customerCatalog:[],stockMin:{},svgLibrary:[],movements:[{id:'m1',figure:'Arcoiris',type:'Entrada de corte',qty:5}],cutBatches:[],orders:[]}
+const base={figures:['Arcoiris'],customerCatalog:[],stockMin:{},svgLibrary:[],movements:[{id:'m1',figure:'Arcoiris',type:'Entrada extra',qty:5}],cutBatches:[],orders:[]}
 
 let db={...base,orders:[{id:'legacy',number:0,status:'Ingresado',delivery:'2026-09-02',items:[{figure:'Arcoiris',qty:99,inventoryTracked:true}]}]}
 must((orderDemand(db).Arcoiris||0)===0,'pedido histórico vencido no debe volver a reservar stock')
 must(qty(pendingCutByDelivery(db),'Arcoiris')===0,'pedido histórico vencido no debe reaparecer en Para cortar')
-must(physicalStockBalance(db).Arcoiris===5,'ignorar demanda histórica no debe modificar stock físico')
+must(physicalStockBalance(db).Arcoiris===0,'pedido histórico vencido debe considerarse salida del stock físico existente')
 
 db={...base,orders:[{id:'o1',number:1,status:'Ingresado',delivery:'2026-09-25',items:[{figure:'Arcoiris',qty:3,inventoryTracked:true}]}]}
 must(orderDemand(db).Arcoiris===3,'pedido de hoy debe reservar 3')
