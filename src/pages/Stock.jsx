@@ -64,7 +64,6 @@ export default function Stock(props){
     clean();const observer=new MutationObserver(clean);const root=document.querySelector('.inventory-page');if(root)observer.observe(root,{childList:true,subtree:true});return()=>observer.disconnect()
   },[])
 
-
   // El cierre histórico del 14/08 ya no se ejecuta automáticamente al abrir Inventario.
   // Es una migración destructiva (cambia estados de pedidos y agrega movimientos), por lo que
   // no debe bloquear ni alterar una pantalla de consulta. Si ya fue aplicado, se respeta tal cual.
@@ -73,7 +72,24 @@ export default function Stock(props){
   return <div className="inventory-page"><style>{`
     .inventory-page .inventory-kpis > .panel:nth-child(5){display:none!important}
     .inventory-page .inventory-table th:nth-child(8),.inventory-page .inventory-table td:nth-child(8){display:none!important}
-    .bulk-recount{margin:14px 0;padding:16px}.bulk-head{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.bulk-table-wrap{overflow:auto;max-height:62vh;margin-top:12px}.bulk-table{width:100%;border-collapse:collapse}.bulk-table th,.bulk-table td{padding:8px;border-bottom:1px solid #ddd;text-align:left}.bulk-table input{width:88px}.bulk-actions{position:sticky;bottom:0;background:var(--panel,#fff);padding:12px 0;display:flex;gap:10px;justify-content:flex-end}.bulk-badge{font-weight:700}
+    .inventory-page .table-wrap{overflow:auto;position:relative}
+    .inventory-page .inventory-table th:last-child,.inventory-page .inventory-table td:last-child{position:sticky;right:0;z-index:3;background:var(--panel,#fff);box-shadow:-8px 0 12px rgba(0,0,0,.06);min-width:250px}
+    .inventory-page .inventory-table th:last-child{z-index:5}
+    .inventory-page .stock-number-adjust{display:grid;grid-template-columns:minmax(110px,1fr) 82px;gap:7px;align-items:center}
+    .inventory-page .stock-number-actions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .inventory-page .stock-number-actions button{width:100%;white-space:nowrap}
+    .bulk-recount{margin:14px 0;padding:16px;overflow:hidden}.bulk-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}.bulk-head h3{margin:0 0 5px;line-height:1.25}.bulk-head p{margin:0;line-height:1.4}.bulk-table-wrap{overflow:auto;max-height:62vh;margin-top:12px;border:1px solid rgba(127,127,127,.18);border-radius:12px}.bulk-table{width:100%;border-collapse:collapse}.bulk-table th,.bulk-table td{padding:10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:middle}.bulk-table th{position:sticky;top:0;z-index:2;background:var(--panel,#fff);white-space:normal;line-height:1.2}.bulk-table input{width:88px;max-width:100%;box-sizing:border-box}.bulk-actions{position:sticky;bottom:0;z-index:4;background:var(--panel,#fff);padding:12px 0 0;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}.bulk-badge{font-weight:700;white-space:nowrap}
+    @media(max-width:900px){
+      .inventory-page .inventory-table th:nth-child(3),.inventory-page .inventory-table td:nth-child(3),.inventory-page .inventory-table th:nth-child(4),.inventory-page .inventory-table td:nth-child(4),.inventory-page .inventory-table th:nth-child(6),.inventory-page .inventory-table td:nth-child(6){display:none}
+      .inventory-page .inventory-table th:last-child,.inventory-page .inventory-table td:last-child{min-width:220px}
+    }
+    @media(max-width:640px){
+      .bulk-recount{padding:12px}.bulk-head{display:block}.bulk-head .bulk-badge{display:inline-block;margin-top:8px}.bulk-head button{width:100%;margin-top:10px}
+      .bulk-table-wrap{overflow:visible;max-height:none;border:0}.bulk-table,.bulk-table tbody{display:block}.bulk-table thead{display:none}.bulk-table tr{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0;padding:12px;border:1px solid rgba(127,127,127,.22);border-radius:12px}.bulk-table td{display:block;padding:0;border:0}.bulk-table td:first-child{grid-column:1/-1;font-size:16px;margin-bottom:2px}.bulk-table td:nth-child(2)::before{content:'Completas';}.bulk-table td:nth-child(3)::before{content:'Tapas';}.bulk-table td:nth-child(4)::before{content:'Bases';}.bulk-table td:not(:first-child)::before{display:block;font-size:11px;font-weight:700;opacity:.7;margin-bottom:4px}.bulk-table input{width:100%;min-width:0}.bulk-actions{margin:0 -12px -12px;padding:10px 12px;box-shadow:0 -5px 14px rgba(0,0,0,.08)}.bulk-actions button{flex:1 1 140px}
+      .inventory-page .inventory-table th:nth-child(5),.inventory-page .inventory-table td:nth-child(5){display:none}
+      .inventory-page .inventory-table th:last-child,.inventory-page .inventory-table td:last-child{min-width:205px}
+      .inventory-page .stock-number-adjust{grid-template-columns:1fr 70px}
+    }
   `}</style>
     {!bulkMode&&<div className="panel bulk-recount"><div className="bulk-head"><div><h3>🧮 Reajuste masivo de inventario</h3><p className="muted">Cargá todo el recuento físico y guardalo una sola vez al terminar.</p></div><button type="button" className="primary" onClick={startBulk}>Abrir reajuste masivo</button></div></div>}
 
