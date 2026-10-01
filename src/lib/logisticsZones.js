@@ -1,10 +1,10 @@
 const normalize=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 
 export const LOGISTICS_ZONES=[
-  {id:'ZONA 1',price:4000,places:['caba','ciudad autonoma de buenos aires','capital federal','vicente lopez','san isidro','san fernando','general san martin','gral san martin','tres de febrero']},
-  {id:'GBA 1',price:5000,places:['tigre','malvinas argentinas','hurlingham','ituzaingo','moron','la matanza norte','lanus','avellaneda']},
-  {id:'GBA 2',price:6000,places:['escobar','maschwitz','ingeniero maschwitz','garin','del viso','derqui','presidente derqui','jose c paz','jose c. paz','san miguel','moreno','merlo','la matanza','esteban echeverria','ezeiza','almirante brown','florencio varela','berazategui','quilmes']},
-  {id:'GBA 3',price:8500,places:['zarate','campana','villa rosa','pilar','general rodriguez','gral rodriguez','marcos paz','lujan','canuelas','san vicente','ensenada','berisso','la plata']}
+  {id:'ZONA 1',places:['caba','ciudad autonoma de buenos aires','capital federal','vicente lopez','san isidro','san fernando','general san martin','gral san martin','tres de febrero']},
+  {id:'GBA 1',places:['tigre','malvinas argentinas','hurlingham','ituzaingo','moron','la matanza norte','lanus','avellaneda']},
+  {id:'GBA 2',places:['escobar','maschwitz','ingeniero maschwitz','garin','del viso','derqui','presidente derqui','jose c paz','jose c. paz','san miguel','moreno','merlo','la matanza','esteban echeverria','ezeiza','almirante brown','florencio varela','berazategui','quilmes']},
+  {id:'GBA 3',places:['zarate','campana','villa rosa','pilar','general rodriguez','gral rodriguez','marcos paz','lujan','canuelas','san vicente','ensenada','berisso','la plata']}
 ]
 
 const LOCALITY_ALIASES={
@@ -43,27 +43,29 @@ export function resolveLogisticsZone({locality='',district='',province='',postal
   return {...zone,locality:String(locality||'').trim(),district:String(district||'').trim(),postalCode:String(postalCode||'').trim(),source:districtZone?'district':'locality'}
 }
 
-// Money-sensitive regression: local logistics price depends ONLY on zone, never order quantity.
-export const LOGISTICS_MONEY_REGRESSION_CASES=[
-  [{locality:'José León Suárez',district:'General San Martín',province:'Buenos Aires'},'ZONA 1',4000,'localidad + partido'],
-  [{locality:'Boulogne',district:'San Isidro',province:'Buenos Aires'},'ZONA 1',4000,'alias localidad'],
-  [{locality:'Villa Tesei',district:'Hurlingham',province:'Buenos Aires'},'GBA 1',5000,'GBA 1'],
-  [{locality:'Don Torcuato',district:'Tigre',province:'Buenos Aires'},'GBA 1',5000,'GBA 1 alias'],
-  [{locality:'Bernal',district:'Quilmes',province:'Buenos Aires'},'GBA 2',6000,'GBA 2'],
-  [{locality:'Del Viso',district:'Pilar',province:'Buenos Aires'},'GBA 3',8500,'partido prevalece sobre alias de zona menor'],
-  [{locality:'City Bell',district:'La Plata',province:'Buenos Aires'},'GBA 3',8500,'GBA 3'],
-  [{locality:'Localidad no listada',district:'Quilmes',province:'Buenos Aires'},'GBA 2',6000,'localidad desconocida pero partido cubierto'],
-  [{locality:'Bernal',district:'La Plata',province:'Buenos Aires'},'GBA 3',8500,'partido prevalece ante datos contradictorios']
+// Regression: logistics keeps zone/coverage resolution, but no longer exposes shipping prices.
+export const LOGISTICS_ZONE_REGRESSION_CASES=[
+  [{locality:'José León Suárez',district:'General San Martín',province:'Buenos Aires'},'ZONA 1','localidad + partido'],
+  [{locality:'Boulogne',district:'San Isidro',province:'Buenos Aires'},'ZONA 1','alias localidad'],
+  [{locality:'Villa Tesei',district:'Hurlingham',province:'Buenos Aires'},'GBA 1','GBA 1'],
+  [{locality:'Don Torcuato',district:'Tigre',province:'Buenos Aires'},'GBA 1','GBA 1 alias'],
+  [{locality:'Bernal',district:'Quilmes',province:'Buenos Aires'},'GBA 2','GBA 2'],
+  [{locality:'Del Viso',district:'Pilar',province:'Buenos Aires'},'GBA 3','partido prevalece sobre alias de zona menor'],
+  [{locality:'City Bell',district:'La Plata',province:'Buenos Aires'},'GBA 3','GBA 3'],
+  [{locality:'Localidad no listada',district:'Quilmes',province:'Buenos Aires'},'GBA 2','localidad desconocida pero partido cubierto'],
+  [{locality:'Bernal',district:'La Plata',province:'Buenos Aires'},'GBA 3','partido prevalece ante datos contradictorios']
 ]
+
+export const LOGISTICS_MONEY_REGRESSION_CASES=LOGISTICS_ZONE_REGRESSION_CASES
 
 export function runLogisticsMoneyRegression(){
   const failures=[]
-  for(const [input,expectedZone,expectedPrice,label] of LOGISTICS_MONEY_REGRESSION_CASES){
+  for(const [input,expectedZone,label] of LOGISTICS_ZONE_REGRESSION_CASES){
     const got=resolveLogisticsZone(input)
-    if(!got||got.id!==expectedZone||got.price!==expectedPrice)failures.push({label,input,expectedZone,expectedPrice,got})
+    if(!got||got.id!==expectedZone||Object.prototype.hasOwnProperty.call(got,'price'))failures.push({label,input,expectedZone,got})
     for(const quantity of [1,6,12,24,50]){
       const again=resolveLogisticsZone({...input,quantity})
-      if(!again||again.id!==expectedZone||again.price!==expectedPrice)failures.push({label:`${label} · quantity=${quantity}`,input,expectedZone,expectedPrice,got:again})
+      if(!again||again.id!==expectedZone||Object.prototype.hasOwnProperty.call(again,'price'))failures.push({label:`${label} · quantity=${quantity}`,input,expectedZone,got:again})
     }
   }
   const outsideCases=[
@@ -71,6 +73,6 @@ export function runLogisticsMoneyRegression(){
     {locality:'Córdoba',district:'Capital',province:'Córdoba'},
     {locality:'Localidad desconocida',district:'Partido desconocido',province:'Buenos Aires'}
   ]
-  for(const input of outsideCases){const got=resolveLogisticsZone(input);if(got!==null)failures.push({label:'sin cobertura debe quedar sin precio',input,expected:null,got})}
-  return {ok:failures.length===0,total:LOGISTICS_MONEY_REGRESSION_CASES.length*6+outsideCases.length,failures}
+  for(const input of outsideCases){const got=resolveLogisticsZone(input);if(got!==null)failures.push({label:'sin cobertura logística',input,expected:null,got})}
+  return {ok:failures.length===0,total:LOGISTICS_ZONE_REGRESSION_CASES.length*6+outsideCases.length,failures}
 }
