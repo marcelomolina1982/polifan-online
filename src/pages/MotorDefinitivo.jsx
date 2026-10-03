@@ -229,6 +229,8 @@ export default function MotorDefinitivo({db,onSave}){
     const selectedKits=data.selectedKits||[]
     const selectedUnits=selectedKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean)
     if(!selectedUnits.length)throw new Error('IronNest no devolvió figuras completas de los pedidos pendientes.')
+    const requestedBase=Math.min(10,industrial.kits.length)
+    if(selectedUnits.length<requestedBase)throw new Error(`IronNest devolvió sólo ${selectedUnits.length} figuras completas de una base posible de ${requestedBase}. La placa se rechazó para evitar certificar un resultado incompleto.`)
     const minGap=Number(validation.minimumMeasuredGapMm)
     const conflicts=Number(validation.conflicts??validation.collisionCount??0)
     const border=Number((validation.strictOutsidePlate||[]).length+(validation.outsidePlate||[]).length)
