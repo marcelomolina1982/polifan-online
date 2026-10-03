@@ -21,6 +21,8 @@ IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.6
 IRON_SOLVE_TIMEOUT_SECONDS=150
+IRON_STATUS_GRACE_SECONDS=20
+IRON_QUEUE_TIMEOUT_SECONDS=240
 IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'fast'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
@@ -66,12 +68,23 @@ def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,
         solve_timeout=timeout_seconds or IRON_SOLVE_TIMEOUT_SECONDS
         process.join(solve_timeout)
         if process.is_alive():
-            process.terminate(); process.join(5)
+            process.terminate()
+            process.join(5)
+            if process.is_alive():
+                process.kill()
+                process.join(5)
             raise TimeoutError(f'IronNest supero {solve_timeout} segundos')
         try: state,payload=result_queue.get(timeout=2)
         except queue.Empty: raise RuntimeError(f'IronNest termino sin resultado (exit={process.exitcode})')
     finally:
-        result_queue.close()
+        try:
+            result_queue.close()
+            result_queue.cancel_join_thread()
+        except Exception:
+            pass
+        if process.is_alive():
+            process.kill()
+            process.join(2)
     if state=='error': raise RuntimeError(payload)
     placements,unplaced=payload
     elapsed=round(time.time()-started,2)
@@ -301,14 +314,33 @@ def _execute_industrial(payload,job_id):
             'error':None if valid else 'No entraron y validaron todas las piezas del lote'},200 if valid else 422
 
 def _industrial_worker(job_id,payload):
-    with _SOLVE_SEMAPHORE:
-        with _JOB_LOCK:_JOBS[job_id]={'state':'running','startedAt':time.time()}
+    acquired=_SOLVE_SEMAPHORE.acquire(timeout=IRON_QUEUE_TIMEOUT_SECONDS)
+    if not acquired:
+        with _JOB_LOCK:
+            current=_JOBS.get(job_id) or {}
+            if current.get('state')=='queued':
+                _JOBS[job_id]={**current,'state':'failed','httpStatus':503,'result':{'ok':False,'error':'IronNest agotó el tiempo de espera en cola'},'finishedAt':time.time()}
+        return
+    try:
+        started=time.time()
+        with _JOB_LOCK:
+            current=_JOBS.get(job_id) or {}
+            _JOBS[job_id]={**current,'state':'running','startedAt':started,'deadlineAt':started+IRON_SOLVE_TIMEOUT_SECONDS+IRON_STATUS_GRACE_SECONDS}
         try:
             result,status=_execute_industrial(payload,job_id)
-            with _JOB_LOCK:_JOBS[job_id]={'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
+            with _JOB_LOCK:
+                current=_JOBS.get(job_id) or {}
+                # Un watchdog puede haber cerrado el job mientras el solver terminaba.
+                if current.get('state')=='running':
+                    _JOBS[job_id]={**current,'state':'done','httpStatus':status,'result':result,'finishedAt':time.time()}
         except Exception as exc:
             print(f'IRON_INDUSTRIAL_ERROR job={job_id} error={exc!r}',flush=True)
-            with _JOB_LOCK:_JOBS[job_id]={'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
+            with _JOB_LOCK:
+                current=_JOBS.get(job_id) or {}
+                if current.get('state')=='running':
+                    _JOBS[job_id]={**current,'state':'failed','httpStatus':500,'result':{'ok':False,'error':str(exc)},'finishedAt':time.time()}
+    finally:
+        _SOLVE_SEMAPHORE.release()
 
 @app.post('/ironnest/solve-start')
 def ironnest_solve_start():
@@ -324,7 +356,8 @@ def ironnest_solve_start():
             raise ValueError('El laboratorio admite como maximo 60 piezas por intento')
     except ValueError as exc:return jsonify(ok=False,error=str(exc)),422
     job_id=uuid.uuid4().hex[:12]
-    with _JOB_LOCK:_JOBS[job_id]={'state':'queued','createdAt':time.time()}
+    created=time.time()
+    with _JOB_LOCK:_JOBS[job_id]={'state':'queued','createdAt':created,'queueDeadlineAt':created+IRON_QUEUE_TIMEOUT_SECONDS}
     threading.Thread(target=_industrial_worker,args=(job_id,payload),daemon=True).start()
     return jsonify(ok=True,jobId=job_id,status='queued'),202
 
@@ -334,8 +367,27 @@ def ironnest_solve_status():
     with _JOB_LOCK:job=_JOBS.get(job_id)
     if not job:return jsonify(ok=False,error='Trabajo no encontrado'),404
     state=job.get('state')
+    now=time.time()
+    if state=='queued' and now>float(job.get('queueDeadlineAt') or now+1):
+        with _JOB_LOCK:
+            current=_JOBS.get(job_id) or {}
+            if current.get('state')=='queued':
+                current={**current,'state':'failed','httpStatus':503,'result':{'ok':False,'error':'IronNest agotó el tiempo de espera en cola'},'finishedAt':now}
+                _JOBS[job_id]=current
+            job=current
+        state=job.get('state')
+    if state=='running' and now>float(job.get('deadlineAt') or now+1):
+        with _JOB_LOCK:
+            current=_JOBS.get(job_id) or {}
+            if current.get('state')=='running':
+                current={**current,'state':'failed','httpStatus':504,'result':{'ok':False,'error':f'IronNest excedió el límite duro de {IRON_SOLVE_TIMEOUT_SECONDS} segundos'},'finishedAt':now}
+                _JOBS[job_id]=current
+                print(f'IRON_WATCHDOG_TIMEOUT job={job_id}',flush=True)
+            job=current
+        state=job.get('state')
     if state in ('queued','running'):
-        return jsonify(ok=True,jobId=job_id,status=state,elapsedSeconds=round(time.time()-job.get('startedAt',time.time()),1)),202
+        base=job.get('startedAt') or job.get('createdAt') or now
+        return jsonify(ok=True,jobId=job_id,status=state,elapsedSeconds=round(now-base,1)),202
     result=job.get('result') or {}
     return jsonify(ok=bool(result.get('ok')),jobId=job_id,status='done' if result.get('ok') else 'error',result=result),200
 
