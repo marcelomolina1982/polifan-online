@@ -238,7 +238,7 @@ export default function MotorDefinitivo({db,onSave}){
     const data=await solveCompleteKitsWithIronNestLab(industrial.kits,{
       targetComplete:Math.min(10,industrial.kits.length),maxGrowth:16,optimizationMode:'fast',
       onProgress:p=>{setElapsed(Math.round((Date.now()-started)/1000));setProgress(p?.stage||'IronNest calculando…')},
-      onJobStarted:j=>{const active={jobId:j.jobId,kitIds:j.kitIds||[],multiplier,startedAt:started,overallStartedAt:started,jobStartedAt:j.startedAt||Date.now()};saveActiveJob(active);setActiveJob(active)}
+      onJobStarted:j=>{const active={jobId:j.jobId,kitIds:j.kitIds||[],multiplier,startedAt:started,overallStartedAt:started,jobStartedAt:j.startedAt||Date.now(),fallbackResult:j.fallbackResult||null};saveActiveJob(active);setActiveJob(active)}
     })
     const validation=data?.layoutValidation||{}
     if(!data?.ok||!validation.ok)throw new Error(data?.error||'IronNest no devolvió una placa geométricamente válida.')
