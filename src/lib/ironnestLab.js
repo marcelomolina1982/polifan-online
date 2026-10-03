@@ -180,17 +180,20 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     if(!extras.length)break
     const compactExtras=[...extras].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b))
     const candidates=[],seen=new Set()
-    for(const extra of [...extras.slice(0,4),...compactExtras.slice(0,4)]){
+    for(const extra of [...extras.slice(0,2),...compactExtras.slice(0,4)]){
       const id=String(extra.kitId); if(seen.has(id))continue
       seen.add(id); candidates.push(extra)
     }
     let grown=null
     for(const extra of candidates){
       try{
-        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,60000)
+        // El backend puede necesitar más de 60 s aun cuando termina correctamente.
+        // Dejamos margen sobre su límite interno y, si este extra falla o agota
+        // tiempo, conservamos la base certificada y probamos el siguiente.
+        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,165000)
         break
       }catch(error){
-        if(isIronNestTransientError(error))throw error
+        if(error?.name==='AbortError')throw error
       }
     }
     if(!grown)break
