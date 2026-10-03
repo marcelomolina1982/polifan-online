@@ -217,7 +217,17 @@ export default function MotorDefinitivo({db,onSave}){
       setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);const finishedSession={...(loadGenerationSession()||{}),sessionId:active.sessionId||active.jobId,jobId:String(active.jobId),multiplier:Number(active.multiplier||1),status:'finished',finishedAt:Date.now()};saveGenerationSession(finishedSession);setGenerationSession(finishedSession);setProgress(`IronNest recuperado · ${selectedUnits.length} figuras completas · gap ${minGap.toFixed(4)} mm`)
     }catch(error){
       const age=Math.max(0,Date.now()-jobStartedAt)
-      if(isIronNestTransientError(error)&&age<MAX_RECOVERY_AGE_MS){setProgress(`IronNest sigue pendiente · Trabajo ${String(active.jobId).slice(0,8)} conservado para reanudar.`);setPlans([])}
+      const fallback=active.fallbackResult
+      const fv=fallback?.layoutValidation||{}
+      const fallbackGap=Number(fv.minimumMeasuredGapMm),fallbackConflicts=Number(fv.conflicts??fv.collisionCount??0),fallbackBorder=Number((fv.strictOutsidePlate||[]).length+(fv.outsidePlate||[]).length)
+      const fallbackIds=(fallback?.selectedKits||[]).map(k=>String(k.kitId))
+      const fallbackKits=fallbackIds.map(id=>industrial.kits.find(k=>String(k.kitId)===id)).filter(Boolean)
+      if(!isIronNestTransientError(error)&&fallback?.ok&&fv.ok&&fallbackKits.length>=Math.min(10,industrial.kits.length)&&Number.isFinite(fallbackGap)&&fallbackGap>=REQUIRED_GAP_MM&&fallbackConflicts===0&&fallbackBorder===0){
+        const fallbackUnits=fallbackKits.map(k=>industrial.unitMap.get(String(k.kitId))).filter(Boolean)
+        const composed=composeIndustrialSvg(fallback.placements||[],industrial.partMap),produced=Math.min(pending.units.length,fallbackUnits.length*multiplier)
+        const plan={id:crypto.randomUUID(),jobId:String(fallback.jobId||active.jobId),createdAt:new Date().toISOString(),number:1,units:fallbackUnits,summary:summarizeUnits(fallbackUnits),date:fallbackUnits.map(u=>u.date).filter(Boolean).sort()[0]||today(),registered:false,deferred:Math.max(0,pending.units.length-produced),status:'CERTIFICADO',minGap:fallbackGap.toFixed(4),conflicts:0,border:0,seconds:Number(fallback.elapsedSeconds||0).toFixed(2),svgText:composed,error:'',density:Number(fallback.geometricOccupancyPct??0),stripWidthMm:Number(fallback.usedWidthMm||0),industrialSeconds:Number(fallback.elapsedSeconds||0),rotationStep:'IronNest',reachedMinimum:true,candidatePool:industrial.kits.length,rejectedCount:Math.max(0,industrial.kits.length-fallbackUnits.length),source:'IronNest producción · último resultado certificado conservado',partialExtra:null,targetDensityReached:null,fixedHoleFill:false,multiplier,produced}
+        setPlans([plan]);savePlans([plan]);clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null);setProgress(`IronNest conservó la última placa válida · ${fallbackUnits.length} figuras completas · gap ${fallbackGap.toFixed(4)} mm`)
+      }else if(isIronNestTransientError(error)&&age<MAX_RECOVERY_AGE_MS){setProgress(`IronNest sigue pendiente · Trabajo ${String(active.jobId).slice(0,8)} conservado para reanudar.`);setPlans([])}
       else{
         clearActiveJob();setActiveJob(null);clearGenerationSession();setGenerationSession(null)
         const message=age>=MAX_RECOVERY_AGE_MS?`El trabajo IronNest ${String(active.jobId).slice(0,8)} superó 20 minutos y fue descartado. Generá una placa nueva.`:error.message
