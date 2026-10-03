@@ -376,15 +376,21 @@ def ironnest_solve_status():
                 _JOBS[job_id]=current
             job=current
         state=job.get('state')
-    if state=='running' and now>float(job.get('deadlineAt') or now+1):
-        with _JOB_LOCK:
-            current=_JOBS.get(job_id) or {}
-            if current.get('state')=='running':
-                current={**current,'state':'failed','httpStatus':504,'result':{'ok':False,'error':f'IronNest excedió el límite duro de {IRON_SOLVE_TIMEOUT_SECONDS} segundos'},'finishedAt':now}
-                _JOBS[job_id]=current
-                print(f'IRON_WATCHDOG_TIMEOUT job={job_id}',flush=True)
-            job=current
-        state=job.get('state')
+    if state=='running':
+        # No confiamos exclusivamente en deadlineAt: los jobs creados por una
+        # versión anterior del servicio o recuperados sin ese campo también
+        # deben expirar. startedAt es la fuente autoritativa del tiempo activo.
+        started=float(job.get('startedAt') or job.get('createdAt') or now)
+        hard_deadline=started+IRON_SOLVE_TIMEOUT_SECONDS+IRON_STATUS_GRACE_SECONDS
+        if now>hard_deadline:
+            with _JOB_LOCK:
+                current=_JOBS.get(job_id) or {}
+                if current.get('state')=='running':
+                    current={**current,'state':'failed','httpStatus':504,'result':{'ok':False,'error':f'IronNest excedió el límite duro de {IRON_SOLVE_TIMEOUT_SECONDS} segundos'},'finishedAt':now}
+                    _JOBS[job_id]=current
+                    print(f'IRON_WATCHDOG_TIMEOUT job={job_id} elapsed={round(now-started,1)}',flush=True)
+                job=current
+            state=job.get('state')
     if state in ('queued','running'):
         base=job.get('startedAt') or job.get('createdAt') or now
         return jsonify(ok=True,jobId=job_id,status=state,elapsedSeconds=round(now-base,1)),202
