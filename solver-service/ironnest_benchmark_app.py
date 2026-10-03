@@ -12,16 +12,16 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # the most expensive production-quality knobs at once (24 rotations, budget 900,
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
-IRON_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
+IRON_ROTATIONS=[0.0,45.0,90.0,135.0]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
-IRON_BUDGET=80
-IRON_RESTARTS=2
-IRON_SEPARATION_EFFORT='max'
+IRON_BUDGET=48
+IRON_RESTARTS=1
+IRON_SEPARATION_EFFORT='balanced'
 IRON_STRATEGY='sampling'
-IRON_SIMPLIFY_MM=1.2
-IRON_SOLVE_TIMEOUT_SECONDS=180
-IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':120,'restarts':3,'separation_effort':'max'}
+IRON_SIMPLIFY_MM=1.6
+IRON_SOLVE_TIMEOUT_SECONDS=150
+IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'balanced'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
