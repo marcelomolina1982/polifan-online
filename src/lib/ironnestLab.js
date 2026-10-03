@@ -139,52 +139,26 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 }={}){
   const available=Array.isArray(kits)?kits.length:0
   if(!available)throw new Error('No hay kits completos para calcular.')
-  const target=Math.min(Math.max(1,Number(targetComplete)||10),available,10)
-  let lastError=null
 
-  async function solveVariant(list,label,timeoutMs){
-    onProgress?.({stage:`IronNest · ${label} · ${list.length} figuras…`,percent:5,completeFigures:0})
-    const result=await solveWithIronNestLab(list,{optimizationMode,timeoutMs,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:list.map(k=>k.kitId)})})
-    return {...result,selectedKits:list,kitCount:list.length}
-  }
+  // El backend Sparrow ya hace selección, nesting, alternativas 10/9/8/7,
+  // crecimiento y certificación. Enviar el pool completo una sola vez evita
+  // lanzar muchos jobs pequeños que compiten entre sí en Render.
+  const ordered=[...kits].sort((a,b)=>kitPriority(a)-kitPriority(b))
+  const pool=ordered.slice(0,Math.min(32,available))
+  onProgress?.({stage:`IronNest · analizando ${pool.length} candidatos en una sola búsqueda…`,percent:5,completeFigures:0})
+  const result=await solveWithIronNestLab(pool,{
+    optimizationMode,
+    timeoutMs:300000,
+    signal,
+    onProgress,
+    onJobStarted:j=>onJobStarted?.({...j,kitIds:pool.map(k=>k.kitId)})
+  })
 
-  // Presupuesto corto por combinación: si una mezcla no resuelve, probar otra.
-  // Antes un solo intento podía consumir 15 minutos y bloquear toda la generación.
-  for(const variant of uniqueKitVariants(kits,target)){
-    if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-    try{
-      let best=await solveVariant(variant.kits,`base ${target} · ${variant.label}`,90000)
-      const ordered=[...(kits||[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
-      const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
-      while(best.kitCount<limit){
-        const ids=new Set(best.selectedKits.map(k=>String(k.kitId)))
-        const remaining=ordered.filter(k=>!ids.has(String(k.kitId)))
-        if(!remaining.length)break
-        const pool=remaining.slice(0,12)
-        const choices=[pool[0],...[...pool].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b)).slice(0,3)].filter(Boolean)
-        const seen=new Set();let grown=null
-        for(const extra of choices){
-          if(seen.has(String(extra.kitId)))continue
-          seen.add(String(extra.kitId))
-          const candidate=[...best.selectedKits,extra]
-          if(candidate.length>limit||completeKitPieceCount(candidate)>60)continue
-          try{grown=await solveVariant(candidate,`crecimiento a ${candidate.length}`,60000);break}catch(error){lastError=error}
-        }
-        if(!grown)break
-        best=grown
-      }
-      return best
-    }catch(error){lastError=error}
-  }
+  const returnedIds=new Set((result.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))
+  let selected=pool.filter(k=>returnedIds.has(String(k.kitId)))
+  const reported=Math.max(0,Number(result.completeFigures||0))
+  if(reported>0&&selected.length>reported)selected=selected.slice(0,reported)
+  if(!selected.length)throw new Error(result.error||'IronNest no devolvió figuras completas identificables.')
 
-  // Fallback acotado: no recorrer 9..1 durante minutos. Probamos 9, 8 y 7
-  // con mezclas compactas; una placa menor a 7 no se certifica como solución productiva.
-  for(let t=target-1;t>=Math.max(7,target-3);t--){
-    for(const variant of uniqueKitVariants(kits,t)){
-      if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-      try{return await solveVariant(variant.kits,`alternativa ${t} · ${variant.label}`,60000)}
-      catch(error){lastError=error}
-    }
-  }
-  throw lastError||new Error('IronNest no encontró una placa productiva válida.')
+  return {...result,selectedKits:selected,kitCount:selected.length}
 }
