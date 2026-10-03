@@ -106,19 +106,26 @@ function kitAreaScore(kit){
   return (kit.parts||[]).reduce((sum,p)=>sum+Number(p.sourceWidthCm??p.sourceWidth??p.widthCm??p.width??0)*Number(p.sourceHeightCm??p.sourceHeight??p.heightCm??p.height??0),0)
 }
 
+function kitPriority(k){return Number(k?.priority??999999)}
+
 function uniqueKitVariants(kits,target){
-  const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
-  const variants=[]
-  const push=list=>{
+  const ordered=[...(kits||[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
+  const variants=[],seen=new Set()
+  const push=(label,list)=>{
     const picked=list.slice(0,target)
     if(picked.length!==target||completeKitPieceCount(picked)>60)return
-    const key=picked.map(k=>k.kitId).join('|')
-    if(!variants.some(v=>v.key===key))variants.push({key,kits:picked})
+    const key=picked.map(k=>k.kitId).sort().join('|')
+    if(seen.has(key))return
+    seen.add(key);variants.push({key,label,kits:picked})
   }
-  push(ordered)
-  push([...ordered].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0)||kitAreaScore(a)-kitAreaScore(b)))
-  const urgent=ordered.slice(0,Math.max(target,Math.ceil(target*1.6)))
-  push([...urgent].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)))
+  push('prioridad',ordered)
+  const urgent=ordered.slice(0,Math.max(target,Math.ceil(target*2.2)))
+  push('urgentes compactos',[...urgent].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b)))
+  push('compactos globales',[...ordered].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b)))
+  const keep=Math.min(Math.max(2,Math.floor(target/3)),target)
+  const first=ordered.slice(0,keep),firstIds=new Set(first.map(k=>String(k.kitId)))
+  const compactRest=ordered.filter(k=>!firstIds.has(String(k.kitId))).sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b))
+  push('prioridad + compactos',[...first,...compactRest])
   return variants
 }
 
@@ -132,81 +139,52 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 }={}){
   const available=Array.isArray(kits)?kits.length:0
   if(!available)throw new Error('No hay kits completos para calcular.')
-  // PRODUCCIÓN: resolver la base y luego crecer de a UN kit. Así 11/12/etc.
-  // sólo se intentan si la placa anterior ya fue válida, sin disparar una cartera de trabajos.
   const target=Math.min(Math.max(1,Number(targetComplete)||10),available,10)
-  const variants=uniqueKitVariants(kits,target)
   let lastError=null
-  for(let i=0;i<variants.length;i++){
+
+  async function solveVariant(list,label,timeoutMs){
+    onProgress?.({stage:`IronNest · ${label} · ${list.length} figuras…`,percent:5,completeFigures:0})
+    const result=await solveWithIronNestLab(list,{optimizationMode,timeoutMs,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:list.map(k=>k.kitId)})})
+    return {...result,selectedKits:list,kitCount:list.length}
+  }
+
+  // Presupuesto corto por combinación: si una mezcla no resuelve, probar otra.
+  // Antes un solo intento podía consumir 15 minutos y bloquear toda la generación.
+  for(const variant of uniqueKitVariants(kits,target)){
     if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-    onProgress?.({stage:`IronNest · calculando placa de ${target} figuras completas…`,percent:5,completeFigures:0})
     try{
-      const result=await solveWithIronNestLab(variants[i].kits,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:variants[i].kits.map(k=>k.kitId)})})
-      let best={...result,selectedKits:variants[i].kits,kitCount:variants[i].kits.length}
-      const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
+      let best=await solveVariant(variant.kits,`base ${target} · ${variant.label}`,90000)
+      const ordered=[...(kits||[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
       const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
-      // Crecimiento protegido: conservar siempre la última placa válida, pero no
-      // detenerse porque UNA figura prioritaria no entre. Probamos alternativas cercanas,
-      // priorizando las de menor área, y seguimos creciendo mientras exista alguna que entre.
       while(best.kitCount<limit){
-        const selectedIds=new Set((best.selectedKits||[]).map(k=>String(k.kitId)))
-        const remaining=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
+        const ids=new Set(best.selectedKits.map(k=>String(k.kitId)))
+        const remaining=ordered.filter(k=>!ids.has(String(k.kitId)))
         if(!remaining.length)break
-        const growthPool=remaining.slice(0,Math.min(8,remaining.length))
-        const alternatives=[growthPool[0],...growthPool.slice(1).sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
-        let grownBest=null
-        for(const extra of alternatives){
-          const candidate=[...(best.selectedKits||[]),extra]
+        const pool=remaining.slice(0,12)
+        const choices=[pool[0],...[...pool].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b)).slice(0,3)].filter(Boolean)
+        const seen=new Set();let grown=null
+        for(const extra of choices){
+          if(seen.has(String(extra.kitId)))continue
+          seen.add(String(extra.kitId))
+          const candidate=[...best.selectedKits,extra]
           if(candidate.length>limit||completeKitPieceCount(candidate)>60)continue
-          onProgress?.({stage:`IronNest · ${best.kitCount} entraron; probando alternativas para sumar otra…`,percent:92,completeFigures:best.kitCount})
-          try{
-            const grown=await solveWithIronNestLab(candidate,{optimizationMode,timeoutMs:300000,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
-            grownBest={...grown,selectedKits:candidate,kitCount:candidate.length}
-            break
-          }catch(error){lastError=error}
+          try{grown=await solveVariant(candidate,`crecimiento a ${candidate.length}`,60000);break}catch(error){lastError=error}
         }
-        if(!grownBest)break
-        best=grownBest
+        if(!grown)break
+        best=grown
       }
-      onProgress?.({stage:`IronNest · ${best.kitCount} figuras completas validadas`,percent:100,completeFigures:best.kitCount,minimumGapMm:best.layoutValidation?.minimumMeasuredGapMm})
       return best
     }catch(error){lastError=error}
   }
-  // Si la base de 10 no entra, buscamos una base menor; pero una vez encontrada
-  // también intentamos volver a crecer. Antes se devolvía inmediatamente una placa de 6/7
-  // figuras aunque todavía hubiera mucho espacio libre.
-  for(let t=target-1;t>=1;t--){
-    const smaller=uniqueKitVariants(kits,t)
-    for(let i=0;i<smaller.length;i++){
+
+  // Fallback acotado: no recorrer 9..1 durante minutos. Probamos 9, 8 y 7
+  // con mezclas compactas; una placa menor a 7 no se certifica como solución productiva.
+  for(let t=target-1;t>=Math.max(7,target-3);t--){
+    for(const variant of uniqueKitVariants(kits,t)){
       if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-      onProgress?.({stage:`IronNest · buscando placa válida de ${t} figuras completas…`,percent:5,completeFigures:0})
-      try{
-        const result=await solveWithIronNestLab(smaller[i].kits,{optimizationMode,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:smaller[i].kits.map(k=>k.kitId)})})
-        let best={...result,selectedKits:smaller[i].kits,kitCount:smaller[i].kits.length}
-        const ordered=[...(kits||[])].sort((a,b)=>Number(a.priority||0)-Number(b.priority||0))
-        const limit=Math.min(available,Math.max(target,Number(maxGrowth)||target))
-        while(best.kitCount<limit){
-          const selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
-          const remaining=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
-          if(!remaining.length)break
-          const pool=remaining.slice(0,Math.min(8,remaining.length))
-          const alternatives=[pool[0],...pool.slice(1).sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
-          let grownBest=null
-          for(const extra of alternatives){
-            const candidate=[...best.selectedKits,extra]
-            if(completeKitPieceCount(candidate)>60)continue
-            try{
-              const grown=await solveWithIronNestLab(candidate,{optimizationMode,timeoutMs:300000,signal,onProgress,onJobStarted:j=>onJobStarted?.({...j,kitIds:candidate.map(k=>k.kitId)})})
-              grownBest={...grown,selectedKits:candidate,kitCount:candidate.length};break
-            }catch(error){lastError=error}
-          }
-          if(!grownBest)break
-          best=grownBest
-        }
-        return best
-      }catch(error){lastError=error}
+      try{return await solveVariant(variant.kits,`alternativa ${t} · ${variant.label}`,60000)}
+      catch(error){lastError=error}
     }
   }
-  throw lastError||new Error('IronNest no encontró una placa completa válida.')
+  throw lastError||new Error('IronNest no encontró una placa productiva válida.')
 }
-
