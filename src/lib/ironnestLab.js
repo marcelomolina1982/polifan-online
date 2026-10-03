@@ -144,7 +144,16 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   // crecimiento y certificación. Enviar el pool completo una sola vez evita
   // lanzar muchos jobs pequeños que compiten entre sí en Render.
   const ordered=[...kits].sort((a,b)=>kitPriority(a)-kitPriority(b))
-  const pool=ordered.slice(0,Math.min(32,available))
+  const maxKitsByPieces=Math.max(1,Math.min(32,available))
+  const pool=[]
+  let pieceBudget=0
+  for(const kit of ordered){
+    if(pool.length>=maxKitsByPieces)break
+    const pieces=(kit.parts||[]).length
+    if(!pieces||pieceBudget+pieces>60)continue
+    pool.push(kit)
+    pieceBudget+=pieces
+  }
   onProgress?.({stage:`IronNest · analizando ${pool.length} candidatos en una sola búsqueda…`,percent:5,completeFigures:0})
   const result=await solveWithIronNestLab(pool,{
     optimizationMode,
