@@ -170,19 +170,32 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   }
   if(!best)throw lastBaseError||new Error('IronNest no encontró una combinación válida de 10 figuras completas.')
 
-  // Crecer sin reemplazar la base certificada: agregamos pendientes por prioridad.
-  const selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
-  const extras=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
-  const growthLimit=Math.min(Number(maxGrowth)||16,baseTarget+extras.length)
-  for(let n=baseTarget+1;n<=growthLimit;n++){
-    const candidateBatch=[...best.selectedKits,extras[n-baseTarget-1]]
-    try{
-      best=await solveBatch(candidateBatch,`probando crecimiento a ${n}`,90000)
-      selectedIds.add(String(extras[n-baseTarget-1].kitId))
-    }catch(error){
-      if(isIronNestTransientError(error))throw error
-      break
+  // Crecer sin perder la base certificada. Un extra que no entra no significa
+  // que ningún otro extra entre: probamos varios pendientes y aceptamos el primero
+  // compatible. Así evitamos cortar el crecimiento por una sola figura grande.
+  let selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
+  const growthLimit=Math.min(Number(maxGrowth)||16,ordered.length)
+  while(best.selectedKits.length<growthLimit){
+    const extras=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
+    if(!extras.length)break
+    const compactExtras=[...extras].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b))
+    const candidates=[],seen=new Set()
+    for(const extra of [...extras.slice(0,4),...compactExtras.slice(0,4)]){
+      const id=String(extra.kitId); if(seen.has(id))continue
+      seen.add(id); candidates.push(extra)
     }
+    let grown=null
+    for(const extra of candidates){
+      try{
+        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,60000)
+        break
+      }catch(error){
+        if(isIronNestTransientError(error))throw error
+      }
+    }
+    if(!grown)break
+    best=grown
+    selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
   }
   return best
 }
