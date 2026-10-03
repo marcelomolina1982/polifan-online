@@ -180,7 +180,12 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     if(!extras.length)break
     const compactExtras=[...extras].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b))
     const candidates=[],seen=new Set()
-    for(const extra of [...extras.slice(0,2),...compactExtras.slice(0,4)]){
+    // El solver es heurístico: una combinación que entró en una ejecución puede
+    // fallar en otra si llegamos a ella por una base distinta. Antes de abandonar
+    // el crecimiento, ampliamos de forma determinística la cartera de extras:
+    // prioridad primero y luego compactos. Esto hace mucho menos probable caer de
+    // 12 a 11 cuando existe una combinación certificable de 12.
+    for(const extra of [...extras.slice(0,4),...compactExtras.slice(0,8)]){
       const id=String(extra.kitId); if(seen.has(id))continue
       seen.add(id); candidates.push(extra)
     }
