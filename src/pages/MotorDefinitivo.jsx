@@ -124,7 +124,7 @@ function summarizeUnits(units){
 }
 function buildIndustrialKits(units){
   const kits=[],partMap=new Map(),unitMap=new Map()
-  units.slice(0,32).forEach((unit,kitIndex)=>{
+  units.slice(0,60).forEach((unit,kitIndex)=>{
     const kitId=`auto-${kitIndex}-${normalizeFigureKey(unit.figure)}`
     unitMap.set(kitId,unit)
     const parts=unit.components.map((comp,partIndex)=>{
