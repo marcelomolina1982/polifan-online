@@ -154,13 +154,31 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     return {...result,selectedKits:selected,kitCount:selected.length}
   }
 
-  // Regla productiva real: primero certificar 10 completas. Sólo después crecer.
-  best=await solveBatch(ordered.slice(0,baseTarget),'buscando base productiva')
-  const growthLimit=Math.min(ordered.length,Math.max(baseTarget,Number(maxGrowth)||16))
-  for(let n=baseTarget+1;n<=growthLimit;n++){
+  // La prioridad define qué figuras deben intentarse primero, pero no obliga a
+  // que las primeras 10 sean geométricamente compatibles. Probamos unas pocas
+  // variantes determinísticas de 10 y conservamos la primera certificada.
+  const baseVariants=uniqueKitVariants(ordered,baseTarget)
+  let lastBaseError=null
+  for(const variant of baseVariants){
     try{
-      const candidate=await solveBatch(ordered.slice(0,n),`probando crecimiento a ${n}`,90000)
-      best=candidate
+      best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,90000)
+      break
+    }catch(error){
+      if(isIronNestTransientError(error))throw error
+      lastBaseError=error
+    }
+  }
+  if(!best)throw lastBaseError||new Error('IronNest no encontró una combinación válida de 10 figuras completas.')
+
+  // Crecer sin reemplazar la base certificada: agregamos pendientes por prioridad.
+  const selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
+  const extras=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
+  const growthLimit=Math.min(Number(maxGrowth)||16,baseTarget+extras.length)
+  for(let n=baseTarget+1;n<=growthLimit;n++){
+    const candidateBatch=[...best.selectedKits,extras[n-baseTarget-1]]
+    try{
+      best=await solveBatch(candidateBatch,`probando crecimiento a ${n}`,90000)
+      selectedIds.add(String(extras[n-baseTarget-1].kitId))
     }catch(error){
       if(isIronNestTransientError(error))throw error
       break
