@@ -153,7 +153,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         const remaining=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
         if(!remaining.length)break
         const growthPool=remaining.slice(0,Math.min(8,remaining.length))
-        const alternatives=[growthPool[0],...[...growthPool.slice(1)].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
+        const alternatives=[growthPool[0],...growthPool.slice(1).sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
         let grownBest=null
         for(const extra of alternatives){
           const candidate=[...(best.selectedKits||[]),extra]
@@ -190,7 +190,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
           const remaining=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
           if(!remaining.length)break
           const pool=remaining.slice(0,Math.min(8,remaining.length))
-          const alternatives=[pool[0],...[...pool.slice(1)].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
+          const alternatives=[pool[0],...pool.slice(1).sort((a,b)=>kitAreaScore(a)-kitAreaScore(b))]
           let grownBest=null
           for(const extra of alternatives){
             const candidate=[...best.selectedKits,extra]
