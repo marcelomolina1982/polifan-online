@@ -137,37 +137,34 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   onProgress,
   onJobStarted
 }={}){
-  const available=Array.isArray(kits)?kits.length:0
-  if(!available)throw new Error('No hay kits completos para calcular.')
+  const ordered=[...(Array.isArray(kits)?kits:[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
+  if(!ordered.length)throw new Error('No hay kits completos para calcular.')
 
-  // El backend Sparrow ya hace selección, nesting, alternativas 10/9/8/7,
-  // crecimiento y certificación. Enviar el pool completo una sola vez evita
-  // lanzar muchos jobs pequeños que compiten entre sí en Render.
-  const ordered=[...kits].sort((a,b)=>kitPriority(a)-kitPriority(b))
-  const maxKitsByPieces=Math.max(1,Math.min(32,available))
-  const pool=[]
-  let pieceBudget=0
-  for(const kit of ordered){
-    if(pool.length>=maxKitsByPieces)break
-    const pieces=(kit.parts||[]).length
-    if(!pieces||pieceBudget+pieces>60)continue
-    pool.push(kit)
-    pieceBudget+=pieces
+  const baseTarget=Math.min(Math.max(1,Number(targetComplete)||10),10,ordered.length)
+  let best=null
+  const solveBatch=async(batch,label,timeoutMs=150000)=>{
+    onProgress?.({stage:`IronNest · ${label} (${batch.length} figuras)…`,percent:5,completeFigures:best?.selectedKits?.length||0})
+    const result=await solveWithIronNestLab(batch,{
+      optimizationMode,timeoutMs,signal,onProgress,
+      onJobStarted:j=>onJobStarted?.({...j,kitIds:batch.map(k=>k.kitId)})
+    })
+    const ids=new Set((result.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))
+    const selected=batch.filter(k=>ids.has(String(k.kitId)))
+    if(selected.length!==batch.length)throw new Error(result.error||'IronNest no devolvió el lote completo.')
+    return {...result,selectedKits:selected,kitCount:selected.length}
   }
-  onProgress?.({stage:`IronNest · analizando ${pool.length} candidatos en una sola búsqueda…`,percent:5,completeFigures:0})
-  const result=await solveWithIronNestLab(pool,{
-    optimizationMode,
-    timeoutMs:300000,
-    signal,
-    onProgress,
-    onJobStarted:j=>onJobStarted?.({...j,kitIds:pool.map(k=>k.kitId)})
-  })
 
-  const returnedIds=new Set((result.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))
-  let selected=pool.filter(k=>returnedIds.has(String(k.kitId)))
-  const reported=Math.max(0,Number(result.completeFigures||0))
-  if(reported>0&&selected.length>reported)selected=selected.slice(0,reported)
-  if(!selected.length)throw new Error(result.error||'IronNest no devolvió figuras completas identificables.')
-
-  return {...result,selectedKits:selected,kitCount:selected.length}
+  // Regla productiva real: primero certificar 10 completas. Sólo después crecer.
+  best=await solveBatch(ordered.slice(0,baseTarget),'buscando base productiva')
+  const growthLimit=Math.min(ordered.length,Math.max(baseTarget,Number(maxGrowth)||16))
+  for(let n=baseTarget+1;n<=growthLimit;n++){
+    try{
+      const candidate=await solveBatch(ordered.slice(0,n),`probando crecimiento a ${n}`,90000)
+      best=candidate
+    }catch(error){
+      if(isIronNestTransientError(error))throw error
+      break
+    }
+  }
+  return best
 }
