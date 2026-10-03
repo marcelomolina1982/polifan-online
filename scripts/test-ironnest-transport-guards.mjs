@@ -6,7 +6,7 @@ must(lib.includes('408,425,429,500,502,503,504'),'faltan estados HTTP transitori
 must(lib.includes('IronNest devolvio una respuesta transitoria'),'HTML/gateway transitorio no está diferenciado')
 must(lib.includes('respuesta transitoria \\((?:408|425|429|500|502|503|504)\\)'),'clasificador no contempla respuesta transitoria')
 must(lib.includes('timeoutMs=900000'),'timeout principal dejó de ser 15 minutos')
-must(lib.includes(',60000);break}catch(error){lastError=error}'),'crecimiento perdió su ventana acotada de 60 segundos')
+must(lib.includes('timeoutMs:300000'),'búsqueda única de Sparrow perdió su ventana de 5 minutos')
 must(motor.includes('isIronNestTransientError(error)'),'Motor perdió la recuperación de errores transitorios')
 must(motor.includes('loadActiveJob()?.jobId'),'Motor volvió a prometer recuperación sin jobId')
 console.log('IRONNEST TRANSPORT GUARDS OK · gateway, timeout y recuperación protegidos')
