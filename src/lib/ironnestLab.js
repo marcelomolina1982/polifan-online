@@ -146,7 +146,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     onProgress?.({stage:`IronNest · ${label} (${batch.length} figuras)…`,percent:5,completeFigures:best?.selectedKits?.length||0})
     const result=await solveWithIronNestLab(batch,{
       optimizationMode,timeoutMs,signal,onProgress,
-      onJobStarted:j=>onJobStarted?.({...j,kitIds:batch.map(k=>k.kitId)})
+      onJobStarted:j=>onJobStarted?.({...j,kitIds:batch.map(k=>k.kitId),fallbackResult:best?{...best,selectedKits:best.selectedKits.map(k=>({kitId:k.kitId}))}:null})
     })
     const ids=new Set((result.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))
     const selected=batch.filter(k=>ids.has(String(k.kitId)))
@@ -193,7 +193,9 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,165000)
         break
       }catch(error){
-        if(error?.name==='AbortError')throw error
+        // Si se perdió la comunicación, NO arrancar otro job: ese cálculo puede
+        // seguir vivo en el backend. El frontend lo reanudará por su mismo id.
+        if(isIronNestTransientError(error)||error?.name==='AbortError')throw error
       }
     }
     if(!grown)break
