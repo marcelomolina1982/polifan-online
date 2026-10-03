@@ -17,11 +17,11 @@ IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
 IRON_BUDGET=48
 IRON_RESTARTS=1
-IRON_SEPARATION_EFFORT='balanced'
+IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
 IRON_SIMPLIFY_MM=1.6
 IRON_SOLVE_TIMEOUT_SECONDS=150
-IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'balanced'}
+IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'fast'}
 # Search clearance is intentionally wider than the required clearance. The
 # validator below checks the parser geometry and rejects any shortfall.
 IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
