@@ -37,13 +37,16 @@ def _area_first_candidate_selections(kits, _requested_target):
 
 
 def _area_first_production_ready(target,result):
-    return bool(result.get('ok')) and bool(result.get('fits')) and target>=1
+    # Producción: no aceptar placas pobres sólo porque Sparrow logró ubicarlas.
+    # 10+ es la base normal; 9 sólo se admite con ocupación alta.
+    density=float(result.get('density') or 0)
+    return bool(result.get('ok')) and bool(result.get('fits')) and (target>=10 or (target==9 and density>=72.0))
 
 ns._candidate_selections=_area_first_candidate_selections
 ns._production_ready=_area_first_production_ready
-ns.MIN_COMPLETE=1
-ns.HIGH_DENSITY_COMPLETE=0
-ns.HIGH_DENSITY_MIN=0.0
+ns.MIN_COMPLETE=10
+ns.HIGH_DENSITY_COMPLETE=9
+ns.HIGH_DENSITY_MIN=72.0
 
 
 def emergency_cut_solver():
@@ -57,11 +60,11 @@ def emergency_cut_solver():
     if payload:
         payload.update({
             'areaFirst':True,
-            'noArtificialMinimum':True,
+            'noArtificialMinimum':False,
             'shelfPackingDisabled':True,
             'flexibleCandidateOrder':True,
             'optimizationPriority':'sparrow-real-nesting-area-first',
-            'motorPolicy':'probar 10/9/8/7 realmente; elegir mejor placa Sparrow válida',
+            'motorPolicy':'probar alternativas reales; certificar 10+ o 9 sólo con alta ocupación',
         })
         if payload.get('ok'):
             payload['message']='Placa generada por Sparrow real con cantidad flexible.'
