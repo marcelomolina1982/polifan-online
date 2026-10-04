@@ -12,14 +12,14 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # the most expensive production-quality knobs at once (24 rotations, budget 900,
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
-IRON_ROTATIONS=[0.0,45.0,90.0,135.0]
+IRON_ROTATIONS=[0.0,45.0,90.0,135.0,180.0,225.0,270.0,315.0]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
 IRON_BUDGET=48
 IRON_RESTARTS=1
 IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
-IRON_SIMPLIFY_MM=1.6
+IRON_SIMPLIFY_MM=1.0
 IRON_SOLVE_TIMEOUT_SECONDS=150
 IRON_STATUS_GRACE_SECONDS=20
 IRON_QUEUE_TIMEOUT_SECONDS=240
@@ -260,7 +260,7 @@ def _execute_industrial(payload,job_id):
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and n<=20 and 0<len(u)<=4:
-                    repair={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'fast'}
+                    repair={'strategy':'sampling','budget':96,'restarts':2,'separation_effort':'fast'}
                     attempts.extend([(2713,2,repair),(3911,1,repair),(6151,4,repair)])
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
