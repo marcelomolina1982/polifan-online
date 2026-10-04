@@ -240,16 +240,31 @@ def _execute_industrial(payload,job_id):
     if mode not in ('fast','compact'):
         return {'ok':False,'error':'Modo de optimizacion no admitido'},422
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
-    # Production quality without multiplying frontend jobs: try a small deterministic
-    # seed/column portfolio inside ONE Render job and keep the tightest valid layout.
-    # Width is the primary objective because the cutting plate is 1230 x 580 mm.
-    attempts=[(1777,3),(2713,2)] if mode=='compact' else [(1777,3)]
-    best=None; last_exc=None
-    for attempt_no,(seed,column_weight) in enumerate(attempts,1):
+    # Primera pasada rápida. Si queda sólo una figura incompleta (típicamente
+    # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
+    # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
+    # el lote, no sólo intentar insertar las dos piezas faltantes al final.
+    attempts=[(1777,3,settings)]
+    if mode=='compact':
+        attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
+    best=None; last_exc=None; first_unplaced=None
+    detailed_try=None
+    attempt_no=0
+    while attempts:
+        seed,column_weight,attempt_settings=attempts.pop(0)
+        attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',settings,seed=seed,column_weight=column_weight)
-            if u or len(p)!=n: continue
-            detailed_try=_industrial_kits(payload,detailed=True)
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight)
+            if u or len(p)!=n:
+                if first_unplaced is None: first_unplaced=len(u)
+                # Reparación sólo para lotes base chicos: mantiene acotado el
+                # tiempo y ataca exactamente el caso 18/20 observado en producción.
+                if attempt_no==1 and n<=20 and 0<len(u)<=4:
+                    repair={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'fast'}
+                    attempts.extend([(2713,2,repair),(3911,1,repair),(6151,4,repair)])
+                    print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
+                continue
+            if detailed_try is None: detailed_try=_industrial_kits(payload,detailed=True)
             val,rows_try=br._validate_layout(detailed_try,p)
             if not val.get('ok'): continue
             if rows_try:
@@ -259,6 +274,9 @@ def _execute_industrial(payload,job_id):
             else: used_width=br.PLATE_WIDTH_MM; used_height=br.PLATE_HEIGHT_MM
             score=(used_width,used_height,e)
             if best is None or score<best[0]: best=(score,p,u,e,n,v)
+            # En modo fast alcanza con una solución completa certificable; el
+            # frontend luego prueba 11, 12, etc. No gastamos CPU innecesaria.
+            if mode=='fast': break
         except Exception as exc: last_exc=exc
     if best is None:
         if last_exc: raise last_exc
