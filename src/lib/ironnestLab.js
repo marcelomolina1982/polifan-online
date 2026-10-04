@@ -161,7 +161,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   let lastBaseError=null
   for(const variant of baseVariants){
     try{
-      best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,90000)
+      best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,360000)
       break
     }catch(error){
       if(isIronNestTransientError(error))throw error
@@ -195,7 +195,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
         // El backend puede necesitar más de 60 s aun cuando termina correctamente.
         // Dejamos margen sobre su límite interno y, si este extra falla o agota
         // tiempo, conservamos la base certificada y probamos el siguiente.
-        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,165000)
+        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,300000)
         break
       }catch(error){
         // Si se perdió la comunicación, NO arrancar otro job: ese cálculo puede
