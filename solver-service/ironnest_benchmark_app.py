@@ -24,9 +24,10 @@ IRON_SOLVE_TIMEOUT_SECONDS=150
 IRON_STATUS_GRACE_SECONDS=20
 IRON_QUEUE_TIMEOUT_SECONDS=240
 IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separation_effort':'fast'}
-# Search clearance is intentionally wider than the required clearance. The
-# validator below checks the parser geometry and rejects any shortfall.
-IRON_SOLVER_GAP_MM=br.GAP_MM+IRON_SIMPLIFY_MM+0.3
+# Search with the real production clearance. Simplification is only a search
+# approximation; the exact original parser geometry below remains the authority
+# and rejects every layout whose measured gap is below the 3 mm hard minimum.
+IRON_SOLVER_GAP_MM=br.GAP_MM
 
 def _outline(geom):
     if geom.geom_type=='MultiPolygon': geom=max(geom.geoms,key=lambda g:g.area)
