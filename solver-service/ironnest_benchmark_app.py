@@ -19,7 +19,7 @@ IRON_BUDGET=48
 IRON_RESTARTS=1
 IRON_SEPARATION_EFFORT='fast'
 IRON_STRATEGY='sampling'
-IRON_SIMPLIFY_MM=1.0
+IRON_SIMPLIFY_MM=0.25
 IRON_SOLVE_TIMEOUT_SECONDS=150
 IRON_STATUS_GRACE_SECONDS=20
 IRON_QUEUE_TIMEOUT_SECONDS=240
@@ -222,8 +222,8 @@ def _industrial_kits(payload, detailed=False):
             geom,trim_x,trim_y=br.core.svg_to_geometry(
                 svg_text,width_cm,height_cm,
                 solver_tolerance_mm=.02 if detailed else .18,
-                max_vertices=5000 if detailed else 360,
-                curve_step_mm=1.0 if detailed else 8.0)
+                max_vertices=5000 if detailed else 1200,
+                curve_step_mm=1.0 if detailed else 2.0)
             if geom.is_empty or geom.area<=0: raise ValueError(f'Contorno vacio en {instance_id}')
             bx0,by0,bx1,by1=geom.bounds
             parts.append({'instanceId':instance_id,'kitId':kit_id,'name':str(raw.get('name') or instance_id),
@@ -267,7 +267,9 @@ def _execute_industrial(payload,job_id):
                 continue
             if detailed_try is None: detailed_try=_industrial_kits(payload,detailed=True)
             val,rows_try=br._validate_layout(detailed_try,p)
-            if not val.get('ok'): continue
+            if not val.get('ok'):
+                print(f"IRON_VALIDATE_REJECT job={job_id} attempt={attempt_no} gap={val.get('minimumMeasuredGapMm')} outside={len(val.get('outsidePlate') or [])} conflicts={len(val.get('gapViolations') or [])}",flush=True)
+                continue
             if rows_try:
                 minx=min(g.bounds[0] for _,g in rows_try); maxx=max(g.bounds[2] for _,g in rows_try)
                 miny=min(g.bounds[1] for _,g in rows_try); maxy=max(g.bounds[3] for _,g in rows_try)
