@@ -1,4 +1,4 @@
-pyckingsolver==0.1.15
+pyckingsolver==0.9.5
 pyclipper==1.4.0
 shapely==2.1.2
 svgpathtools==1.7.4
