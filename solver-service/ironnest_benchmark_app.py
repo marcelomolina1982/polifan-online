@@ -251,18 +251,26 @@ def _execute_industrial(payload,job_id):
     best=None; last_exc=None; first_unplaced=None
     detailed_try=None
     attempt_no=0
+    # All retries share one hard deadline. Previously each retry could consume
+    # another 150 seconds and the watchdog discarded the whole job.
+    solve_deadline=time.monotonic()+IRON_SOLVE_TIMEOUT_SECONDS-10
     while attempts:
+        remaining=solve_deadline-time.monotonic()
+        if remaining<8:
+            print(f'IRON_RETRY_BUDGET_EXHAUSTED job={job_id} attempts={attempt_no}',flush=True)
+            break
         seed,column_weight,attempt_settings=attempts.pop(0)
         attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight)
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,110))
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and n<=20 and 0<len(u)<=4:
-                    repair={'strategy':'sampling','budget':96,'restarts':2,'separation_effort':'fast'}
-                    attempts.extend([(2713,2,repair),(3911,1,repair),(6151,4,repair)])
+                    # One bounded repair instead of three expensive retries.
+                    repair={'strategy':'sampling','budget':48,'restarts':1,'separation_effort':'fast'}
+                    attempts.append((2713,2,repair))
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
             if detailed_try is None: detailed_try=_industrial_kits(payload,detailed=True)
