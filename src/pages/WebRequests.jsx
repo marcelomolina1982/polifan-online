@@ -9,11 +9,14 @@ import {downloadOrderReceiptJpg} from '../lib/orderReceipt'
 
 const pending=r=>['Pendiente de pago','Presupuesto enviado'].includes(r.status)
 export default function WebRequests({db}){
- const [rows,setRows]=useState([]),[detail,setDetail]=useState(null),[view,setView]=useState('pending')
+ const [rows,setRows]=useState([]),[detail,setDetail]=useState(null),[view,setView]=useState('pending'),[confirmingId,setConfirmingId]=useState(null)
  async function load(){const {data,error}=await supabase.from('web_requests').select('*').order('created_at',{ascending:false});if(error)alert('No se pudieron cargar las solicitudes: '+error.message);else setRows(data||[])}
  useEffect(()=>{load()},[])
  async function confirmRow(r){
+  if(confirmingId!==null)return
   if(!window.confirm(`¿Confirmar el pago de ${r.code} y crear el pedido?`))return
+  setConfirmingId(r.id)
+  try {
   const {data:fresh,error}=await supabase.from('app_state').select('data').eq('id','main').maybeSingle();if(error)return alert('No se pudo preparar el pedido: '+error.message)
   const freshDb=fresh?.data||{},freshOrders=Array.isArray(freshDb.orders)?freshDb.orders:[]
   const existing=freshOrders.find(o=>String(o.notes||'').includes(`Solicitud ${r.code}`));if(existing){await supabase.from('web_requests').update({status:'Pago confirmado'}).eq('id',r.id);await load();setDetail(null);return alert(`La solicitud ya corresponde al pedido #${existing.number}. No se creó un duplicado.`)}
@@ -23,12 +26,16 @@ export default function WebRequests({db}){
   const order={id:crypto.randomUUID(),number:'',date:todayArgentinaISO(),delivery:r.estimated_from||estimate?.productionDate||'',firstName:c.firstName||'',lastName:c.lastName||'',client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:pickup?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name||i.figure,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:now,updatedAt:now}
   const client=upsertClientFromOrder([],order)[0]||null
   const {data:created,error:createError}=await supabase.rpc('confirm_web_request_atomic',{p_request_id:r.id,p_order:order,p_client:client})
-  if(createError)return alert('El pedido NO se creó y la solicitud sigue pendiente: '+createError.message)
+  if(createError){
+   const timedOut=/statement timeout|57014/i.test(createError.message||'')
+   return alert(timedOut?'Supabase agotó el tiempo al confirmar. No vuelvas a intentar todavía: primero hay que comprobar que la solicitud siga pendiente y que no exista un pedido asociado.':'No se pudo confirmar. Verificá el estado de la solicitud antes de reintentar: '+createError.message)
+  }
   const result=Array.isArray(created)?created[0]:created,next=result?.order_number
   if(!next)return alert('El servidor no devolvió el número del pedido. No vuelvas a confirmar hasta verificarlo.')
   const finalOrder={...order,number:next}
   try{await downloadOrderReceiptJpg(finalOrder)}catch(e){console.error(e)}
   await load();setDetail(null);alert(`Pedido #${next} creado y confirmado en una sola operación segura.`)
+  } finally {setConfirmingId(null)}
  }
  const visible=useMemo(()=>view==='pending'?rows.filter(pending):rows.filter(r=>!pending(r)),[rows,view])
  const modal=detail?createPortal(<div className="web-request-modal-backdrop" style={{position:'fixed',inset:0,zIndex:100000,overflowY:'auto',padding:'24px 16px',display:'flex',justifyContent:'center',alignItems:'flex-start',boxSizing:'border-box'}}><div className="web-request-modal panel" style={{width:'min(920px, calc(100vw - 32px))',maxWidth:'920px',maxHeight:'calc(100vh - 48px)',overflowY:'auto',overflowX:'hidden',margin:0,boxSizing:'border-box'}}><div className="panel-heading" style={{position:'sticky',top:0,zIndex:3,background:'#fff',paddingTop:4}}><div style={{minWidth:0}}><h2 style={{overflowWrap:'anywhere'}}>{detail.code}</h2><small>{detail.customer?.name}</small></div><button className="ghost" onClick={()=>setDetail(null)}>Cerrar</button></div><div className="request-summary-cards"><span><b>{detail.quantity}</b> piezas</span><span><b>{money(detail.estimated_total)}</b> total</span></div><div className="table-wrap" style={{overflowX:'auto'}}><table><thead><tr><th>Producto</th><th>Cantidad</th></tr></thead><tbody>{(detail.items||[]).map((i,n)=><tr key={n}><td>{i.name||i.figure}</td><td>{i.qty}</td></tr>)}</tbody></table></div>{pending(detail)&&<button className="primary" style={{width:'100%'}} onClick={()=>confirmRow(detail)}>Confirmar pago y crear pedido</button>}</div></div>,document.body):null
