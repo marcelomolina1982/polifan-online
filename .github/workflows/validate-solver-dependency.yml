@@ -19,6 +19,8 @@ jobs:
         run: |
           cd solver-service
           python -c "import app; print('Production solver import OK')"
+      - name: Build actual production Docker image
+        run: docker build --progress=plain -f solver-service/Dockerfile solver-service
       - name: Exercise packing solver API
         run: |
           python - <<'PY'
