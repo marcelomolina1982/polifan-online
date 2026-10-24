@@ -1,0 +1,38 @@
+name: Patch vulnerable dependencies on safety branch
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.ref == 'refs/heads/safety/supabase-free-audit-20261013'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install existing lockfile
+        run: npm ci
+      - name: Patch vulnerable packages with minimal updates
+        run: |
+          npm install --save-dev --save-exact vite@6.4.5
+          npm update dompurify source-map-js
+      - name: Verify security
+        run: npm audit --audit-level=high
+      - name: Regression and complete build
+        run: |
+          node scripts/test-v2-inflight-reads.mjs
+          npm run build
+      - name: Commit validated dependency patch to safety branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "security: patch vulnerable Vite and transitive dependencies"
+            git push origin HEAD:safety/supabase-free-audit-20261013
+          fi
