@@ -1,0 +1,30 @@
+name: Validate solver dependency compatibility
+on:
+  push:
+    branches: ['fix/solver-pyckingsolver-build-20261024']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install solver Python dependencies
+        run: python -m pip install -r solver-service/requirements.txt
+      - name: Import production solver module
+        run: |
+          cd solver-service
+          python -c "import app; print('Production solver import OK')"
+      - name: Exercise packing solver API
+        run: |
+          python - <<'PY'
+          from pyckingsolver import InstanceBuilder, Objective, Solver
+          b = InstanceBuilder(Objective.BIN_PACKING)
+          b.set_item_item_minimum_spacing(0.0)
+          b.add_bin_type_rectangle(580,1220,copies=1,item_bin_minimum_spacing=0.0)
+          print('Production packing builder API OK')
+          PY
