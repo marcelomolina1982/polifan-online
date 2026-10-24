@@ -44,6 +44,8 @@ jobs:
             exit 1
           fi
           echo "Endpoints sensibles legados OK · retirados"
+      - name: Verify safe concurrent V2 reads
+        run: node scripts/test-v2-inflight-reads.mjs
       - name: Build
         run: npm run build
       - name: Verify Motor build integrity
