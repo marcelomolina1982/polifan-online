@@ -1,5 +1,8 @@
 name: Patch vulnerable dependencies on safety branch
 on:
+  push:
+    branches: ['safety/supabase-free-audit-20261013']
+    paths: ['.github/workflows/patch-safe-dependencies.yml']
   workflow_dispatch:
 permissions:
   contents: write
