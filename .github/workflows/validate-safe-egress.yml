@@ -1,0 +1,23 @@
+name: Validate safe egress changes
+on:
+  push:
+    branches: ['safety/supabase-free-audit-20261013']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - name: Test fresh and concurrent section reads
+        run: node scripts/test-v2-inflight-reads.mjs
+      - name: Build frontend
+        run: npm run build
+      - name: Confirm built frontend
+        run: test -s dist/index.html
