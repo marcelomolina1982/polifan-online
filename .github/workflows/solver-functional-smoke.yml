@@ -25,5 +25,28 @@ jobs:
           assert result and result.get('feasible'), f'Packing failed: {result}'
           assert result.get('target')==1, result
           assert len(result.get('placements',[]))==1, result
-          print('Real packing test OK:',result['placements'])
+          print('Single-part smoke OK:',result['placements'])
+          # Real production structure: each figure is a BASE + TAPA pair.
+          kits=[]
+          for n in range(2):
+              parts=[]
+              for role in ('base','tapa'):
+                  parts.append({'instanceId':f'kit-{n}-{role}','kitId':f'kit-{n}','figure':'Cuadrado','name':role,'role':role,'svgText':svg,'sourceWidthCm':10,'sourceHeightCm':10,'allowRotate':False})
+              kits.append({'kitId':f'kit-{n}','figure':'Cuadrado','parts':parts})
+          paired=solve_prefix(kits,2,580,1220,3,15,rotation_step=90)
+          assert paired and paired.get('feasible'), f'Base+tapa packing failed: {paired}'
+          placements=paired.get('placements',[])
+          assert len(placements)==4, f'Expected 4 pieces from 2 complete figures: {paired}'
+          from collections import Counter
+          assert Counter((p['kitId'],p['role']) for p in placements)==Counter({(f'kit-{n}',role):1 for n in range(2) for role in ('base','tapa')}),placements
+          # With 10cm squares and no rotation, bounding rectangles must stay within
+          # 58x122cm and respect the 3mm spacing.
+          for p in placements:
+              assert -0.01 <= p['xCm'] <= 112.01 and -0.01 <= p['yCm'] <= 48.01,p
+          for i,a in enumerate(placements):
+              for b in placements[i+1:]:
+                  dx=max(0, max(a['xCm']-b['xCm']-10,b['xCm']-a['xCm']-10))
+                  dy=max(0, max(a['yCm']-b['yCm']-10,b['yCm']-a['yCm']-10))
+                  assert dx>=0.29 or dy>=0.29, f'Pieces too close: {a} {b}'
+          print('BASE+TAPA functional test OK:',placements)
           PY
