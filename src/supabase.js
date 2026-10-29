@@ -44,12 +44,13 @@ async function persistCatalogImageDelta(nextState,previousState){
   const prev=new Map((previousState?.customerCatalog||[]).map(p=>[String(p?.id||''),String(p?.image||'')])),rows=[]
   for(const product of (nextState?.customerCatalog||[])){const id=String(product?.id||'').trim(),image=String(product?.image||'');if(!id||!image||prev.get(id)===image||image===localCatalogImage(id))continue;rows.push({product_id:id,image,updated_at:new Date().toISOString()})}
   if(!rows.length)return {ok:true,changed:0}
-  try{const {error}=await client.from('catalog_product_images').upsert(rows,{onConflict:'product_id'});if(error)throw error;return {ok:true,changed:rows.length}}catch(error){console.error('No se pudieron guardar imágenes del catálogo',error);return {ok:false,error,changed:rows.length}}
+  try{const {error}=await client.from('catalog_product_images').upsert(rows,{onConflict:'product_id'});if(error)throw error;for(const row of rows)catalogImageSessionCache.set(row.product_id,row.image);return {ok:true,changed:rows.length}}catch(error){console.error('No se pudieron guardar imágenes del catálogo',error);return {ok:false,error,changed:rows.length}}
 }
+const catalogImageSessionCache=new Map()
 async function hydrateCatalogImages(state){
   if(!state||typeof state!=='object'||!Array.isArray(state.customerCatalog))return state
-  const ids=[...new Set(state.customerCatalog.filter(p=>p?.imageRef==='db'||(!p?.image&&!localCatalogImage(p?.id))).map(p=>String(p?.id||'')).filter(Boolean))],remote=new Map()
-  if(ids.length){try{const {data,error}=await client.from('catalog_product_images').select('product_id,image').in('product_id',ids);if(!error)for(const row of (data||[]))remote.set(String(row.product_id),row.image||'')}catch{}}
+  const ids=[...new Set(state.customerCatalog.filter(p=>p?.imageRef==='db'||(!p?.image&&!localCatalogImage(p?.id))).map(p=>String(p?.id||'')).filter(id=>id&&!catalogImageSessionCache.has(id)))],remote=new Map(catalogImageSessionCache)
+  if(ids.length){try{const {data,error}=await client.from('catalog_product_images').select('product_id,image').in('product_id',ids);if(!error)for(const row of (data||[])){const id=String(row.product_id),image=row.image||'';remote.set(id,image);if(image)catalogImageSessionCache.set(id,image)}}catch{}}
   return {...state,customerCatalog:state.customerCatalog.map(p=>p&&typeof p==='object'?{...p,image:p.image||remote.get(String(p.id||''))||localCatalogImage(p.id)||''}:p)}
 }
 function compactMainState(state){const compact={...state,customerCatalog:compactCatalogProducts(state?.customerCatalog||[])};delete compact.orders;delete compact.cutBatches;delete compact.movements;return compact}
