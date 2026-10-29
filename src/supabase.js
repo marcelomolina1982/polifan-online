@@ -69,10 +69,16 @@ async function readDurableCollection(name){const cfg=COLLECTIONS[name];if(!cfg)r
 function mergeRows(base=[],rows=[],name){const cfg=COLLECTIONS[name],map=new Map((base||[]).map(o=>[cfg.key(o),o]).filter(([id])=>id));for(const row of rows){const d=row?.data||{};if(d.collection&&d.collection!==name)continue;if(d.deleted){const id=String(d.deletedId||'').trim()||String(row?.id||'').replace(cfg.prefix,'');if(id)map.delete(id);continue}const item=d.item||d.order,id=cfg.key(item);if(!id)continue;const current=map.get(id);if(!current||stamp(item)>=stamp(current))map.set(id,item)}return [...map.values()]}
 async function mergeCriticalState(state){let merged={...state};const results=await Promise.all(Object.keys(COLLECTIONS).map(async name=>[name,await readDurableCollection(name)]));for(const [name,durable] of results)if(durable.ok)merged={...merged,[name]:mergeRows(merged[name]||[],durable.rows,name)};return merged}
 
+function publicImageUrls(state){
+  if(!state||!Array.isArray(state.customerCatalog))return state
+  const base=String(SUPABASE_URL||'').replace(/\/$/,'')
+  if(!base)return state
+  return {...state,customerCatalog:state.customerCatalog.map(p=>p&&p.id?{...p,image:`${base}/functions/v1/catalog-image?id=${encodeURIComponent(String(p.id))}`}:p)}
+}
 async function optimizedPublicRead(){
   const cached=readJson(PUBLIC_CACHE_KEY),knownRevision=readText(PUBLIC_REV_KEY)
-  if(cached&&knownRevision){try{const meta=await client.from('public_catalog').select('updated_at').eq('id','main').maybeSingle();if(!meta.error&&String(meta.data?.updated_at||'')===knownRevision)return {data:{data:cached,updated_at:knownRevision},error:null,__publicCacheHit:true}}catch{}}
-  try{const {data,error}=await client.from('public_catalog').select('data,updated_at').eq('id','main').maybeSingle();if(error||!data?.data)return {data,error:error||new Error('Catálogo público no disponible')};const hydrated=await hydrateCatalogImages(data.data);writeJson(PUBLIC_CACHE_KEY,hydrated);writeText(PUBLIC_REV_KEY,data.updated_at||'');return {data:{data:hydrated,updated_at:data.updated_at||''},error:null,__publicCatalog:true}}catch(error){return {data:null,error}}
+  if(cached&&knownRevision){try{const meta=await client.from('public_catalog').select('updated_at').eq('id','main').maybeSingle();if(!meta.error&&String(meta.data?.updated_at||'')===knownRevision)return {data:{data:publicImageUrls(cached),updated_at:knownRevision},error:null,__publicCacheHit:true}}catch{}}
+  try{const {data,error}=await client.from('public_catalog').select('data,updated_at').eq('id','main').maybeSingle();if(error||!data?.data)return {data,error:error||new Error('Catálogo público no disponible')};const hydrated=publicImageUrls(data.data);writeJson(PUBLIC_CACHE_KEY,hydrated);writeText(PUBLIC_REV_KEY,data.updated_at||'');return {data:{data:hydrated,updated_at:data.updated_at||''},error:null,__publicCatalog:true}}catch(error){return {data:null,error}}
 }
 async function optimizedMainRead(target,args){
   if(isPublicCatalog())return optimizedPublicRead()
