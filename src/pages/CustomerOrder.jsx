@@ -17,7 +17,8 @@ export default function CustomerOrder(){
     let lastRefreshAt=0
     const applyPublic=(state,updatedAt='')=>{
       if(!mounted||!state)return
-      const safe={...state,orders:[],productionClosedDates:[]}
+      const base=String(import.meta.env.VITE_SUPABASE_URL||'').replace(/\/$/,'')
+      const safe={...state,orders:[],productionClosedDates:[],customerCatalog:(state.customerCatalog||[]).map(product=>product?.id&&base?{...product,image:`${base}/functions/v1/catalog-image?id=${encodeURIComponent(String(product.id))}`}:product)}
       setCatalogState({...safe,__updatedAt:updatedAt||String(Date.now())})
       try{localStorage.setItem(CACHE_KEY,JSON.stringify({state:safe,updatedAt:updatedAt||'',cachedAt:new Date().toISOString()}))}catch{}
     }
