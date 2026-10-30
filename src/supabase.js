@@ -84,7 +84,7 @@ async function optimizedPublicRead(){
 async function optimizedMainRead(target,args){
   if(isPublicCatalog())return optimizedPublicRead()
   const cached=readJson(APP_CACHE_KEY)||readJson(EMERGENCY_CACHE_KEY),knownRevision=readText(APP_REV_KEY)
-  if(mainHydratedThisSession&&cached&&knownRevision){try{const meta=await client.from('app_state').select('updated_at').eq('id','main').maybeSingle();if(!meta.error&&String(meta.data?.updated_at||'')===knownRevision)return {data:{data:cached,updated_at:knownRevision},error:null,__cacheHit:true}}catch{}}
+  if(cached&&knownRevision){try{const meta=await client.from('app_state').select('updated_at').eq('id','main').maybeSingle();if(!meta.error&&String(meta.data?.updated_at||'')===knownRevision){const fresh=mainHydratedThisSession?cached:await mergeCriticalState(cached);const hydrated=mainHydratedThisSession?fresh:await hydrateCatalogImages(fresh);writeJson(APP_CACHE_KEY,hydrated);writeJson(EMERGENCY_CACHE_KEY,hydrated);mainHydratedThisSession=true;return {data:{data:hydrated,updated_at:knownRevision},error:null,__cacheHit:true,__criticalMerged:true}}}catch{}}
   let result
   for(let attempt=1;attempt<=3;attempt++){result=await target.maybeSingle(...args);const timedOut=/statement timeout|canceling statement due to statement timeout/i.test(result?.error?.message||'');if(!timedOut||attempt===3)break;await new Promise(resolve=>setTimeout(resolve,300*attempt))}
   if(result?.error||!result?.data?.data)return result
