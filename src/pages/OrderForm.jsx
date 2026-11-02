@@ -56,12 +56,13 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
   useEffect(()=>{const timer=setTimeout(()=>{try{localStorage.setItem(DRAFT_KEY,JSON.stringify(form));setDraftSaved(true)}catch{}},400);return()=>clearTimeout(timer)},[form])
 
   const regularItems=(form.items||[]).filter(i=>i.figure&&Number(i.qty)>0)
-  const qty=regularItems.reduce((a,i)=>a+Number(i.qty||0),0)
+  const isGolosina=product=>String(product?.category||'').trim().toLocaleLowerCase('es').includes('golosina')||product?.productionType==='none'
+  const qty=regularItems.filter(i=>!isGolosina(catalogProductFor(i))).reduce((a,i)=>a+Number(i.qty||0),0)
   const pricedRegularItems=regularItems.map(item=>({item,product:catalogProductFor(item)}))
-  const standardQty=pricedRegularItems.filter(({product})=>!hasCustomCatalogPrice(product)).reduce((sum,{item})=>sum+Number(item.qty||0),0)
+  const standardQty=pricedRegularItems.filter(({product})=>!hasCustomCatalogPrice(product)&&!isGolosina(product)).reduce((sum,{item})=>sum+Number(item.qty||0),0)
   const standardUnitPrice=standardQty?pricePerUnit(standardQty):0
   const standardTotal=standardQty*standardUnitPrice
-  const specialTotal=pricedRegularItems.filter(({product})=>hasCustomCatalogPrice(product)).reduce((sum,{item,product})=>sum+customCatalogPrice(product,item.qty),0)
+  const specialTotal=pricedRegularItems.filter(({product})=>hasCustomCatalogPrice(product)||isGolosina(product)).reduce((sum,{item,product})=>sum+customCatalogPrice(product,item.qty),0)
   const regularTotal=standardTotal+specialTotal
   const validManualItems=(form.manualItems||[]).filter(i=>String(i.figure||'').trim()&&Number(i.qty)>0&&Number(i.unitPrice)>=0)
   const manualQty=validManualItems.reduce((a,i)=>a+Number(i.qty||0),0)
@@ -90,7 +91,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       const product=catalogProductFor(i),itemQty=Number(i.qty)
       const itemTotal=hasCustomCatalogPrice(product)?customCatalogPrice(product,itemQty):itemQty*standardUnitPrice
       const unitPrice=itemQty?itemTotal/itemQty:0
-      return {...i,productId:i.productId||product?.id||'',qty:itemQty,unitPrice,subtotal:itemTotal,customPricing:hasCustomCatalogPrice(product),inventoryTracked:true,manualItem:false}
+      return {...i,productId:i.productId||product?.id||'',qty:itemQty,unitPrice,subtotal:itemTotal,customPricing:hasCustomCatalogPrice(product),inventoryTracked:!isGolosina(product),manualItem:isGolosina(product)}
     })
     const manual=validManualItems.map(i=>({figure:String(i.figure).trim(),qty:Number(i.qty),unitPrice:Number(i.unitPrice),subtotal:Number(i.qty)*Number(i.unitPrice),inventoryTracked:false,manualItem:true}))
     return [...regular,...manual]
