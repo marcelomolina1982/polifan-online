@@ -4,7 +4,7 @@ import {supabase} from '../supabase'
 
 const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
 const publicCatalogPayload=db=>({
-  customerCatalog:db.customerCatalog||[],
+  customerCatalog:(db.customerCatalog||[]).map(({image,imageData,photo,...product})=>product),
   catalogCollections:db.catalogCollections||[],
   customerSettings:db.customerSettings||{},
   customerReviews:db.customerReviews||[],
