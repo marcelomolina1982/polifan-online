@@ -43,6 +43,20 @@ function compactCatalogProducts(items=[]){return (items||[]).map(product=>{if(!p
 async function persistCatalogImageDelta(nextState,previousState){
   const prev=new Map((previousState?.customerCatalog||[]).map(p=>[String(p?.id||''),String(p?.image||'')])),rows=[]
   for(const product of (nextState?.customerCatalog||[])){const id=String(product?.id||'').trim(),image=String(product?.image||'');if(!id||!image||prev.get(id)===image||image===localCatalogImage(id))continue;rows.push({product_id:id,image,updated_at:new Date().toISOString()})}
+  // A newly added image can already be in the local snapshot even if its DB upload failed.
+  // Check only recent, unconfirmed images instead of re-uploading the whole catalog.
+  const recent=(nextState?.customerCatalog||[]).filter(p=>{
+    const created=Date.parse(p?.createdAt||'');
+    return created&&Date.now()-created<7*86400000&&Date.now()>=created&&String(p?.image||'').startsWith('data:image/')&&!catalogImageSessionCache.has(String(p.id))&&!rows.some(r=>r.product_id===String(p.id))
+  });
+  if(recent.length){
+    try{const {data,error}=await client.from('catalog_product_images').select('product_id').in('product_id',recent.map(p=>String(p.id)));
+      if(error)throw error;
+      const stored=new Set((data||[]).map(r=>String(r.product_id)));
+      for(const p of recent)if(!stored.has(String(p.id)))rows.push({product_id:String(p.id),image:String(p.image),updated_at:new Date().toISOString()});
+      for(const p of recent)if(stored.has(String(p.id)))catalogImageSessionCache.set(String(p.id),String(p.image));
+    }catch(error){console.warn('No se pudo verificar imágenes recientes',error)}
+  }
   if(!rows.length)return {ok:true,changed:0}
   try{const {error}=await client.from('catalog_product_images').upsert(rows,{onConflict:'product_id'});if(error)throw error;for(const row of rows)catalogImageSessionCache.set(row.product_id,row.image);return {ok:true,changed:rows.length}}catch(error){console.error('No se pudieron guardar imágenes del catálogo',error);return {ok:false,error,changed:rows.length}}
 }
