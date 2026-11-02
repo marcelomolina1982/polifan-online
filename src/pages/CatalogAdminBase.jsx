@@ -30,6 +30,7 @@ function resizeImage(file){
 
 export default function CatalogAdmin({db,onSave}){
   const products = normalizeCatalogProducts(db.customerCatalog?.length ? db.customerCatalog : catalogProducts)
+  const availableCategories=useMemo(()=>[...new Set([...editableCategories,...(db.catalogCollections||[]).map(c=>c.name),...products.map(p=>p.category)].map(c=>String(c||'').trim()).filter(Boolean))],[db.catalogCollections,products])
   const [form,setForm]=useState(emptyForm)
   const [search,setSearch]=useState('')
   const [savingImage,setSavingImage]=useState(false)
@@ -155,7 +156,7 @@ export default function CatalogAdmin({db,onSave}){
         <div className="customer-grid">
           <label>Nombre<input value={form.name} onChange={e=>update('name',e.target.value)} placeholder="Ej.: Pikachu"/></label>
           <label>Medida<input value={form.measure} onChange={e=>update('measure',e.target.value)} placeholder="Ej.: 20 x 16 cm"/></label>
-          <label>Categoría<input list="catalog-categories" value={form.category} onChange={e=>update('category',e.target.value)} placeholder="Ej.: Mini figuras"/><datalist id="catalog-categories">{editableCategories.map(c=><option value={c} key={c}/>)}</datalist></label>
+          <label>Categoría<select value={form.category} onChange={e=>update('category',e.target.value)}>{!availableCategories.includes(form.category)&&<option value={form.category}>{form.category}</option>}{availableCategories.map(c=><option value={c} key={c}>{c}</option>)}</select></label>
           <label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>
           <label>Precio por 1 unidad<input inputMode="numeric" value={form.priceUnit} onChange={e=>update('priceUnit',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 3500"/></label>
           <label>Precio promo x6<input inputMode="numeric" value={form.price6} onChange={e=>update('price6',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 18000"/></label>
