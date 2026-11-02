@@ -51,7 +51,7 @@ export default function CatalogAdmin({db,onSave}){
     if(!form.category.trim())return alert('Ingresá una categoría.')
     if(!form.image)return alert('Subí una imagen del producto.')
     const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
-    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.productionType||'simple'}
+    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.category.trim().toLocaleLowerCase('es').includes('golosina')?'none':(form.productionType||'simple')}
     const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
     const nextCollections=(db.catalogCollections||[]).map(collection=>{
       if(collection.name!==product.category)return collection
@@ -163,7 +163,7 @@ export default function CatalogAdmin({db,onSave}){
           <label>Nombre<input value={form.name} onChange={e=>update('name',e.target.value)} placeholder="Ej.: Pikachu"/></label>
           <label>Medida<input value={form.measure} onChange={e=>update('measure',e.target.value)} placeholder="Ej.: 20 x 16 cm"/></label>
           <label>Categoría<select value={form.category} onChange={e=>update('category',e.target.value)}>{!availableCategories.includes(form.category)&&<option value={form.category}>{form.category}</option>}{availableCategories.map(c=><option value={c} key={c}>{c}</option>)}</select></label>
-          <label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>
+          {!form.category.toLocaleLowerCase('es').includes('golosina')&&<label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>}
           <label>Precio por 1 unidad<input inputMode="numeric" value={form.priceUnit} onChange={e=>update('priceUnit',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 3500"/></label>
           <label>Precio promo x6<input inputMode="numeric" value={form.price6} onChange={e=>update('price6',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 18000"/></label>
           <label>Precio promo x12<input inputMode="numeric" value={form.price12} onChange={e=>update('price12',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 30000"/></label>
