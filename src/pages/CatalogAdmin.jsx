@@ -45,17 +45,6 @@ export default function CatalogAdmin({db,onSave}){
     if(!published.ok)alert('El cambio se guardó en la app, pero el catálogo público no pudo actualizarse. Revisá la configuración de catálogo público en Supabase.')
     return result||{ok:true,data:confirmed}
   }
-  useEffect(()=>{
-    let active=true
-    ;(async()=>{
-      try{
-        const {data,error}=await supabase.from('app_state').select('customerCatalog:data->customerCatalog,catalogCollections:data->catalogCollections,customerSettings:data->customerSettings,customerReviews:data->customerReviews,customerPhotos:data->customerPhotos,chatbotSettings:data->chatbotSettings').eq('id','main').maybeSingle()
-        if(!active||error||!Array.isArray(data?.customerCatalog)||!data.customerCatalog.length)return
-        await publishPublicCatalog(data)
-      }catch(error){console.warn('No se pudo recuperar el catálogo público desde el servidor',error)}
-    })()
-    return()=>{active=false}
-  },[])
 
   async function saveDispatchDate(){
     if(!dispatchDate)return alert('Elegí una fecha de despacho antes de guardar.')
