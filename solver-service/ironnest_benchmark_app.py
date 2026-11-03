@@ -266,7 +266,8 @@ def _execute_industrial(payload,job_id):
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 if not missing_ids:
-                    missing_ids=[str(x) for x in u]
+                    part_ids=[str(part.get('instanceId')) for kit in kits for part in kit.get('parts', [])]
+                    missing_ids=[part_ids[int(x)] for x in u if 0 <= int(x) < len(part_ids)]
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and n<=20 and 0<len(u)<=4:
