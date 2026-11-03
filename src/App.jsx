@@ -120,6 +120,7 @@ export default function App(){
     serverRevisionRef.current=data?.updated_at||'';serverDataRef.current=next;setDb(next);try{localStorage.setItem('polifan-app-cache',JSON.stringify(next))}catch{}setLoading(false)
   }
   async function saveData(next){
+    if(savingRef.current)return{ok:false,error:new Error('Hay otro guardado en curso. Esperá a que termine antes de registrar el corte.'),busy:true}
     mutationEpochRef.current+=1;loadSequenceRef.current+=1;savingRef.current=true;setSaving(true)
     const previous=db,baseline=serverDataRef.current||previous,changedKeys=changedTopLevelKeys(previous,next)
     if(!changedKeys.length){savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:baseline}}
@@ -127,7 +128,7 @@ export default function App(){
     let lastError=null
     for(let attempt=1;attempt<=3;attempt++){
       const {data:latestRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
-      if(readError){lastError=readError;break}
+      if(readError){lastError=readError;if(attempt<3){await new Promise(resolve=>setTimeout(resolve,500*attempt));continue}break}
       const latest={...emptyState(),...(latestRow?.data||{})},merged={...latest},conflicts=[]
       for(const key of changedKeys){
         if(MERGE_BY_RECORD.has(key)){
