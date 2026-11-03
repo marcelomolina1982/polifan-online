@@ -1,0 +1,30 @@
+name: IronNest isolated regression
+on:
+  push:
+    branches:
+      - fix/ironnest-timeout-diagnostics-20261103
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate Python syntax and retry constraints
+        run: |
+          python -m py_compile solver-service/ironnest_benchmark_app.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          p=Path('solver-service/ironnest_benchmark_app.py')
+          tree=ast.parse(p.read_text())
+          fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_execute_industrial')
+          src=ast.get_source_segment(p.read_text(),fn)
+          assert "'budget':24" in src, 'Retry budget not reduced'
+          assert "br._validate_layout(detailed_try,p)" in src, 'Missing exact geometry validation'
+          assert "unplacedIds" in src and "part_ids[int(x)]" in src, 'Missing IDs mapping'
+          assert "except TimeoutError" in src, 'Missing timeout handling'
+          print('IronNest static regression checks passed')
+          PY
