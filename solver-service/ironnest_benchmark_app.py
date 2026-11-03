@@ -248,7 +248,7 @@ def _execute_industrial(payload,job_id):
     attempts=[(1777,3,settings)]
     if mode=='compact':
         attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
-    best=None; last_exc=None; first_unplaced=None
+    best=None; last_exc=None; first_unplaced=None; missing_ids=[]
     detailed_try=None
     attempt_no=0
     # All retries share one hard deadline. Previously each retry could consume
@@ -265,11 +265,14 @@ def _execute_industrial(payload,job_id):
             p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,110))
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
+                if not missing_ids:
+                    part_ids=[str(part.get('instanceId')) for kit in kits for part in kit.get('parts', [])]
+                    missing_ids=[part_ids[int(x)] for x in u if 0 <= int(x) < len(part_ids)]
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and n<=20 and 0<len(u)<=4:
                     # One bounded repair instead of three expensive retries.
-                    repair={'strategy':'sampling','budget':48,'restarts':1,'separation_effort':'fast'}
+                    repair={'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}
                     attempts.append((2713,2,repair))
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
@@ -288,8 +291,14 @@ def _execute_industrial(payload,job_id):
             # En modo fast alcanza con una solución completa certificable; el
             # frontend luego prueba 11, 12, etc. No gastamos CPU innecesaria.
             if mode=='fast': break
+        except TimeoutError as exc:
+            last_exc=exc
+            print(f'IRON_REPAIR_TIMEOUT job={job_id} attempt={attempt_no} missing={first_unplaced}',flush=True)
+            break
         except Exception as exc: last_exc=exc
     if best is None:
+        if first_unplaced is not None:
+            return {'ok':False,'error':f'IronNest acomodo {sum(len(k["parts"]) for k in kits)-first_unplaced} piezas, pero faltaron {first_unplaced}. No se registro ninguna placa.','pieceCount':sum(len(k['parts']) for k in kits),'unplacedCount':first_unplaced,'unplacedIds':missing_ids,'timedOut':isinstance(last_exc,TimeoutError)},422
         if last_exc: raise last_exc
         return {'ok':False,'error':'IronNest no encontro una distribucion completa valida','pieceCount':sum(len(k['parts']) for k in kits)},422
     _,placements,unplaced,elapsed,item_count,vertex_count=best
