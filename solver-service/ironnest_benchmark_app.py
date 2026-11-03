@@ -271,7 +271,7 @@ def _execute_industrial(payload,job_id):
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and n<=20 and 0<len(u)<=4:
                     # One bounded repair instead of three expensive retries.
-                    repair={'strategy':'sampling','budget':48,'restarts':1,'separation_effort':'fast'}
+                    repair={'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}
                     attempts.append((2713,2,repair))
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
