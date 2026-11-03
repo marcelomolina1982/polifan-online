@@ -38,6 +38,24 @@ export default function CatalogAdmin({db,onSave}){
     return {ok:true}
   }
   async function persist(next){
+    // Persist new/changed product photos before the product becomes visible publicly.
+    // This avoids racing large app_state writes against image uploads.
+    const prior=new Map((db.customerCatalog||[]).map(p=>[String(p.id),String(p.image||'')]))
+    const images=(next.customerCatalog||[]).filter(p=>{
+      const image=String(p.image||'')
+      return image.startsWith('data:image/')&&image!==prior.get(String(p.id))
+    })
+    for(const p of images){
+      const {error}=await supabase.from('catalog_product_images').upsert({
+        product_id:String(p.id),image:String(p.image),updated_at:new Date().toISOString()
+      },{onConflict:'product_id'})
+      if(error){
+        const failure=new Error('No se pudo guardar la foto de '+p.name+': '+error.message)
+        failure.catalogSaveHandled=true
+        alert(failure.message+'; el producto NO se publicó. Probá nuevamente.')
+        throw failure
+      }
+    }
     const result=await onSave(next)
     if(result?.ok===false)return result
     const confirmed=result?.data||next
