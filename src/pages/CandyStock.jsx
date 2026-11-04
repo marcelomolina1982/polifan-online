@@ -12,9 +12,10 @@ export default function CandyStock({products=[]}){
  async function loadMovements(){const {data,error:e}=await supabase.from('candy_stock_movements').select('id,product_id,kind,delta,created_at').order('created_at',{ascending:false}).limit(30);if(e){setError(e.message);return}setMovements(data||[])}
  useEffect(()=>{refresh();loadMovements()},[])
  async function initialize(product){
-  const qty=Number(quantities[product.id]??'')
+  const rawQty=String(quantities[product.id]??'').trim()
+  const qty=Number(rawQty)
   const min=Number(minimums[product.id]??5)
-  if(!Number.isSafeInteger(qty)||qty<0||!Number.isSafeInteger(min)||min<0)return alert('Ingresá cantidades enteras válidas (pueden ser cero).')
+  if(!rawQty||!Number.isSafeInteger(qty)||qty<0||!Number.isSafeInteger(min)||min<0)return alert('Ingresá cantidades enteras válidas (pueden ser cero).')
   if(!confirm('¿Confirmás '+qty+' unidades como stock inicial de '+product.name+'? Solo se puede inicializar una vez.'))return
   setBusy(product.id);setError('')
   try{const {error:e}=await supabase.rpc('initialize_candy_stock',{p_product_id:product.id,p_quantity:qty,p_min_quantity:min});if(e)throw e;await refresh()}catch(e){setError('No se pudo cargar el stock inicial: '+e.message)}finally{setBusy('')}
