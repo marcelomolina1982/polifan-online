@@ -39,7 +39,8 @@ begin
  select quantity into v_qty from public.candy_stock where product_id=p_product_id for update;
  -- Recheck after acquiring the per-product lock, for idempotent retries.
  if exists(select 1 from public.candy_stock_movements where id=p_operation_id) then
-  select resulting_quantity into v_qty from public.candy_stock_movements where id=p_operation_id;
+  select resulting_quantity into v_qty from public.candy_stock_movements where id=p_operation_id and product_id=p_product_id and kind=p_kind and delta=p_delta;
+  if v_qty is null then raise exception 'Identificador de operación reutilizado con otros datos'; end if;
   return v_qty;
  end if;
  if v_qty+p_delta<0 then raise exception 'Stock insuficiente'; end if;
