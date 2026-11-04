@@ -18,7 +18,7 @@ create index if not exists candy_stock_movements_product_time on public.candy_st
 alter table public.candy_stock enable row level security;
 alter table public.candy_stock_movements enable row level security;
 create policy "Staff can read candy stock" on public.candy_stock for select to authenticated using (exists(select 1 from public.perfiles p where p.id=(select auth.uid())));
-create policy "Staff can read candy movements" on public.candy_stock_movements for select to authenticated using (true);
+create policy "Staff can read candy movements" on public.candy_stock_movements for select to authenticated using (exists(select 1 from public.perfiles p where p.id=(select auth.uid())));
 -- Only the authenticated, atomic RPC can write stock and movement rows.
 create or replace function public.adjust_candy_stock(p_product_id text,p_delta integer,p_kind text,p_operation_id uuid)
 returns integer language plpgsql security definer set search_path='' as $$
