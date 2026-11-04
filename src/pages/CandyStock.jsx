@@ -3,13 +3,14 @@ import {supabase} from '../supabase'
 
 export default function CandyStock({products=[]}){
  const candies=useMemo(()=>products.filter(p=>String(p.category||'').trim().toLocaleLowerCase('es')==='golosinas'),[products])
- const [stock,setStock]=useState({}),[search,setSearch]=useState(''),[quantities,setQuantities]=useState({}),[busy,setBusy]=useState(''),[error,setError]=useState('')
+ const [stock,setStock]=useState({}),[search,setSearch]=useState(''),[quantities,setQuantities]=useState({}),[busy,setBusy]=useState(''),[error,setError]=useState(''),[movements,setMovements]=useState([])
  async function refresh(){
   const {data,error:e}=await supabase.from('candy_stock').select('product_id,quantity,min_quantity')
   if(e){setError('No se pudo consultar el stock: '+e.message);return}
   setStock(Object.fromEntries((data||[]).map(x=>[x.product_id,x])));setError('')
  }
- useEffect(()=>{refresh()},[])
+ async function loadMovements(){const {data,error:e}=await supabase.from('candy_stock_movements').select('id,product_id,kind,delta,created_at').order('created_at',{ascending:false}).limit(30);if(e){setError(e.message);return}setMovements(data||[])}
+ useEffect(()=>{refresh();loadMovements()},[])
  async function move(product,kind){
   const qty=Number(quantities[product.id]||1)
   if(!Number.isSafeInteger(qty)||qty<=0)return alert('Ingresá una cantidad entera mayor que cero.')
@@ -20,7 +21,7 @@ export default function CandyStock({products=[]}){
   try{
    const {error:e}=await supabase.rpc('adjust_candy_stock',{p_product_id:product.id,p_delta:kind==='restock'?qty:-qty,p_kind:kind,p_operation_id:crypto.randomUUID()})
    if(e)throw e
-   await refresh();setQuantities(v=>({...v,[product.id]:1}))
+   await refresh();await loadMovements();setQuantities(v=>({...v,[product.id]:1}))
   }catch(e){setError('No se registró el movimiento: '+e.message)}finally{setBusy('')}
  }
  const visible=candies.filter(p=>p.name.toLocaleLowerCase('es').includes(search.toLocaleLowerCase('es')))
@@ -35,5 +36,6 @@ export default function CandyStock({products=[]}){
    </div>})}
   </div>
   {!candies.length&&<p className="muted">Todavía no hay productos en la categoría Golosinas.</p>}
+  <details style={{marginTop:16}}><summary><b>Últimos movimientos ({movements.length})</b></summary><div style={{display:'grid',gap:6,marginTop:10}}>{movements.map(m=><div key={m.id} style={{borderBottom:'1px solid #ddd',padding:6}}><b>{candies.find(p=>p.id===m.product_id)?.name||m.product_id}</b> · {m.kind==='restock'?'Ingreso':'Venta directa'} · {m.delta>0?'+':''}{m.delta} u. · {new Date(m.created_at).toLocaleString('es-AR')}</div>)}</div></details>
  </section>
 }
