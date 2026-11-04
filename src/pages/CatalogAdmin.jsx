@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import CatalogAdminBase from './CatalogAdminBase'
+import CandyStock from './CandyStock'
 import {supabase} from '../supabase'
 
 const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2)
@@ -129,6 +130,7 @@ export default function CatalogAdmin({db,onSave}){
       })}
       {!collections.length&&<p className="muted">Todavía no creaste categorías adicionales.</p>}
     </section>
+    <CandyStock products={products}/>
     <CatalogAdminBase db={db} onSave={saveWithDates}/>
   </>
 }
