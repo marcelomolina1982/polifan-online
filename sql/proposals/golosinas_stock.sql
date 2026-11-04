@@ -17,7 +17,7 @@ create table if not exists public.candy_stock_movements (
 create index if not exists candy_stock_movements_product_time on public.candy_stock_movements(product_id,created_at desc);
 alter table public.candy_stock enable row level security;
 alter table public.candy_stock_movements enable row level security;
-create policy "Staff can read candy stock" on public.candy_stock for select to authenticated using (true);
+create policy "Staff can read candy stock" on public.candy_stock for select to authenticated using (exists(select 1 from public.perfiles p where p.id=(select auth.uid())));
 create policy "Staff can read candy movements" on public.candy_stock_movements for select to authenticated using (true);
 -- Only the authenticated, atomic RPC can write stock and movement rows.
 create or replace function public.adjust_candy_stock(p_product_id text,p_delta integer,p_kind text,p_operation_id uuid)
@@ -25,8 +25,9 @@ returns integer language plpgsql security definer set search_path='' as $$
 declare v_qty integer;v_actor uuid;
 begin
  v_actor:=auth.uid();
- if v_actor is null then raise exception 'No autorizado'; end if;
+ if v_actor is null or not exists(select 1 from public.perfiles p where p.id=v_actor) then raise exception 'No autorizado'; end if;
  if nullif(btrim(p_product_id),'') is null then raise exception 'Producto inválido'; end if;
+ if not exists(select 1 from public.app_state a, jsonb_array_elements(a.data->'customerCatalog') p where a.id='main' and p->>'id'=p_product_id and lower(btrim(p->>'category'))='golosinas') then raise exception 'Producto no pertenece a Golosinas'; end if;
  if p_delta=0 then raise exception 'La cantidad debe ser distinta de cero'; end if;
  if (p_kind='restock' and p_delta<=0) or (p_kind='direct_sale' and p_delta>=0) or p_kind not in ('restock','direct_sale') then raise exception 'Movimiento inválido'; end if;
  if exists(select 1 from public.candy_stock_movements where id=p_operation_id) then
