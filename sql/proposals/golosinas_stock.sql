@@ -31,7 +31,8 @@ begin
  if p_delta=0 then raise exception 'La cantidad debe ser distinta de cero'; end if;
  if (p_kind='restock' and p_delta<=0) or (p_kind='direct_sale' and p_delta>=0) or p_kind not in ('restock','direct_sale') then raise exception 'Movimiento inválido'; end if;
  if exists(select 1 from public.candy_stock_movements where id=p_operation_id) then
-  select resulting_quantity into v_qty from public.candy_stock_movements where id=p_operation_id;
+  select resulting_quantity into v_qty from public.candy_stock_movements where id=p_operation_id and product_id=p_product_id and kind=p_kind and delta=p_delta;
+  if v_qty is null then raise exception 'Identificador de operación reutilizado con otros datos'; end if;
   return v_qty;
  end if;
  insert into public.candy_stock(product_id,quantity) values(p_product_id,0) on conflict(product_id) do nothing;
