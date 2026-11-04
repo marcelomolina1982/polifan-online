@@ -12,9 +12,9 @@ export default function CandyStock({products=[]}){
  async function loadMovements(){const {data,error:e}=await supabase.from('candy_stock_movements').select('id,product_id,kind,delta,created_at').order('created_at',{ascending:false}).limit(30);if(e){setError(e.message);return}setMovements(data||[])}
  useEffect(()=>{refresh();loadMovements()},[])
  async function move(product,kind){
-  const qty=Number(quantities[product.id]||1)
+  const qty=Number(quantities[product.id]??1)
   if(!Number.isSafeInteger(qty)||qty<=0)return alert('Ingresá una cantidad entera mayor que cero.')
-  const current=stock[product.id]?.quantity||0
+  const current=stock[product.id]?.quantity??0
   if(kind==='direct_sale'&&qty>current)return alert('No hay unidades suficientes.')
   if(kind==='direct_sale'&&!confirm('¿Registrar venta directa de '+qty+' unidad(es) de '+product.name+'?'))return
   setBusy(product.id);setError('')
