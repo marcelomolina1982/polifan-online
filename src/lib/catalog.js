@@ -533,11 +533,7 @@ export function normalizeCatalogProduct(product) {
   if (category === 'Figuras para pintar') category = 'Carameleras'
   if (category === 'Palabras') category = product.fixedPrice ? 'Palabras con luces' : 'Carameleras'
   if (category === 'Nombres') category = 'Palabras con luces'
-  // Legacy catalog entries in app_state omit the bundled image to keep storage small.
-  // Restore it by stable product ID without overriding customer-uploaded images.
-  const image = product.image || catalogImages[product.id] || ''
-  if (category === product.category && image === product.image) return product
-  return { ...product, category, image }
+  return category === product.category ? product : { ...product, category }
 }
 
 export function normalizeCatalogProducts(products = []) {
