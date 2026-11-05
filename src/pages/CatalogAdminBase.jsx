@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Title } from '../components/UI'
 import { catalogProducts, catalogCategories, normalizeCatalogProducts } from '../lib/catalog'
+import { catalogImages } from '../lib/catalogImages'
 import { money } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
@@ -136,7 +137,7 @@ export default function CatalogAdmin({db,onSave}){
           for(let col=0;col<pair.length;col++){
             const product=pair[col],x=margin+col*94
             pdf.setFillColor(...light);pdf.setDrawColor(220);pdf.roundedRect(x,y,88,68,3,3,'FD')
-            try{const img=await imageToDataUrl(product.image);pdf.setFillColor(255);pdf.rect(x+4,y+4,80,45,'F');await addImageContained(pdf,img,x+4,y+4,80,45)}catch{pdf.setFillColor(230);pdf.rect(x+4,y+4,80,45,'F');pdf.setTextColor(120);pdf.setFontSize(9);pdf.text('Imagen no disponible',x+44,y+27,{align:'center'})}
+            try{const img=await imageToDataUrl(product.image || catalogImages[product.id]);pdf.setFillColor(255);pdf.rect(x+4,y+4,80,45,'F');await addImageContained(pdf,img,x+4,y+4,80,45)}catch{pdf.setFillColor(230);pdf.rect(x+4,y+4,80,45,'F');pdf.setTextColor(120);pdf.setFontSize(9);pdf.text('Imagen no disponible',x+44,y+27,{align:'center'})}
             pdf.setTextColor(...dark);pdf.setFont('helvetica','bold');pdf.setFontSize(11);const nameLines=pdf.splitTextToSize(product.name,78).slice(0,2);pdf.text(nameLines,x+5,y+54);pdf.setFont('helvetica','normal');pdf.setFontSize(9);pdf.setTextColor(85);pdf.text(product.measure||'Consultar medida',x+5,y+64)
             const special=product.priceUnit||product.fixedPrice
             if(special){pdf.setFont('helvetica','bold');pdf.setTextColor(...purple);pdf.text(money(special),x+83,y+64,{align:'right'})}
