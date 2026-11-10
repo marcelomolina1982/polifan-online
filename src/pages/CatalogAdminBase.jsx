@@ -5,7 +5,7 @@ import { catalogImages } from '../lib/catalogImages'
 import { money } from '../lib/format'
 
 const editableCategories = catalogCategories.filter(c => c !== 'Todos')
-const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', priceUnit:'', price6:'', price12:'', price100:'', active:true, productionType:'simple' }
+const emptyForm = { id:'', name:'', measure:'', category:'Carameleras', image:'', fixedPrice:'', priceUnit:'', price11:'', price21:'', price6:'', price12:'', price100:'', active:true, productionType:'simple' }
 const slug = text => String(text||'producto').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
 
 function resizeImage(file){
@@ -45,14 +45,14 @@ export default function CatalogAdmin({db,onSave}){
     setSavingImage(true)
     try{update('image',await resizeImage(file))}catch{alert('No se pudo procesar la imagen.')}finally{setSavingImage(false)}
   }
-  function edit(product){setForm({...emptyForm,...product,fixedPrice:product.fixedPrice||'',priceUnit:product.priceUnit||'',price6:product.price6||'',price12:product.price12||'',price100:product.price100||''}); window.scrollTo({top:0,behavior:'smooth'})}
+  function edit(product){setForm({...emptyForm,...product,fixedPrice:product.fixedPrice||'',priceUnit:product.priceUnit||'',price11:product.price11||'',price21:product.price21||'',price6:product.price6||'',price12:product.price12||'',price100:product.price100||''}); window.scrollTo({top:0,behavior:'smooth'})}
   function clear(){setForm(emptyForm)}
   async function save(){
     if(!form.name.trim())return alert('Ingresá el nombre del producto.')
     if(!form.category.trim())return alert('Ingresá una categoría.')
     if(!form.image)return alert('Subí una imagen del producto.')
     const baseId=form.id||`${slug(form.name)}-${Date.now().toString(36)}`
-    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.productionType||'simple'}
+    const product={...form,id:baseId,name:form.name.trim(),measure:form.measure.trim(),category:form.category.trim(),fixedPrice:Number(form.fixedPrice)||null,priceUnit:Number(form.priceUnit)||null,price11:Number(form.price11)||null,price21:Number(form.price21)||null,price6:Number(form.price6)||null,price12:Number(form.price12)||null,price100:Number(form.price100)||null,active:form.active!==false,productionType:form.productionType||'simple'}
     const next=normalizeCatalogProducts(form.id?products.map(p=>p.id===form.id?product:p):[...products,product])
     const nextCollections=(db.catalogCollections||[]).map(collection=>{
       if(collection.name!==product.category)return collection
@@ -166,6 +166,8 @@ export default function CatalogAdmin({db,onSave}){
           <label>Categoría<select value={form.category} onChange={e=>update('category',e.target.value)}>{!availableCategories.includes(form.category)&&<option value={form.category}>{form.category}</option>}{availableCategories.map(c=><option value={c} key={c}>{c}</option>)}</select></label>
           <label>Composición para corte<select value={form.productionType||'simple'} onChange={e=>update('productionType',e.target.value)}><option value="simple">Figura simple</option><option value="tapa-base">Tapa + base</option><option value="capas">Varias capas</option></select></label>
           <label>Precio por 1 unidad<input inputMode="numeric" value={form.priceUnit} onChange={e=>update('priceUnit',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 3500"/></label>
+          <label>Precio unitario desde 11 unidades<input inputMode="numeric" value={form.price11} onChange={e=>update('price11',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 9000"/></label>
+          <label>Precio unitario desde 21 unidades<input inputMode="numeric" value={form.price21} onChange={e=>update('price21',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 8000"/></label>
           <label>Precio promo x6<input inputMode="numeric" value={form.price6} onChange={e=>update('price6',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 18000"/></label>
           <label>Precio promo x12<input inputMode="numeric" value={form.price12} onChange={e=>update('price12',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 30000"/></label>
           <label>Precio promo x100<input inputMode="numeric" value={form.price100} onChange={e=>update('price100',e.target.value.replace(/\D/g,''))} placeholder="Ej.: 180000"/></label>
