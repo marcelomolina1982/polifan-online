@@ -22,10 +22,12 @@ function lightPrice(qty) {
   if (qty <= 23) return qty * 6000
   return qty * 5000
 }
-function hasCustomPrice(product){return Boolean(product?.priceUnit||product?.price6||product?.price12||product?.price100)}
+function hasCustomPrice(product){return Boolean(product?.priceUnit||product?.price6||product?.price12||product?.price100||product?.price11||product?.price21)}
 function customProductPrice(product,qty){
   const q=Math.max(0,Number(qty)||0)
   if(!q)return 0
+  if(product.price21&&q>=21)return q*Number(product.price21)
+  if(product.price11&&q>=11)return q*Number(product.price11)
   if(product.price100&&q>=100)return q*(Number(product.price100)/100)
   if(product.price12&&q>=12)return q*(Number(product.price12)/12)
   if(product.price6&&q>=6)return q*(Number(product.price6)/6)
