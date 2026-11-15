@@ -289,9 +289,19 @@ def _execute_industrial(payload,job_id):
     # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
     # el lote, no sólo intentar insertar las dos piezas faltantes al final.
-    # First try a deterministic conservative packing in milliseconds rather than\n    # invoking expensive exact-NFP sampling. It is never accepted unvalidated.\n    fast_placements=_fastpack_rectangles(kits) if mode=='fast' else None\n    if fast_placements:\n        detailed_fast=_industrial_kits(payload,detailed=True)\n        fast_validation,_=br._validate_layout(detailed_fast,fast_placements)\n        if fast_validation.get('ok'):\n            print(f'IRON_FASTPACK_CERTIFIED job={job_id} parts={len(fast_placements)}',flush=True)\n        else:\n            print(f'IRON_FASTPACK_REJECT job={job_id}',flush=True)\n            fast_placements=None\n    attempts=[] if fast_placements else [(1777,3,settings)]
+    # First try conservative shelf packing; certify the original detailed SVG.
+    fast_placements=_fastpack_rectangles(kits) if mode=='fast' else None
+    if fast_placements:
+        detailed_fast=_industrial_kits(payload,detailed=True)
+        fast_validation,_=br._validate_layout(detailed_fast,fast_placements)
+        if fast_validation.get('ok'):
+            print(f'IRON_FASTPACK_CERTIFIED job={job_id} parts={len(fast_placements)}',flush=True)
+        else:
+            print(f'IRON_FASTPACK_REJECT job={job_id}',flush=True)
+            fast_placements=None
+    attempts=[] if fast_placements else [(1777,3,settings)]
     # Reserve time for a second deterministic layout if the first search stalls.
-    if mode=='fast':
+    if mode=='fast' and not fast_placements:
         attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
     if mode=='compact':
         attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
