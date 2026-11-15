@@ -1,7 +1,17 @@
 const DEFAULT_IRONNEST_LAB_URL='https://polifan-ironnest-hardbound-lab.onrender.com'
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
-export const isIronNestTransientError=error=>/failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)/i.test(String(error?.message||error||''))
+const STATUS_FETCH_TIMEOUT_MS=20000
+async function fetchStatus(url,signal){
+  const controller=new AbortController()
+  const timeout=setTimeout(()=>controller.abort(),STATUS_FETCH_TIMEOUT_MS)
+  const abort=()=>controller.abort()
+  signal?.addEventListener('abort',abort,{once:true})
+  try{return await fetch(url,{signal:controller.signal})}
+  catch(error){if(controller.signal.aborted&&!signal?.aborted)throw new Error('IronNest no respondió al consultar el estado durante 20 segundos. El trabajo se conserva para recuperarlo.');throw error}
+  finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
+}
+export const isIronNestTransientError=error=>/no respondió|failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)/i.test(String(error?.message||error||''))
 
 export function ironNestLabUrl(){
   const configured=String((import.meta.env.VITE_IRONNEST_LAB_URL)||'').trim()
@@ -46,7 +56,7 @@ export async function resumeIronNestLabJob(jobId,{pollMs=1500,timeoutMs=900000,s
   const base=ironNestLabUrl(),start=Number(startedAt||Date.now())
   while(Date.now()-start<timeoutMs){
     if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
-    const statusResponse=await fetch(`${base}/ironnest/solve-status?id=${encodeURIComponent(jobId)}`,{signal})
+    const statusResponse=await fetchStatus(`${base}/ironnest/solve-status?id=${encodeURIComponent(jobId)}`,signal)
     const status=await readJson(statusResponse),elapsed=(Date.now()-start)/1000
     if(statusResponse.status===202){onProgress?.({stage:`Recuperando trabajo IronNest · ${status.status||'calculando'}…`,elapsed});await sleep(pollMs);continue}
     if(!statusResponse.ok||!status?.ok||!status?.result?.ok)throw new Error(status?.result?.error||status?.error||`IronNest rechazo el lote (${statusResponse.status}).`)
@@ -79,7 +89,7 @@ export async function solveWithIronNestLab(kits,{
   while(Date.now()-start<timeoutMs){
     if(signal?.aborted)throw new DOMException('Operacion cancelada','AbortError')
     await sleep(pollMs)
-    const statusResponse=await fetch(`${base}/ironnest/solve-status?id=${encodeURIComponent(jobId)}`,{signal})
+    const statusResponse=await fetchStatus(`${base}/ironnest/solve-status?id=${encodeURIComponent(jobId)}`,signal)
     const status=await readJson(statusResponse)
     const elapsed=(Date.now()-start)/1000
     if(statusResponse.status===202){
@@ -140,6 +150,8 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   const ordered=[...(Array.isArray(kits)?kits:[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
   if(!ordered.length)throw new Error('No hay kits completos para calcular.')
 
+  const startedOverall=Date.now()
+  const MAX_TOTAL_SOLVE_MS=8*60*1000
   const baseTarget=Math.min(Math.max(1,Number(targetComplete)||10),10,ordered.length)
   let best=null
   const solveBatch=async(batch,label,timeoutMs=150000)=>{
@@ -160,6 +172,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   const baseVariants=uniqueKitVariants(ordered,baseTarget)
   let lastBaseError=null
   for(const variant of baseVariants){
+    if(Date.now()-startedOverall>=MAX_TOTAL_SOLVE_MS)break
     try{
       best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,360000)
       break
@@ -175,7 +188,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   // compatible. Así evitamos cortar el crecimiento por una sola figura grande.
   let selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
   const growthLimit=Math.min(Number(maxGrowth)||16,ordered.length)
-  while(best.selectedKits.length<growthLimit){
+  while(best.selectedKits.length<growthLimit&&Date.now()-startedOverall<MAX_TOTAL_SOLVE_MS){
     const extras=ordered.filter(k=>!selectedIds.has(String(k.kitId)))
     if(!extras.length)break
     const compactExtras=[...extras].sort((a,b)=>kitAreaScore(a)-kitAreaScore(b)||kitPriority(a)-kitPriority(b))
@@ -191,11 +204,14 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     }
     let grown=null
     for(const extra of candidates){
+      if(Date.now()-startedOverall>=MAX_TOTAL_SOLVE_MS)break
       try{
         // El backend puede necesitar más de 60 s aun cuando termina correctamente.
         // Dejamos margen sobre su límite interno y, si este extra falla o agota
         // tiempo, conservamos la base certificada y probamos el siguiente.
-        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,300000)
+        const remaining=MAX_TOTAL_SOLVE_MS-(Date.now()-startedOverall)
+        if(remaining<15000)break
+        grown=await solveBatch([...best.selectedKits,extra],`probando crecimiento a ${best.selectedKits.length+1}`,Math.min(180000,remaining))
         break
       }catch(error){
         // Si se perdió la comunicación, NO arrancar otro job: ese cálculo puede
