@@ -1,6 +1,6 @@
 """Isolated smoke test; synthetic rectangles, never production orders."""
 from shapely.geometry import box
-from ironnest_benchmark_app import _run_ironnest, br
+from ironnest_benchmark_app import _run_ironnest, _fastpack_rectangles, br
 
 def main():
     kits=[]
@@ -9,6 +9,10 @@ def main():
             {'instanceId':f'test-{i}-a','geom':box(0,0,70,70),'allowRotate':True},
             {'instanceId':f'test-{i}-b','geom':box(0,0,70,70),'allowRotate':True}
         ]})
+    fast=_fastpack_rectangles(kits)
+    assert fast is not None and len(fast)==20, 'Fast pack must place all 20 rectangles'
+    certified,_=br._validate_layout(kits,fast)
+    assert certified['ok'], certified
     placed,missing,elapsed,total,_=_run_ironnest(kits,job_id='synthetic-smoke',settings={
         'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'
     },timeout_seconds=110)
