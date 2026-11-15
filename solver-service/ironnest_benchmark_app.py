@@ -235,6 +235,50 @@ def _industrial_kits(payload, detailed=False):
         kits.append({'kitId':kit_id,'figure':str(raw_kit.get('figure') or kit_id),'priority':n,'parts':parts})
     return kits
 
+
+def _fastpack_rectangles(kits):
+    """Conservative shelf packing; exact original geometry is certified afterward."""
+    from shapely.affinity import rotate as rotate_geom
+    pieces=[p for kit in kits for p in kit['parts']]
+    gap=br.GAP_MM+0.5
+    options=[]
+    for p in pieces:
+        variants=[]
+        for angle in ([0,90] if p.get('allowRotate',True) else [0]):
+            g=rotate_geom(p['geom'],angle,origin=(0,0))
+            x0,y0,x1,y1=g.bounds
+            variants.append((angle,x0,y0,x1-x0,y1-y0))
+        options.append((p,variants))
+    # Large parts first, keeping each complete kit in the batch.
+    options.sort(key=lambda item:-max(v[2]*v[3] for v in item[1]))
+    for prefer_rotated in (False,True):
+        shelves=[]
+        placements=[]
+        valid=True
+        for p,variants in options:
+            choices=[]
+            for angle,x0,y0,w,h in variants:
+                for i,(sy,sh,sx) in enumerate(shelves):
+                    if h<=sh+1e-7 and sx+w<=br.PLATE_WIDTH_MM-gap:
+                        choices.append((sy+sh, sx+w, int(angle==90)!=int(prefer_rotated), i,angle,x0,y0,w,h))
+                next_y=max((sy+sh+gap for sy,sh,sx in shelves),default=gap)
+                if next_y+h<=br.PLATE_HEIGHT_MM-gap and w<=br.PLATE_WIDTH_MM-2*gap:
+                    choices.append((next_y+h,w,int(angle==90)!=int(prefer_rotated),len(shelves),angle,x0,y0,w,h))
+            if not choices:
+                valid=False
+                break
+            _,_,_,i,angle,x0,y0,w,h=min(choices)
+            if i==len(shelves):
+                sy=max((y+height+gap for y,height,sx in shelves),default=gap)
+                shelves.append((sy,h,gap))
+            sy,sh,sx=shelves[i]
+            placements.append({'instanceId':str(p['instanceId']),'name':str(p['instanceId']),
+                               'xCm':(sx-x0)/10,'yCm':(sy-y0)/10,'angle':angle})
+            shelves[i]=(sy,sh,sx+w+gap)
+        if valid:
+            return placements
+    return None
+
 def _execute_industrial(payload,job_id):
     kits=_industrial_kits(payload)
     mode=str(payload.get('optimizationMode') or 'fast')
@@ -245,13 +289,13 @@ def _execute_industrial(payload,job_id):
     # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
     # el lote, no sólo intentar insertar las dos piezas faltantes al final.
-    attempts=[(1777,3,settings)]
+    # First try a deterministic conservative packing in milliseconds rather than\n    # invoking expensive exact-NFP sampling. It is never accepted unvalidated.\n    fast_placements=_fastpack_rectangles(kits) if mode=='fast' else None\n    if fast_placements:\n        detailed_fast=_industrial_kits(payload,detailed=True)\n        fast_validation,_=br._validate_layout(detailed_fast,fast_placements)\n        if fast_validation.get('ok'):\n            print(f'IRON_FASTPACK_CERTIFIED job={job_id} parts={len(fast_placements)}',flush=True)\n        else:\n            print(f'IRON_FASTPACK_REJECT job={job_id}',flush=True)\n            fast_placements=None\n    attempts=[] if fast_placements else [(1777,3,settings)]
     # Reserve time for a second deterministic layout if the first search stalls.
     if mode=='fast':
         attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
     if mode=='compact':
         attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
-    best=None; last_exc=None; first_unplaced=None; missing_ids=[]
+    best=((0,0,0),fast_placements,[],0,len(fast_placements),0) if fast_placements else None\n    last_exc=None; first_unplaced=None; missing_ids=[]
     detailed_try=None
     attempt_no=0
     # All retries share one hard deadline. Previously each retry could consume
