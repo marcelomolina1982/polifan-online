@@ -7,6 +7,7 @@ import { packagingForPieces } from '../lib/packaging'
 import { upsertClientFromOrder } from '../lib/clients'
 import { downloadOrderReceiptJpg } from '../lib/orderReceipt'
 import { downloadQuoteJpg } from '../lib/quoteReceipt'
+import { isCandyOrderItem } from '../lib/inventory'
 
 const normalizeFigureName=value=>String(value||'').trim().toLocaleLowerCase('es').replace(/\s+/g,' ')
 const hasCustomCatalogPrice=product=>Boolean(product?.priceUnit||product?.price6||product?.price12||product?.price100||product?.fixedPrice)
@@ -90,7 +91,7 @@ export default function OrderForm({db,onSave,editing,clearEdit}){
       const product=catalogProductFor(i),itemQty=Number(i.qty)
       const itemTotal=hasCustomCatalogPrice(product)?customCatalogPrice(product,itemQty):itemQty*standardUnitPrice
       const unitPrice=itemQty?itemTotal/itemQty:0
-      return {...i,productId:i.productId||product?.id||'',qty:itemQty,unitPrice,subtotal:itemTotal,customPricing:hasCustomCatalogPrice(product),inventoryTracked:true,manualItem:false}
+      return {...i,productId:i.productId||product?.id||'',qty:itemQty,unitPrice,subtotal:itemTotal,customPricing:hasCustomCatalogPrice(product),inventoryTracked:!isCandyOrderItem(db,{...i,productId:i.productId||product?.id||'',category:product?.category}),manualItem:false}
     })
     const manual=validManualItems.map(i=>({figure:String(i.figure).trim(),qty:Number(i.qty),unitPrice:Number(i.unitPrice),subtotal:Number(i.qty)*Number(i.unitPrice),inventoryTracked:false,manualItem:true}))
     return [...regular,...manual]
