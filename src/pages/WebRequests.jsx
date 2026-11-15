@@ -6,6 +6,7 @@ import {money} from '../lib/format'
 import {upsertClientFromOrder} from '../lib/clients'
 import {estimateProductionAvailability,todayArgentinaISO} from '../lib/production'
 import {downloadOrderReceiptJpg} from '../lib/orderReceipt'
+import {isCandyOrderItem} from '../lib/inventory'
 
 const pending=r=>['Pendiente de pago','Presupuesto enviado'].includes(r.status)
 export default function WebRequests({db}){
@@ -23,7 +24,7 @@ export default function WebRequests({db}){
   const c=r.customer||{},pickup=(c.method||'Logística')==='Retiro en el local';let shippingCost=0,shippingPaid='No corresponde'
   if(!pickup){const value=window.prompt('Costo de envío ya presupuestado (solo números):','0');if(value===null)return;shippingCost=Math.max(0,Number(String(value).replace(/[^0-9.,]/g,'').replace(',','.'))||0);shippingPaid=window.confirm('¿El costo de envío ya está PAGADO?\nAceptar = Pagado · Cancelar = Pendiente de pago')?'Pagado':'Pendiente de pago'}
   const estimate=!r.estimated_from?estimateProductionAvailability(freshOrders,Number(r.quantity||0),freshDb.productionClosedDates||db.productionClosedDates||[]):null,now=new Date().toISOString()
-  const order={id:crypto.randomUUID(),number:'',date:todayArgentinaISO(),delivery:r.estimated_from||estimate?.productionDate||'',firstName:c.firstName||'',lastName:c.lastName||'',client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:pickup?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name||i.figure,productId:i.productId||'',qty:Number(i.qty||0)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:now,updatedAt:now}
+  const order={id:crypto.randomUUID(),number:'',date:todayArgentinaISO(),delivery:r.estimated_from||estimate?.productionDate||'',firstName:c.firstName||'',lastName:c.lastName||'',client:c.name||[c.firstName,c.lastName].filter(Boolean).join(' '),phone:c.phone||'',dni:c.dni||'',email:c.email||'',address:c.address||'',betweenStreets:c.betweenStreets||'',locality:c.locality||'',district:c.district||'',province:c.province||'',postalCode:c.postalCode||'',zone:[c.locality,c.province].filter(Boolean).join(' · '),deliveryType:c.method||'Logística',carrier:c.method||'Logística',agencyDelivery:c.agencyDelivery||'',priority:'Normal',status:'Ingresado',paid:'Sí',shippingPackaging:pickup?'No':'Sí',shippingCost,shippingPaid,items:(r.items||[]).map(i=>({figure:i.name||i.figure,productId:i.productId||'',qty:Number(i.qty||0),inventoryTracked:!isCandyOrderItem(freshDb,i)})),total:Number(r.estimated_total||0),notes:[r.notes,`Solicitud ${r.code}`].filter(Boolean).join(' · '),createdAt:now,updatedAt:now}
   const client=upsertClientFromOrder([],order)[0]||null
   const {data:created,error:createError}=await supabase.rpc('confirm_web_request_atomic',{p_request_id:r.id,p_order:order,p_client:client})
   if(createError){

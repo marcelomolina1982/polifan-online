@@ -6,9 +6,9 @@ export const PAGE_SECTIONS={
   new:['orders','clients','figures','customerCatalog','quotes','productionClosedDates'],
   orders:['orders','movements','stockMin','figures','cutBatches'],
   calendar:['orders','productionClosedDates','packedDeliveryDates'],
-  cut:['orders','movements','stockMin','figures','cutBatches'],
+  cut:['orders','movements','stockMin','figures','cutBatches','customerCatalog'],
   cutbatches:['orders','movements','cutBatches','figures'],
-  sheetplanner:['orders','movements','figures','svgLibrary','generatedSheets','cutBatches'],
+  sheetplanner:['orders','movements','figures','svgLibrary','generatedSheets','cutBatches','customerCatalog'],
   svglibrary:['svgLibrary','figures','customerCatalog','svgAnalysisHistory'],
   stock:['orders','movements','stockMin','figures','cutBatches','inventoryRecount','inventoryRecountCloseout'],
   clients:['clients','orders'],assistant:['customerCatalog','customerSettings','chatbotSettings','catalogCollections'],quotes:['quotes','clients','figures','customerCatalog','orders'],webrequests:['quotes','orders','customerCatalog','svgLibrary'],trust:['customerReviews','customerPhotos'],catalog:['customerCatalog','catalogCollections','customerSettings'],analytics:['orders','quotes','customerCatalog'],expenses:['expenses','incomes'],monthly:['orders','expenses','incomes'],costs:['costSettings','customerCatalog'],settings:['customerSettings','attentionTemplates','chatbotSettings']
