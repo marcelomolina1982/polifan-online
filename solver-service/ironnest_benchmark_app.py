@@ -246,6 +246,9 @@ def _execute_industrial(payload,job_id):
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
     # el lote, no sólo intentar insertar las dos piezas faltantes al final.
     attempts=[(1777,3,settings)]
+    # Reserve time for a second deterministic layout if the first search stalls.
+    if mode=='fast':
+        attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
     if mode=='compact':
         attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
     best=None; last_exc=None; first_unplaced=None; missing_ids=[]
@@ -262,7 +265,7 @@ def _execute_industrial(payload,job_id):
         seed,column_weight,attempt_settings=attempts.pop(0)
         attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,110))
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110))
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 if not missing_ids:
@@ -270,7 +273,7 @@ def _execute_industrial(payload,job_id):
                     missing_ids=[part_ids[int(x)] for x in u if 0 <= int(x) < len(part_ids)]
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
-                if attempt_no==1 and n<=20 and 0<len(u)<=4:
+                if attempt_no==1 and mode!='fast' and n<=20 and 0<len(u)<=4:
                     # One bounded repair instead of three expensive retries.
                     repair={'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}
                     attempts.append((2713,2,repair))
@@ -294,7 +297,9 @@ def _execute_industrial(payload,job_id):
         except TimeoutError as exc:
             last_exc=exc
             print(f'IRON_REPAIR_TIMEOUT job={job_id} attempt={attempt_no} missing={first_unplaced}',flush=True)
-            break
+            # The timed-out worker has been terminated. Try the remaining
+            # deterministic alternative while the shared deadline permits.
+            continue
         except Exception as exc: last_exc=exc
     if best is None:
         if first_unplaced is not None:
