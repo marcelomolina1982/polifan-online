@@ -6,6 +6,7 @@ on:
       - fix/ironnest-bounded-retries-20261115
       - fix/ironnest-reduce-nfp-20261115
       - fix/ironnest-certified-fastpack-20261115
+      - fix/ironnest-fastpack-runtime-20261115
   workflow_dispatch:
 jobs:
   regression:
