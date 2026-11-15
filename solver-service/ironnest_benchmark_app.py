@@ -295,7 +295,8 @@ def _execute_industrial(payload,job_id):
         attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
     if mode=='compact':
         attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
-    best=((0,0,0),fast_placements,[],0,len(fast_placements),0) if fast_placements else None\n    last_exc=None; first_unplaced=None; missing_ids=[]
+    best=((0,0,0),fast_placements,[],0,len(fast_placements),0) if fast_placements else None
+    last_exc=None; first_unplaced=None; missing_ids=[]
     detailed_try=None
     attempt_no=0
     # All retries share one hard deadline. Previously each retry could consume
