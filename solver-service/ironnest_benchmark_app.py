@@ -27,7 +27,7 @@ IRON_COMPACT_SETTINGS={'strategy':'sampling','budget':72,'restarts':2,'separatio
 # Search with the real production clearance. Simplification is only a search
 # approximation; the exact original parser geometry below remains the authority
 # and rejects every layout whose measured gap is below the 3 mm hard minimum.
-IRON_SOLVER_GAP_MM=br.GAP_MM
+IRON_SOLVER_GAP_MM=br.GAP_MM+1.5
 
 def _outline(geom):
     if geom.geom_type=='MultiPolygon': geom=max(geom.geoms,key=lambda g:g.area)
