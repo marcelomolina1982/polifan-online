@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs",
-    "test:catalog-v2": "node scripts/test-catalog-v2-audit.mjs && node scripts/test-state-save-revision-guards.mjs"
+    "test:catalog-v2": "node scripts/test-catalog-v2-audit.mjs && node scripts/test-state-save-revision-guards.mjs && node scripts/test-state-concurrent-merge.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
