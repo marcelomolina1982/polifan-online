@@ -62,7 +62,7 @@ begin
         on conflict (product_id)
         do update set
           image=excluded.image,
-          updated_at=pg_catalog.greatest(pg_catalog.clock_timestamp(),
+          updated_at=greatest(pg_catalog.clock_timestamp(),
                     public.catalog_product_images.updated_at+interval '1 microsecond')
         where public.catalog_product_images.image is distinct from excluded.image
         returning updated_at into image_revision;
@@ -116,7 +116,7 @@ commit;
         on conflict (product_id)
         do update set
           image=excluded.image,
-          updated_at=pg_catalog.greatest(pg_catalog.clock_timestamp(),
+          updated_at=greatest(pg_catalog.clock_timestamp(),
                     public.catalog_product_images.updated_at+interval '1 microsecond')
         where public.catalog_product_images.image is distinct from excluded.image
         returning updated_at into image_revision;
