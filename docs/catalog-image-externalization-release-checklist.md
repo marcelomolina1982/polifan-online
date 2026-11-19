@@ -98,3 +98,31 @@ revisión vieja; el guardado obsoleto debe afectar 0 filas.
 Estas pruebas **no autorizan aún** la migración en producción. El código
 anterior de navegadores abiertos sigue necesitando control de versiones
 antes del cambio.
+
+## Control de versiones obligatorio y usuarios trabajando durante la preparación
+
+- **La rama no se puede fusionar ni desplegar sola**: la nueva aplicación manda
+  `catalog_write_nonce` en cada UPDATE. Primero debe ejecutarse
+  `scripts/catalog-write-nonce-preparation-DRAFT.sql`, que agrega una columna
+  UUID opcional (sin alterar el JSON). Este paso todavía NO está realizado.
+- Recién después de verificar esa columna puede desplegarse la nueva app;
+  todas las computadoras deberán cargar la versión compatible antes del corte.
+- Una vez validada la app nueva, el trigger de compactación comprueba que
+  `NEW.catalog_write_nonce` sea diferente de `OLD.catalog_write_nonce`:
+  rechaza guardados de pestañas antiguas sin pisar datos. Se comunica al
+  usuario que debe recargar la aplicación.
+- El SQL de activación NO agrega esa columna de forma oportunista: exige
+  encontrarla y falla si falta, para impedir una publicación desordenada.
+- El sandbox ahora ensaya tanto guardados antiguos rechazados como cambios
+  de imagen que se conservan, catálogo público sincronizado y ROLLBACK.
+- `preflight_ok` comprueba datos, mientras
+  `database_prerequisites_ready` sigue siendo **false** hasta instalar la
+  columna; aun entonces el despliegue compatible debe verificarse manualmente.
+
+**Las cifras del catálogo son dinámicas.** Durante las pruebas el catálogo
+pasó de 161 a 164 productos porque el negocio siguió trabajando. La revisión
+detectó diferencias de la tabla auxiliar; se añadieron 3 filas de metadatos
+faltantes sin actualizar, borrar ni restaurar ninguna fila original. La
+verificación volvió a coincidir en 164 productos y 164 imágenes, con diferencias
+cero. Cualquier cambio posterior exige otra auditoría. Nunca forzar el catálogo
+real a coincidir con una copia más antigua.
