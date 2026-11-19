@@ -64,3 +64,37 @@ vacía el catálogo.**
    detener el despliegue, preservar datos y aplicar plan de reversión.
 
 **No borrar datos ni respaldos para obtener espacio inmediato.**
+
+## Prevención de fotos antiguas y estado confirmado (19/11, segunda revisión)
+
+Se detectó que el guardado `saveData()` antes de esta rama aceptaba solamente
+`updated_at` de una escritura exitosa y guardaba en memoria `merged`, aunque
+el trigger propuesto puede sustituir imágenes base64 por URLs en `new.data`.
+Eso habría dejado el navegador creyendo que sus datos antiguos eran idénticos
+al estado del servidor.
+
+La rama ahora llama `.select('updated_at,data')` **solo si el documento
+enviado contiene imágenes base64 o productos sin imagen**. PostgreSQL devuelve
+el documento ya modificado por el trigger, dentro del mismo UPDATE, sin una
+segunda consulta que permita otra escritura entre medias. Este documento se
+usa como el único estado confirmado para `serverDataRef`, React y caché local.
+En guardados posteriores, cuando todas las imágenes son URL, usa la lectura
+ligera `.select('updated_at')`.
+
+Si se confirma que el UPDATE se ejecutó pero no se recibe `data` para el
+caso que requiere canonicalización, el cliente muestra un aviso y pide
+recargar. No acepta el JSON viejo como si fuera el estado final. Es una
+condición excepcional que requiere comprobación manual y no se marca como
+`ok:true`.
+
+Se incorporó el ensayo `scripts/test-save-catalog-canonicalization.mjs`
+que ejecuta el código real de `saveData` con un backend simulado:
+compactación, fotos que ya estaban guardadas por separado, nueva foto,
+guardados consecutivos y respuesta incompleta. El generador de SQL
+`scripts/generate-image-trigger-sandbox.mjs` ahora incluye un escenario
+en que una PC guarda una foto nueva y otra intenta sobrescribirla con una
+revisión vieja; el guardado obsoleto debe afectar 0 filas.
+
+Estas pruebas **no autorizan aún** la migración en producción. El código
+anterior de navegadores abiertos sigue necesitando control de versiones
+antes del cambio.
