@@ -13,7 +13,7 @@ const photoA='data:image/jpeg;base64,T0xE'
 const photoB='data:image/jpeg;base64,TkVX'
 const url=(id,rev)=>`https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id=${id}&v=${rev}`
 
-function makeClient({omitCanonical=false}={}){
+function makeClient({omitCanonical=false,compactionEnabled=true}={}){
   let stored={
     orders:[{id:'order1'}],
     stock:3,
@@ -30,7 +30,7 @@ function makeClient({omitCanonical=false}={}){
         return {eq(col,value){
           assert.equal(col,'id');assert.equal(value,'main')
           return{async maybeSingle(){
-            if(fields==='updated_at'){seen.revisionReads++;return{data:{updated_at:revision},error:null}}
+            if(fields==='updated_at,catalog_image_compaction_enabled'){seen.revisionReads++;return{data:{updated_at:revision,catalog_image_compaction_enabled:compactionEnabled},error:null}}
             assert.equal(fields,'data,updated_at');seen.fullReads++
             return{data:{data:clone(stored),updated_at:revision},error:null}
           }}
@@ -47,7 +47,7 @@ function makeClient({omitCanonical=false}={}){
             const updated=clone(payload.data)
             // Simulate the PostgreSQL trigger: image bytes written atomically,
             // replaced with URLs, including products without legacy image field.
-            const inline=updated.customerCatalog.some(p=>String(p.image||'').startsWith('data:image/'))
+            const inline=compactionEnabled&&updated.customerCatalog.some(p=>String(p.image||'').startsWith('data:image/'))
             if(inline)for(const item of updated.customerCatalog){
               if(String(item.image||'').startsWith('data:image/')){
                 if(imageStore.get(item.id)!==item.image){seen.imageUpdates++;imageStore.set(item.id,item.image)}
@@ -128,5 +128,18 @@ function makeClient({omitCanonical=false}={}){
   assert.equal(result.requiresReload,true)
   assert.equal(c.seen.alerts.length,1,'Fail closed with reload instructions')
   assert.ok(c.visible.customerCatalog[0].image.startsWith('data:'),'Never claim a canonical state that was not returned')
+}
+{
+  // Before activation the server contains old base64 photos, so normal saves
+  // MUST return only a tiny revision and never ask for the 26 MB JSON again.
+  const c=makeClient({compactionEnabled:false})
+  const first=await c.save({...c.visible,stock:4})
+  assert.equal(first.ok,true)
+  assert.equal(c.seen.returning[0],'updated_at')
+  assert.equal(c.seen.fullReads,0)
+  assert.ok(c.visible.customerCatalog[0].image.startsWith('data:'))
+  const second=await c.save({...c.visible,stock:5})
+  assert.equal(second.ok,true)
+  assert.equal(c.seen.returning[1],'updated_at')
 }
 console.log('OK: atomic returned image URLs, legacy images preserved, repeated saves stable, missing canonical response fails closed')
