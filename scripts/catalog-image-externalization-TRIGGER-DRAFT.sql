@@ -77,8 +77,8 @@ begin
       end if;
       image_url := 'https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id='
         || product_id
-        || '&v=' || pg_catalog.floor(pg_catalog.extract(epoch from image_revision))::bigint
-        || '&rev=' || pg_catalog.round(pg_catalog.extract(epoch from image_revision)*1000000)::bigint;
+        || '&v=' || pg_catalog.floor(extract(epoch from image_revision))::bigint
+        || '&rev=' || pg_catalog.round(extract(epoch from image_revision)*1000000)::bigint;
       p := pg_catalog.jsonb_set(p,'{image}',pg_catalog.to_jsonb(image_url),true);
     end if;
     compact_products := compact_products || pg_catalog.jsonb_build_array(p);
