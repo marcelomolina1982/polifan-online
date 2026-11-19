@@ -10,9 +10,18 @@
 --
 -- IMPORTANT: This is a migration prototype, not authorized for production.
 begin;
--- PREREQUISITE: deploy the new web client with a unique nonce in every UPDATE.
--- Older open tabs omit this field and will be rejected after cutover.
-alter table public.app_state add column if not exists catalog_write_nonce uuid;
+-- PREREQUISITE: First run catalog-write-nonce-preparation.sql, THEN
+-- deploy the new web client that changes the nonce on every UPDATE.
+-- Older open tabs omit the nonce and are rejected after cutover.
+do $preflight$ begin
+  if not exists(
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='app_state'
+      and column_name='catalog_write_nonce' and udt_name='uuid'
+  ) then
+    raise exception 'App version gate missing; run preparation and deploy tested client before trigger';
+  end if;
+end $preflight$;
 create or replace function public.compact_main_catalog_images_before_write()
 returns trigger
 language plpgsql
