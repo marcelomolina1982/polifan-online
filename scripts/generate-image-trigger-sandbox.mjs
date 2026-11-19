@@ -18,7 +18,7 @@ const syncFixture=fs.readFileSync(new URL('./fixtures/sync-public-catalog-items-
 assert.doesNotMatch(syncFixture,/public\.(app_state|public_catalog_items|public_catalog_revision|sync_public_catalog_items)/)
 assert.match(syncFixture,/pg_temp\.sync_public_catalog_items/)
 const script=`begin;
-create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1',catalog_write_nonce uuid);
+create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1',catalog_write_nonce uuid,catalog_image_compaction_enabled boolean not null default false);
 create temp table catalog_product_images(
 product_id text primary key,image text not null,
 updated_at timestamptz not null default clock_timestamp());
@@ -36,6 +36,12 @@ ${trigger}
 ${syncFixture}
 create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
 execute function pg_temp.sync_public_catalog_items();
+-- After installing the trigger in the same transaction, enable its
+-- client readback flag for all future save requests.
+do $test$ begin
+  if (select catalog_image_compaction_enabled is not true from pg_temp.app_state where id='main')
+    then raise exception 'Client canonicalization flag not enabled';end if;
+end $test$;
 -- Old tabs do not send a new per-write nonce and must be rejected.
 do $test$ declare accepted boolean := false; begin
   begin
