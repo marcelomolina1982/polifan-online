@@ -35,8 +35,19 @@ ${trigger}
 ${syncFixture}
 create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
 execute function pg_temp.sync_public_catalog_items();
+-- Old tabs do not send a new per-write nonce and must be rejected.
+do $test$ begin
+  begin
+    update pg_temp.app_state set data=jsonb_set(data,'{orders}',
+    '[{"id":"should-not-save"}]'::jsonb) where id='main';
+    raise exception 'Old client incorrectly accepted';
+  exception when sqlstate 'P0001' then null;
+  end;
+  if (select data #>> '{orders,0,id}'<>'order1' from pg_temp.app_state where id='main')
+    then raise exception 'Old client changed orders';end if;
+end $test$;
 -- First write: preserves orders and externalizes only embedded image.
-update pg_temp.app_state set data=jsonb_set(data,'{orders}',
+update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000001',data=jsonb_set(data,'{orders}',
 '[{"id":"order1"},{"id":"order2"}]'::jsonb) where id='main';
 do $test$ begin
  if (select data #>> '{customerCatalog,0,image}' not like
@@ -58,7 +69,7 @@ do $test$ begin
    raise exception 'Public catalog still contains embedded image';end if;
 end $test$;
 -- Image update: same transaction writes image and changes catalog URL.
-update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000002',data=jsonb_set(data,'{customerCatalog,0,image}',
 '"data:image/jpeg;base64,Yg=="'::jsonb) where id='main';
 do $test$ begin
  if (select image<>'data:image/jpeg;base64,Yg=='
@@ -69,7 +80,7 @@ do $test$ begin
    raise exception 'Updated image remained embedded';end if;
 end $test$;
 -- New product: insert its image through the same trigger.
-update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog}',
+update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000003',data=jsonb_set(data,'{customerCatalog}',
 (data->'customerCatalog')||
 '[{"id":"demo3","name":"New","image":"data:image/jpeg;base64,Yw=="}]'::jsonb)
 where id='main';
@@ -85,7 +96,7 @@ end $test$;
 -- Bad images must be rejected without modifying operational JSON.
 do $test$ begin
   begin
-    update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+    update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000004',data=jsonb_set(data,'{customerCatalog,0,image}',
     '"data:image/invalid;base64,YQ=="'::jsonb) where id='main';
     raise exception 'Invalid image was incorrectly accepted';
   exception when sqlstate '22023' then
@@ -97,14 +108,14 @@ do $test$ begin
 end $test$;
 -- Computer B saves a newer image; A cannot revert it with stale revision.
 update pg_temp.app_state set updated_at='R2' where id='main' and updated_at='R1';
-update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000005',data=jsonb_set(data,'{customerCatalog,0,image}',
 '"data:image/jpeg;base64,TkVX"'::jsonb),updated_at='R3'
 where id='main' and updated_at='R2';
 do $test$ declare affected integer; begin
   if (select image<>'data:image/jpeg;base64,TkVX'
   from pg_temp.catalog_product_images where product_id='demo1') then
     raise exception 'Newer image not stored';end if;
-  update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+  update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000006',data=jsonb_set(data,'{customerCatalog,0,image}',
   '"data:image/jpeg;base64,YQ=="'::jsonb),updated_at='R4'
   where id='main' and updated_at='R2';
   get diagnostics affected = row_count;
