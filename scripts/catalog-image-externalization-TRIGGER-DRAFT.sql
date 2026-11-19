@@ -80,6 +80,41 @@ begin
         || '&v=' || pg_catalog.floor(extract(epoch from image_revision))::bigint
         || '&rev=' || pg_catalog.round(extract(epoch from image_revision)*1000000)::bigint;
       p := pg_catalog.jsonb_set(p,'{image}',pg_catalog.to_jsonb(image_url),true);
+    elsif image_text is null or image_text = '' then
+      -- Link products with images already stored separately (132 on 2026-11-19).
+      -- Preserve nonempty user-supplied URLs unchanged.
+      v_product_id := p->>'id';
+      if v_product_id is null or length(v_product_id)>160 or
+         v_product_id !~ '^[A-Za-z0-9._~-]+
+  end loop;
+  new.data := pg_catalog.jsonb_set(new.data,'{customerCatalog}',compact_products);
+  return new;
+end;
+$$;
+revoke all on function public.compact_main_catalog_images_before_write() from public,anon,authenticated;
+create trigger zz_compact_main_catalog_images_before_write
+before update of data on public.app_state
+for each row when (new.id='main')
+execute function public.compact_main_catalog_images_before_write();
+commit;
+-- Rollback SQL (ONLY if no new images were created since activation):
+-- drop trigger if exists zz_compact_main_catalog_images_before_write on public.app_state;
+-- drop function if exists public.compact_main_catalog_images_before_write();
+-- Never restore an old main state without reconciling orders and catalog edits.
+ then
+        raise exception 'Invalid product identifier for linked image'
+          using errcode='22023';
+      end if;
+      image_revision := null;
+      select i.updated_at into image_revision
+      from public.catalog_product_images i where i.product_id=v_product_id;
+      if image_revision is not null then
+        image_url := 'https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id='
+          || v_product_id
+          || '&v=' || pg_catalog.floor(extract(epoch from image_revision))::bigint
+          || '&rev=' || pg_catalog.round(extract(epoch from image_revision)*1000000)::bigint;
+        p := pg_catalog.jsonb_set(p,'{image}',pg_catalog.to_jsonb(image_url),true);
+      end if;
     end if;
     compact_products := compact_products || pg_catalog.jsonb_build_array(p);
   end loop;
