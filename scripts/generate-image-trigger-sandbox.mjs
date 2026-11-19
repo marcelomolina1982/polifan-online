@@ -13,17 +13,28 @@ const trigger=sql.slice(start+8,end)
   .replaceAll('public.app_state','pg_temp.app_state')
   .replaceAll('public.compact_main_catalog_images_before_write','pg_temp.compact_main_catalog_images_before_write')
 assert.doesNotMatch(trigger,/public\.(app_state|catalog_product_images|compact_main_catalog_images_before_write)/,'Dry run may not reference live tables')
+const syncFixture=fs.readFileSync(new URL('./fixtures/sync-public-catalog-items-temp.sql',import.meta.url),'utf8')
+assert.doesNotMatch(syncFixture,/public\.(app_state|public_catalog_items|public_catalog_revision|sync_public_catalog_items)/)
+assert.match(syncFixture,/pg_temp\.sync_public_catalog_items/)
 const script=`begin;
 create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1');
 create temp table catalog_product_images(
 product_id text primary key,image text not null,
 updated_at timestamptz not null default clock_timestamp());
+create temp table public_catalog_items(id text primary key,payload jsonb not null,image text,updated_at text not null);
+create temp table public_catalog_revision(id text primary key,updated_at text not null);
 insert into pg_temp.app_state(id,data) values('main',
 '{"customerCatalog":[{"id":"demo1","name":"Heart","image":"data:image/jpeg;base64,YQ=="},{"id":"demo2","name":"Rainbow"}],"orders":[{"id":"order1"}]}'::jsonb);
 insert into pg_temp.catalog_product_images(product_id,image)
 values('demo1','data:image/jpeg;base64,YQ=='),
 ('demo2','data:image/webp;base64,Yg==');
+insert into pg_temp.public_catalog_items(id,payload,image,updated_at) values
+('demo1','{"id":"demo1","name":"Heart"}','data:image/jpeg;base64,YQ==','R1'),
+('demo2','{"id":"demo2","name":"Rainbow"}',null,'R1');
 ${trigger}
+${syncFixture}
+create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
+execute function pg_temp.sync_public_catalog_items();
 -- First write: preserves orders and externalizes only embedded image.
 update pg_temp.app_state set data=jsonb_set(data,'{orders}',
 '[{"id":"order1"},{"id":"order2"}]'::jsonb) where id='main';
@@ -41,6 +52,10 @@ do $test$ begin
    raise exception 'Image absent from old JSON not restored via link';end if;
  if (select count(*)<>2 from pg_temp.catalog_product_images) then
    raise exception 'Unchanged image was duplicated';end if;
+ if (select count(*)<>2 from pg_temp.public_catalog_items where image like 'https://%') then
+   raise exception 'Public catalog items not synchronized';end if;
+ if (select count(*)<>0 from pg_temp.public_catalog_items where image like 'data:%') then
+   raise exception 'Public catalog still contains embedded image';end if;
 end $test$;
 -- Image update: same transaction writes image and changes catalog URL.
 update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
@@ -61,6 +76,8 @@ where id='main';
 do $test$ begin
  if (select count(*)<>3 from pg_temp.catalog_product_images) then
    raise exception 'New product image was not inserted';end if;
+ if (select count(*)<>3 from pg_temp.public_catalog_items) then
+   raise exception 'New product absent from published items';end if;
  if (select jsonb_array_length(data->'customerCatalog')<>3
  from pg_temp.app_state where id='main') then
    raise exception 'New product was not preserved';end if;
@@ -101,7 +118,7 @@ end $test$;
 -- Nothing in this script persists, including the images and trigger.
 rollback;
 `
-assert.doesNotMatch(script,/\b(update|delete from|insert into|truncate)\s+public\.(app_state|catalog_product_images)\b/i)
+assert.doesNotMatch(script,/\b(update|delete from|insert into|truncate)\s+public\.(app_state|catalog_product_images|public_catalog_items|public_catalog_revision)\b/i)
 assert.match(script,/rollback;\s*$/)
 if(process.argv.includes('--check')){
  console.log('OK: PostgreSQL sandbox generation uses only pg_temp data and ends with ROLLBACK')
