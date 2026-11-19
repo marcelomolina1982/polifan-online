@@ -16,7 +16,7 @@ export async function auditCatalogV2(supabase){
   }
   const originalById=new Map(original.map(item=>[String(item.id),item]))
   const stagedById=new Map(staged.map(item=>[String(item.id),item.payload]))
-  const stable=value=>JSON.stringify(value)
+  const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v)
   const missing=[...originalById.keys()].filter(id=>!stagedById.has(id))
   const extra=[...stagedById.keys()].filter(id=>!originalById.has(id))
   const different=[...originalById.keys()].filter(id=>stagedById.has(id)&&stable(originalById.get(id))!==stable(stagedById.get(id)))
