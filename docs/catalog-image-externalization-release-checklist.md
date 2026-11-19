@@ -1,0 +1,66 @@
+# Migración de imágenes del catálogo — puerta de publicación
+
+**Estado: NO ACTIVAR EN PRODUCCIÓN.** Esta rama contiene una propuesta de
+trigger que modifica únicamente las imágenes incrustadas de
+`app_state.main.customerCatalog` y las sustituye por enlaces a la Edge
+Function existente `catalog-image`. **No se elimina ningún producto ni se
+vacía el catálogo.**
+
+## Dependencias verificadas en base real (19/11/2026)
+
+- 161 productos y 161 imágenes válidas.
+- 29 productos tienen imagen base64 incrustada en `app_state`; los otros 132
+  recuperarán su URL desde `catalog_product_images`.
+- `public_catalog`, `public_catalog_items`, `app_state` y la copia
+  `catalog_product_metadata_v3` concuerdan en los 161 productos.
+- `public_catalog_items` contiene ~16 MB de imágenes, copiados desde
+  `app_state`. El trigger **existente** `trg_sync_public_catalog_items`
+  actualiza esa tabla cuando cambia `customerCatalog`; su contenido
+  también deberá verificarse después de la migración.
+- La simulación read-only produce 4.737.858 bytes de estado, frente a
+  21.860.198 bytes actuales: **78,33 % de reducción teórica del JSON**.
+  No equivale al ahorro medido de Disk I/O.
+
+## Pruebas realizadas
+
+- Ejecución del SQL del trigger sobre tablas `pg_temp` en una transacción
+  terminada con `ROLLBACK` — no afecta tablas reales.
+- Conservación de pedidos, conversión de imagen base64 a URL, actualización
+  de una foto, relleno de URL si la foto ya está separada, inserción de
+  nueva imagen y rechazo de formatos inválidos.
+- `scripts/generate-image-trigger-sandbox.mjs` permite reproducir pruebas.
+- `npm run build` ejecuta las comprobaciones de sintaxis y contrato del
+  borrador; GitHub Actions las pasó. Las pruebas estáticas NO reemplazan
+  una prueba integral en entorno de desarrollo.
+- `scripts/preflight-catalog-image-externalization.sql` revisa las cuatro
+  copias relevantes; cualquier discrepancia bloquea el cambio.
+
+## Bloqueos para pasar de borrador a producción
+
+1. **Respaldo externo completo y verificable**, con fecha/hora, del estado
+   principal y de las tablas de imágenes y catálogo público, con
+   restauración ensayada. Los seis respaldos históricos no sustituyen
+   uno actual.
+2. Comprobación de la Edge Function `catalog-image` con una foto real,
+   permisos CORS, caché, ETag y URL con `v` y `rev`; verificar imágenes
+   actualizadas repetidamente en menos de un segundo.
+3. Prueba de las tres computadoras/navegadores con sincronización y
+   versiones anteriores: precios, carga/edición/baja de producto,
+   stock, pedidos, PDF, catálogo público y recarga del navegador.
+   **Controlar clientes antiguos**: ningún cliente que guarde sin comparar
+   la revisión de `app_state` debe poder reintroducir una foto antigua.
+4. Ensayo de la migración SQL, incluida `trg_sync_public_catalog_items`,
+   en una base de desarrollo con esquema y disparadores equivalentes.
+5. Mantenimiento programado o ventana de escasa actividad, con corte
+   controlado y capacidad de volver a una versión anterior sin perder
+   productos, pedidos ni nuevas fotos. La reversión requiere conciliar
+   los cambios posteriores; no basta con desactivar el trigger.
+6. Solo entonces ejecutar preflight de nuevo, verificar la revisión del
+   estado justo antes de actualizar y activar el trigger bajo transacción.
+   Confirmar que `app_state` conserva pedidos/SVG y 161 productos,
+   `public_catalog_items` sigue teniendo 161 productos y que las 161
+   URLs de imagen responden.
+7. Medir Disk I/O, RAM y WAL tras el cambio; si hay discrepancias,
+   detener el despliegue, preservar datos y aplicar plan de reversión.
+
+**No borrar datos ni respaldos para obtener espacio inmediato.**
