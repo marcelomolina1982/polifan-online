@@ -149,9 +149,15 @@ export default function App(){
         else merged[key]=next[key]
       }
       if(conflicts.length){savingRef.current=false;setSaving(false);alert('No se guardó este cambio porque otra sesión modificó exactamente el mismo dato al mismo tiempo: '+conflicts.join(', ')+'.\n\nLos cambios distintos se combinan automáticamente. Recargá y repetí solamente este cambio.');return{ok:false,conflict:true,keys:conflicts}}
+      // The image externalization trigger rewrites the JSON on the server.
+      // On the first save after activation, request the actual updated row as
+      // part of the atomic UPDATE ... RETURNING. Never cache the pre-trigger
+      // base64 snapshot as if it were the server's canonical data.
+      const needsCanonicalCatalog=Array.isArray(merged.customerCatalog)&&
+        merged.customerCatalog.some(product=>!product?.image||String(product.image).startsWith('data:image/'))
       const updatedAt=new Date().toISOString(),payload={data:merged,updated_at:updatedAt,updated_by:session.user.id}
       let query=supabase.from('app_state').update(payload).eq('id','main');if(latestRow?.updated_at)query=query.eq('updated_at',latestRow.updated_at)
-      const result=await query.select('updated_at')
+      const result=await query.select(needsCanonicalCatalog?'updated_at,data':'updated_at')
       if(result.error){
         lastError=result.error
         if(/statement timeout/i.test(result.error.message||'')){
@@ -163,7 +169,20 @@ export default function App(){
       }
       if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break
       }
-      const confirmed={...emptyState(),...merged};serverRevisionRef.current=result.data[0]?.updated_at||updatedAt;serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
+      const committedRow=result.data[0]
+      if(needsCanonicalCatalog&&(!committedRow?.data||!Array.isArray(committedRow.data.customerCatalog))){
+        // The write committed, but without the returned canonical document we
+        // cannot safely let this browser overwrite server-converted images.
+        // Force a fresh revision/read before the next attempt.
+        serverRevisionRef.current=''
+        savingRef.current=false;setSaving(false)
+        alert('El guardado llegó a Supabase, pero no se pudo verificar el catálogo actualizado. Recargá la aplicación antes de hacer otro cambio.')
+        return{ok:false,committed:true,requiresReload:true}
+      }
+      const confirmed={...emptyState(),...(needsCanonicalCatalog?committedRow.data:merged)}
+      serverRevisionRef.current=committedRow?.updated_at||updatedAt
+      serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
+      savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
     }
     savingRef.current=false;setSaving(false);alert('No se pudo guardar en Supabase. Ningún dato más nuevo fue sobrescrito: '+(lastError?.message||'error de sincronización'));return{ok:false,error:lastError||new Error('Error de sincronización')}
   }
