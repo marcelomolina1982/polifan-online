@@ -155,7 +155,13 @@ export default function App(){
       // base64 snapshot as if it were the server's canonical data.
       const needsCanonicalCatalog=Array.isArray(merged.customerCatalog)&&
         merged.customerCatalog.some(product=>!product?.image||String(product.image).startsWith('data:image/'))
-      const updatedAt=new Date().toISOString(),payload={data:merged,updated_at:updatedAt,updated_by:session.user.id}
+      // Once the server-side migration is activated, every write MUST carry
+      // a fresh nonce. A stale browser cannot accidentally reuse one from a
+      // prior snapshot and overwrite compacted images.
+      const updatedAt=new Date().toISOString(),payload={
+        data:merged,updated_at:updatedAt,updated_by:session.user.id,
+        catalog_write_nonce:crypto.randomUUID()
+      }
       let query=supabase.from('app_state').update(payload).eq('id','main');if(latestRow?.updated_at)query=query.eq('updated_at',latestRow.updated_at)
       const result=await query.select(needsCanonicalCatalog?'updated_at,data':'updated_at')
       if(result.error){
