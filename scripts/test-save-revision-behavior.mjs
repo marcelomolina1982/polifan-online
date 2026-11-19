@@ -18,11 +18,11 @@ function makeClient({baseline,live,localRevision='R1',liveRevision='R1'}){
       assert.equal(table,'app_state')
       return{
         select(columns){
-          assert.ok(['updated_at','data,updated_at'].includes(columns))
+          assert.ok(['updated_at,catalog_image_compaction_enabled','data,updated_at','data,updated_at,catalog_write_nonce'].includes(columns))
           return{eq(field,id){
             assert.equal(field,'id');assert.equal(id,'main')
             return{async maybeSingle(){
-              if(columns==='updated_at'){calls.revisionReads++;return{data:{updated_at:databaseRevision},error:null}}
+              if(columns==='updated_at,catalog_image_compaction_enabled'){calls.revisionReads++;return{data:{updated_at:databaseRevision,catalog_image_compaction_enabled:false},error:null}}
               calls.fullReads++;return{data:{updated_at:databaseRevision,data:copy(serverData)},error:null}
             }}
           }}
@@ -60,6 +60,7 @@ function makeClient({baseline,live,localRevision='R1',liveRevision='R1'}){
     MERGE_BY_RECORD:new Set(['orders']),
     mergeArrayById:()=>{throw new Error('Unexpected record merge in this scenario')},
     emptyState:()=>({}),
+    crypto:{randomUUID:()=>`00000000-0000-4000-8000-000000000001`},
     Promise,Date,Error,Set,Map,JSON
   }
   const save=vm.runInNewContext(functionSource+'\n saveData',context)
