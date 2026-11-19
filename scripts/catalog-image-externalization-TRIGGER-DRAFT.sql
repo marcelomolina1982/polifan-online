@@ -43,7 +43,7 @@ begin
     if image_text like 'data:image/%' then
       v_product_id := p->>'id';
       if v_product_id is null or length(v_product_id)>160 or
-         v_product_id !~ '^[A-Za-z0-9._~-]+ then
+         v_product_id !~ '^[A-Za-z0-9._~-]+$' then
         raise exception 'Cannot safely encode catalog image identifier'
           using errcode='22023';
       end if;
