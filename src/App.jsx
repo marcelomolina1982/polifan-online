@@ -129,7 +129,7 @@ export default function App(){
       // Read only the revision first. When no other computer has saved changes,
       // the already-loaded baseline is authoritative and avoids downloading
       // the large JSON document a second time for every save.
-      const {data:revisionRow,error:revisionError}=await supabase.from('app_state').select('updated_at').eq('id','main').maybeSingle()
+      const {data:revisionRow,error:revisionError}=await supabase.from('app_state').select('updated_at,catalog_image_compaction_enabled').eq('id','main').maybeSingle()
       if(revisionError){lastError=revisionError;break}
       if(!revisionRow){lastError=new Error('No se encontró el estado principal.');break}
       let latestRow={updated_at:revisionRow.updated_at,data:baseline}
@@ -149,21 +149,48 @@ export default function App(){
         else merged[key]=next[key]
       }
       if(conflicts.length){savingRef.current=false;setSaving(false);alert('No se guardó este cambio porque otra sesión modificó exactamente el mismo dato al mismo tiempo: '+conflicts.join(', ')+'.\n\nLos cambios distintos se combinan automáticamente. Recargá y repetí solamente este cambio.');return{ok:false,conflict:true,keys:conflicts}}
-      const updatedAt=new Date().toISOString(),payload={data:merged,updated_at:updatedAt,updated_by:session.user.id}
+      // The image externalization trigger rewrites the JSON on the server.
+      // On the first save after activation, request the actual updated row as
+      // part of the atomic UPDATE ... RETURNING. Never cache the pre-trigger
+      // base64 snapshot as if it were the server's canonical data.
+      const needsCanonicalCatalog=revisionRow.catalog_image_compaction_enabled===true&&Array.isArray(merged.customerCatalog)&&
+        merged.customerCatalog.some(product=>!product?.image||String(product.image).startsWith('data:image/'))
+      // Once the server-side migration is activated, every write MUST carry
+      // a fresh nonce. A stale browser cannot accidentally reuse one from a
+      // prior snapshot and overwrite compacted images.
+      const updatedAt=new Date().toISOString(),payload={
+        data:merged,updated_at:updatedAt,updated_by:session.user.id,
+        catalog_write_nonce:crypto.randomUUID()
+      }
       let query=supabase.from('app_state').update(payload).eq('id','main');if(latestRow?.updated_at)query=query.eq('updated_at',latestRow.updated_at)
-      const result=await query.select('updated_at')
+      const result=await query.select(needsCanonicalCatalog?'updated_at,data':'updated_at')
       if(result.error){
         lastError=result.error
         if(/statement timeout/i.test(result.error.message||'')){
-          const {data:verify}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
-          const verified=verify?.data&&changedKeys.every(key=>stableJson(verify.data[key])===stableJson(merged[key]))
+          const {data:verify}=await supabase.from('app_state').select('data,updated_at,catalog_write_nonce').eq('id','main').maybeSingle()
+          // The trigger may convert image bytes to URLs, so JSON equality
+          // cannot verify a committed write. Match the unique write nonce.
+          const verified=verify?.data&&verify.catalog_write_nonce===payload.catalog_write_nonce
           if(verified){const confirmed={...emptyState(),...verify.data};serverRevisionRef.current=verify.updated_at||updatedAt;serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed,verifiedAfterTimeout:true}}
         }
         if(attempt<3){await new Promise(resolve=>setTimeout(resolve,250*attempt));continue}break
       }
       if(!result.data?.length){lastError=new Error('El estado cambió mientras se estaba guardando.');if(attempt<3){await new Promise(resolve=>setTimeout(resolve,150*attempt));continue}break
       }
-      const confirmed={...emptyState(),...merged};serverRevisionRef.current=result.data[0]?.updated_at||updatedAt;serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
+      const committedRow=result.data[0]
+      if(needsCanonicalCatalog&&(!committedRow?.data||!Array.isArray(committedRow.data.customerCatalog))){
+        // The write committed, but without the returned canonical document we
+        // cannot safely let this browser overwrite server-converted images.
+        // Force a fresh revision/read before the next attempt.
+        serverRevisionRef.current=''
+        savingRef.current=false;setSaving(false)
+        alert('El guardado llegó a Supabase, pero no se pudo verificar el catálogo actualizado. Recargá la aplicación antes de hacer otro cambio.')
+        return{ok:false,committed:true,requiresReload:true}
+      }
+      const confirmed={...emptyState(),...(needsCanonicalCatalog?committedRow.data:merged)}
+      serverRevisionRef.current=committedRow?.updated_at||updatedAt
+      serverDataRef.current=confirmed;setDb(confirmed);try{localStorage.setItem('polifan-app-cache',JSON.stringify(confirmed))}catch{}
+      savingRef.current=false;setSaving(false);return{ok:true,updatedAt:serverRevisionRef.current,data:confirmed}
     }
     savingRef.current=false;setSaving(false);alert('No se pudo guardar en Supabase. Ningún dato más nuevo fue sobrescrito: '+(lastError?.message||'error de sincronización'));return{ok:false,error:lastError||new Error('Error de sincronización')}
   }
