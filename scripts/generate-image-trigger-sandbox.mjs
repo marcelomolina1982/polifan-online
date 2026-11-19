@@ -12,12 +12,13 @@ const trigger=sql.slice(start+8,end)
   .replaceAll('public.catalog_product_images','pg_temp.catalog_product_images')
   .replaceAll('public.app_state','pg_temp.app_state')
   .replaceAll('public.compact_main_catalog_images_before_write','pg_temp.compact_main_catalog_images_before_write')
+  .replace("table_schema='public'","table_schema like 'pg_temp_%'")
 assert.doesNotMatch(trigger,/public\.(app_state|catalog_product_images|compact_main_catalog_images_before_write)/,'Dry run may not reference live tables')
 const syncFixture=fs.readFileSync(new URL('./fixtures/sync-public-catalog-items-temp.sql',import.meta.url),'utf8')
 assert.doesNotMatch(syncFixture,/public\.(app_state|public_catalog_items|public_catalog_revision|sync_public_catalog_items)/)
 assert.match(syncFixture,/pg_temp\.sync_public_catalog_items/)
 const script=`begin;
-create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1');
+create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1',catalog_write_nonce uuid);
 create temp table catalog_product_images(
 product_id text primary key,image text not null,
 updated_at timestamptz not null default clock_timestamp());
