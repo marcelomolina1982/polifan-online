@@ -7,6 +7,7 @@ import fs from 'node:fs'
 const sql=fs.readFileSync(new URL('./catalog-image-externalization-TRIGGER-DRAFT.sql',import.meta.url),'utf8')
 const start=sql.indexOf('\nbegin;\n'),end=sql.indexOf('\ncommit;',start)
 assert.ok(start!==-1&&end>start,'Cannot locate draft body')
+assert.equal((sql.match(/\ncommit;/g)||[]).length,1,'Draft must contain one transaction only')
 const trigger=sql.slice(start+8,end)
   .replaceAll('public.catalog_product_images','pg_temp.catalog_product_images')
   .replaceAll('public.app_state','pg_temp.app_state')
@@ -20,7 +21,8 @@ updated_at timestamptz not null default clock_timestamp());
 insert into pg_temp.app_state(id,data) values('main',
 '{"customerCatalog":[{"id":"demo1","name":"Heart","image":"data:image/jpeg;base64,YQ=="},{"id":"demo2","name":"Rainbow"}],"orders":[{"id":"order1"}]}'::jsonb);
 insert into pg_temp.catalog_product_images(product_id,image)
-values('demo1','data:image/jpeg;base64,YQ==');
+values('demo1','data:image/jpeg;base64,YQ=='),
+('demo2','data:image/webp;base64,Yg==');
 ${trigger}
 -- First write: preserves orders and externalizes only embedded image.
 update pg_temp.app_state set data=jsonb_set(data,'{orders}',
@@ -33,7 +35,11 @@ do $test$ begin
  if (select jsonb_array_length(data->'orders')<>2
  from pg_temp.app_state where id='main') then
    raise exception 'Orders were altered';end if;
- if (select count(*)<>1 from pg_temp.catalog_product_images) then
+ if (select data #>> '{customerCatalog,1,image}' not like
+ 'https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id=demo2&v=%'
+ from pg_temp.app_state where id='main') then
+   raise exception 'Image absent from old JSON not restored via link';end if;
+ if (select count(*)<>2 from pg_temp.catalog_product_images) then
    raise exception 'Unchanged image was duplicated';end if;
 end $test$;
 -- Image update: same transaction writes image and changes catalog URL.
@@ -53,7 +59,7 @@ update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog}',
 '[{"id":"demo3","name":"New","image":"data:image/jpeg;base64,Yw=="}]'::jsonb)
 where id='main';
 do $test$ begin
- if (select count(*)<>2 from pg_temp.catalog_product_images) then
+ if (select count(*)<>3 from pg_temp.catalog_product_images) then
    raise exception 'New product image was not inserted';end if;
  if (select jsonb_array_length(data->'customerCatalog')<>3
  from pg_temp.app_state where id='main') then
