@@ -36,13 +36,14 @@ ${syncFixture}
 create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
 execute function pg_temp.sync_public_catalog_items();
 -- Old tabs do not send a new per-write nonce and must be rejected.
-do $test$ begin
+do $test$ declare accepted boolean := false; begin
   begin
     update pg_temp.app_state set data=jsonb_set(data,'{orders}',
     '[{"id":"should-not-save"}]'::jsonb) where id='main';
-    raise exception 'Old client incorrectly accepted';
+    accepted := true;
   exception when sqlstate 'P0001' then null;
   end;
+  if accepted then raise exception 'Old client incorrectly accepted' using errcode='22023';end if;
   if (select data #>> '{orders,0,id}'<>'order1' from pg_temp.app_state where id='main')
     then raise exception 'Old client changed orders';end if;
 end $test$;
