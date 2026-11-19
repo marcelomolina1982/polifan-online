@@ -8,6 +8,8 @@ assert.equal((sql.match(/create trigger zz_compact_main_catalog_images_before_wr
 assert.match(sql,/elsif image_text is null or image_text = '' then/)
 assert.match(sql,/select i.updated_at into image_revision/)
 assert.ok(sql.includes("v_product_id !~ '^[A-Za-z0-9._~-]+$' then"))
+assert.match(sql,/alter table public\\.app_state add column if not exists catalog_write_nonce uuid/)
+assert.match(sql,/new\\.catalog_write_nonce is not distinct from old\\.catalog_write_nonce/)
 assert.match(sql,/security invoker/)
 assert.match(sql,/set search_path = ''/)
 assert.match(sql,/before update of data on public\.app_state/)
