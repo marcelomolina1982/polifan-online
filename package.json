@@ -11,7 +11,7 @@
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs",
     "test:state-revision": "node scripts/test-state-save-revision-guards.mjs && node scripts/test-save-revision-behavior.mjs",
-    "test:catalog-image-draft": "node scripts/test-catalog-image-trigger-draft.mjs"
+    "test:catalog-image-draft": "node scripts/test-catalog-image-trigger-draft.mjs && node scripts/generate-image-trigger-sandbox.mjs --check"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
