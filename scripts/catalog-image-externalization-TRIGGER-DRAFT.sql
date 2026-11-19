@@ -81,11 +81,26 @@ begin
         || '&rev=' || pg_catalog.round(extract(epoch from image_revision)*1000000)::bigint;
       p := pg_catalog.jsonb_set(p,'{image}',pg_catalog.to_jsonb(image_url),true);
     elsif image_text is null or image_text = '' then
-      -- Link products with images already stored separately (132 on 2026-11-19).
-      -- Preserve nonempty user-supplied URLs unchanged.
+      -- Link images already stored separately, without rewriting their bytes.
+      -- Preserve any explicit nonempty URL in existing product metadata.
       v_product_id := p->>'id';
       if v_product_id is null or length(v_product_id)>160 or
-         v_product_id !~ '^[A-Za-z0-9._~-]+
+         v_product_id !~ '^[A-Za-z0-9._~-]+$' then
+        raise exception 'Invalid product identifier for linked image'
+          using errcode='22023';
+      end if;
+      image_revision := null;
+      select i.updated_at into image_revision
+      from public.catalog_product_images i where i.product_id=v_product_id;
+      if image_revision is not null then
+        image_url := 'https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id='
+          || v_product_id
+          || '&v=' || pg_catalog.floor(extract(epoch from image_revision))::bigint
+          || '&rev=' || pg_catalog.round(extract(epoch from image_revision)*1000000)::bigint;
+        p := pg_catalog.jsonb_set(p,'{image}',pg_catalog.to_jsonb(image_url),true);
+      end if;
+    end if;
+    compact_products := compact_products || pg_catalog.jsonb_build_array(p);
   end loop;
   new.data := pg_catalog.jsonb_set(new.data,'{customerCatalog}',compact_products);
   return new;
