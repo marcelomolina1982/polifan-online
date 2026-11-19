@@ -126,3 +126,34 @@ faltantes sin actualizar, borrar ni restaurar ninguna fila original. La
 verificación volvió a coincidir en 164 productos y 164 imágenes, con diferencias
 cero. Cualquier cambio posterior exige otra auditoría. Nunca forzar el catálogo
 real a coincidir con una copia más antigua.
+
+## Estado del despliegue por etapas — 19/11/2026, ~19:48 ART
+
+- **Hecho en producción:** agregado de las columnas
+  `app_state.catalog_write_nonce uuid NULL` y
+  `app_state.catalog_image_compaction_enabled boolean NOT NULL DEFAULT false`
+  bajo `lock_timeout=300ms`, sin reescribir el documento ni activar trigger.
+- **Verificado:** bandera de compactación `false`, nonce principal `NULL`,
+  trigger `zz_compact_main_catalog_images_before_write` **ausente** y
+  168 imágenes / 168 productos presentes al último control.
+- **Hecho en GitHub:** la nueva versión de cliente se separó en el
+  [PR #73](https://github.com/marcelomolina1982/polifan-online/pull/73),
+  pasó la compilación y tests, y se integró en `main` (commit
+  `ff5ac44e81d9d31181657355727ee88d0fa7b62d`).
+- **BLOQUEO de publicación:** Vercel respondió HTTP 402 con código
+  `api-deployments-free-per-day`, indicando volver a intentar después
+  de 24 horas. La CLI de Vercel no está instalada en el entorno disponible.
+  NO se cambió el plan ni se generó ningún costo.
+- **Última producción comprobada:** deployment
+  `dpl_FowsLugwzgZeuA79booxB8USVMVc`, commit
+  `d33c9bbaf178c350bf85225085aeebe9159dbc46`, **anterior** a PR #73.
+- **No autorizado para activación:** NO ejecutar el trigger del PR #72
+  hasta que Vercel haya desplegado PR #73, todas las computadoras funcionen,
+  exista un respaldo restaurable comprobado y pase el preflight actualizado.
+- **La copia auxiliar puede quedar atrás** porque los usuarios siguen
+  agregando productos. Compararla y sincronizar los faltantes justo antes
+  del corte. Nunca forzar el catálogo principal a una copia desactualizada.
+- **Importante:** mientras la bandera siga en `false`, el cliente preparado
+  (una vez publicado) no descargará un documento completo adicional por
+  cada guardado. Al activar el trigger, la bandera se habilitará en la misma
+  transacción para pedir el estado canónico solo cuando sea necesario.
