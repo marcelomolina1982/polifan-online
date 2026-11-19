@@ -126,9 +126,20 @@ export default function App(){
     try{localStorage.setItem('polifan-app-backup-last',JSON.stringify({savedAt:new Date().toISOString(),data:baseline}))}catch{}
     let lastError=null
     for(let attempt=1;attempt<=3;attempt++){
-      const {data:latestRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
-      if(readError){lastError=readError;break}
-      const latest={...emptyState(),...(latestRow?.data||{})},merged={...latest},conflicts=[]
+      // Read only the revision first. When no other computer has saved changes,
+      // the already-loaded baseline is authoritative and avoids downloading
+      // the large JSON document a second time for every save.
+      const {data:revisionRow,error:revisionError}=await supabase.from('app_state').select('updated_at').eq('id','main').maybeSingle()
+      if(revisionError){lastError=revisionError;break}
+      if(!revisionRow){lastError=new Error('No se encontró el estado principal.');break}
+      let latestRow={updated_at:revisionRow.updated_at,data:baseline}
+      if(!serverRevisionRef.current||revisionRow.updated_at!==serverRevisionRef.current){
+        const {data:freshRow,error:readError}=await supabase.from('app_state').select('data,updated_at').eq('id','main').maybeSingle()
+        if(readError){lastError=readError;break}
+        if(!freshRow){lastError=new Error('No se encontró el estado principal.');break}
+        latestRow=freshRow
+      }
+      const latest={...emptyState(),...(latestRow.data||{})},merged={...latest},conflicts=[]
       for(const key of changedKeys){
         if(MERGE_BY_RECORD.has(key)){
           const section=mergeArrayById(baseline[key],latest[key],next[key],key)
