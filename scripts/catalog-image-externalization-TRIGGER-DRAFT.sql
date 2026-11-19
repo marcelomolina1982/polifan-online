@@ -18,6 +18,10 @@ do $preflight$ begin
     select 1 from information_schema.columns
     where table_schema='public' and table_name='app_state'
       and column_name='catalog_write_nonce' and udt_name='uuid'
+  ) or not exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='app_state'
+      and column_name='catalog_image_compaction_enabled' and udt_name='bool'
   ) then
     raise exception 'App version gate missing; run preparation and deploy tested client before trigger';
   end if;
@@ -128,6 +132,11 @@ create trigger zz_compact_main_catalog_images_before_write
 before update of data on public.app_state
 for each row when (new.id='main')
 execute function public.compact_main_catalog_images_before_write();
+-- Atomic cutover flag: the newly deployed client uses RETURNING data only
+-- after this flag turns true. Do not activate during business hours.
+update public.app_state
+set catalog_image_compaction_enabled=true
+where id='main' and catalog_image_compaction_enabled is false;
 commit;
 -- Rollback SQL (ONLY if no new images were created since activation):
 -- drop trigger if exists zz_compact_main_catalog_images_before_write on public.app_state;
