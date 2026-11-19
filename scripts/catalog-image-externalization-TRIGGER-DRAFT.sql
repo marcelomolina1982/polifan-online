@@ -10,6 +10,9 @@
 --
 -- IMPORTANT: This is a migration prototype, not authorized for production.
 begin;
+-- PREREQUISITE: deploy the new web client with a unique nonce in every UPDATE.
+-- Older open tabs omit this field and will be rejected after cutover.
+alter table public.app_state add column if not exists catalog_write_nonce uuid;
 create or replace function public.compact_main_catalog_images_before_write()
 returns trigger
 language plpgsql
@@ -26,6 +29,11 @@ declare
   image_url text;
 begin
   if new.id is distinct from 'main' then return new; end if;
+  if new.catalog_write_nonce is null
+     or new.catalog_write_nonce is not distinct from old.catalog_write_nonce then
+    raise exception 'Esta versión de Gestión Polifan necesita actualizarse: recargá antes de guardar'
+      using errcode='P0001';
+  end if;
   if jsonb_typeof(new.data->'customerCatalog') is distinct from 'array' then
     raise exception 'Missing customerCatalog: refusing destructive write'
       using errcode='22023';
