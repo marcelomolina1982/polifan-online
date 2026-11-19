@@ -20,8 +20,9 @@ function makeClient({omitCanonical=false}={}){
     customerCatalog:[{id:'heart',image:photoA,name:'Heart'},{id:'star',name:'Star'}]
   }
   const imageStore=new Map([['heart',photoA],['star',photoB]])
+  let nonceCounter=0
   let revision='R1',visible=clone(stored)
-  const seen={returning:[],revisionReads:0,fullReads:0,updates:0,alerts:[],imageUpdates:0}
+  const seen={returning:[],revisionReads:0,fullReads:0,updates:0,alerts:[],imageUpdates:0,nonces:[]}
   const supabase={from(table){
     assert.equal(table,'app_state')
     return{
@@ -41,6 +42,7 @@ function makeClient({omitCanonical=false}={}){
           eq(col,value){if(col==='updated_at')expected=value;else assert.equal(col,'id');return this},
           async select(fields){
             seen.returning.push(fields);seen.updates++
+            seen.nonces.push(payload.catalog_write_nonce)
             if(expected!==revision)return{data:[],error:null}
             const updated=clone(payload.data)
             // Simulate the PostgreSQL trigger: image bytes written atomically,
@@ -73,7 +75,7 @@ function makeClient({omitCanonical=false}={}){
       .filter(k=>JSON.stringify(a[k])!==JSON.stringify(b[k])),
     stableJson:JSON.stringify,MERGE_BY_RECORD:new Set(),
     mergeArrayById:()=>{throw new Error('Should not merge arrays in this test')},
-    emptyState:()=>({}),Promise,Date,Error,Set,Map,JSON
+    emptyState:()=>({}),crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++nonceCounter).padStart(12,'0')}`},Promise,Date,Error,Set,Map,JSON
   }
   const save=vm.runInNewContext(source+'\n saveData',context)
   return{
@@ -101,6 +103,7 @@ function makeClient({omitCanonical=false}={}){
   const second=await c.save({...c.visible,stock:5})
   assert.equal(second.ok,true)
   assert.equal(c.seen.returning[1],'updated_at','Next save is revision-only')
+  assert.notEqual(c.seen.nonces[0],c.seen.nonces[1],'Each save uses a fresh nonce')
   assert.equal(c.seen.fullReads,0)
   assert.equal(c.image,photoA)
   assert.equal(c.seen.imageUpdates,0,'No retransmission of original images')
