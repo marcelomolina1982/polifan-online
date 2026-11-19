@@ -3,6 +3,11 @@ import assert from 'node:assert/strict'
 
 const sql=fs.readFileSync(new URL('./catalog-image-externalization-TRIGGER-DRAFT.sql',import.meta.url),'utf8')
 assert.match(sql,/DRAFT — DO NOT APPLY UNTIL/)
+assert.equal((sql.match(/\\ncommit;/g)||[]).length,1,'A draft must have exactly one COMMIT')
+assert.equal((sql.match(/create trigger zz_compact_main_catalog_images_before_write/g)||[]).length,1,'Do not install duplicate triggers')
+assert.match(sql,/elsif image_text is null or image_text = '' then/)
+assert.match(sql,/select i.updated_at into image_revision/)
+assert.match(sql,/v_product_id !~ '\\^\\[A-Za-z0-9\\._~-\\]\\+\\$' then/)
 assert.match(sql,/security invoker/)
 assert.match(sql,/set search_path = ''/)
 assert.match(sql,/before update of data on public\.app_state/)
