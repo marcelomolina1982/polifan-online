@@ -15,7 +15,9 @@ export async function auditCatalogV2(supabase){
     if((data||[]).length<pageSize)break
   }
   const originalById=new Map(original.map(item=>[String(item.id),item]))
+  if(originalById.size!==original.length)throw new Error('Identificadores duplicados en catálogo principal')
   const stagedById=new Map(staged.map(item=>[String(item.id),item.payload]))
+  if(stagedById.size!==staged.length)throw new Error('Identificadores duplicados en catálogo independiente')
   const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v)
   const missing=[...originalById.keys()].filter(id=>!stagedById.has(id))
   const extra=[...stagedById.keys()].filter(id=>!originalById.has(id))
