@@ -4,7 +4,8 @@
 -- CURRENT STATUS: DRAFT; NOT EXECUTED ON PRODUCTION.
 begin;
 alter table public.app_state
-  add column if not exists catalog_write_nonce uuid;
+  add column if not exists catalog_write_nonce uuid,
+  add column if not exists catalog_image_compaction_enabled boolean not null default false;
 commit;
 -- Verification (read-only):
 -- select column_name,udt_name from information_schema.columns
