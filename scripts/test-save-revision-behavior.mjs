@@ -60,6 +60,7 @@ function makeClient({baseline,live,localRevision='R1',liveRevision='R1'}){
     MERGE_BY_RECORD:new Set(['orders']),
     mergeArrayById:()=>{throw new Error('Unexpected record merge in this scenario')},
     emptyState:()=>({}),
+    crypto:{randomUUID:()=>`00000000-0000-4000-8000-000000000001`},
     Promise,Date,Error,Set,Map,JSON
   }
   const save=vm.runInNewContext(functionSource+'\n saveData',context)
