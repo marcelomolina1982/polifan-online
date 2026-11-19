@@ -14,7 +14,7 @@ const trigger=sql.slice(start+8,end)
   .replaceAll('public.compact_main_catalog_images_before_write','pg_temp.compact_main_catalog_images_before_write')
 assert.doesNotMatch(trigger,/public\.(app_state|catalog_product_images|compact_main_catalog_images_before_write)/,'Dry run may not reference live tables')
 const script=`begin;
-create temp table app_state(id text primary key,data jsonb not null);
+create temp table app_state(id text primary key,data jsonb not null,updated_at text not null default 'R1');
 create temp table catalog_product_images(
 product_id text primary key,image text not null,
 updated_at timestamptz not null default clock_timestamp());
@@ -77,6 +77,26 @@ do $test$ begin
   if (select jsonb_array_length(data->'orders')<>2
   from pg_temp.app_state where id='main') then
     raise exception 'Invalid image harmed orders';end if;
+end $test$;
+-- Computer B saves a newer image; A cannot revert it with stale revision.
+update pg_temp.app_state set updated_at='R2' where id='main' and updated_at='R1';
+update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+'"data:image/jpeg;base64,TkVX"'::jsonb),updated_at='R3'
+where id='main' and updated_at='R2';
+do $test$ declare affected integer; begin
+  if (select image<>'data:image/jpeg;base64,TkVX'
+  from pg_temp.catalog_product_images where product_id='demo1') then
+    raise exception 'Newer image not stored';end if;
+  update pg_temp.app_state set data=jsonb_set(data,'{customerCatalog,0,image}',
+  '"data:image/jpeg;base64,YQ=="'::jsonb),updated_at='R4'
+  where id='main' and updated_at='R2';
+  get diagnostics affected = row_count;
+  if affected<>0 then raise exception 'Stale client overwrote a newer image';end if;
+  if (select image<>'data:image/jpeg;base64,TkVX'
+  from pg_temp.catalog_product_images where product_id='demo1') then
+    raise exception 'Image reverted despite revision guard';end if;
+  if (select updated_at<>'R3' from pg_temp.app_state where id='main') then
+    raise exception 'Revision changed during stale attempt';end if;
 end $test$;
 -- Nothing in this script persists, including the images and trigger.
 rollback;
