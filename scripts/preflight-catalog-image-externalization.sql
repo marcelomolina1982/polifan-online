@@ -29,6 +29,9 @@ with main_state as (
        or id !~ '^[A-Za-z0-9._~-]+$') invalid_ids,
     (select count(*) from public.catalog_product_images
        where image !~ '^data:image/(jpeg|png|webp|gif);base64,') incompatible_images,
+    (select count(*) from information_schema.columns
+       where table_schema='public' and table_name='app_state'
+         and column_name='catalog_write_nonce' and udt_name='uuid') nonce_column_ready,
     (select pg_column_size(data) from main_state) main_bytes,
     (select updated_at from main_state) main_revision
 )
@@ -36,5 +39,11 @@ select *,
   original_count>=100 and original_count=image_count and original_count=metadata_count
   and original_count=public_count and original_count=published_item_count
   and public_differences=0 and staged_differences=0 and published_item_differences=0
-  and missing_images=0 and invalid_ids=0 and incompatible_images=0 as preflight_ok
+  and missing_images=0 and invalid_ids=0 and incompatible_images=0 as preflight_ok,
+  nonce_column_ready=1 and original_count>=100
+  and original_count=image_count and original_count=metadata_count
+  and original_count=public_count and original_count=published_item_count
+  and public_differences=0 and staged_differences=0 and published_item_differences=0
+  and missing_images=0 and invalid_ids=0 and incompatible_images=0
+    as database_prerequisites_ready
 from counts;
