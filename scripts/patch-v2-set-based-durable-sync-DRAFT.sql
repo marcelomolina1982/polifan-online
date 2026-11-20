@@ -101,7 +101,14 @@ begin
       select v_prefix||btrim(coalesce(n.item->>'id','')),
              jsonb_build_object('collection',v_name,'item',n.item),
              v_updated,v_actor
-        from jsonb_array_elements(v_new->v_name) n(item)
+        from (
+          -- The original per-item loop lets the LAST entry win if two
+          -- distinct raw ids normalize to the same durable id (m1 / " m1 ").
+          -- A single INSERT ... ON CONFLICT must deduplicate first.
+          select distinct on (btrim(coalesce(x.item->>'id',''))) x.item
+          from jsonb_array_elements(v_new->v_name) with ordinality x(item,position)
+          order by btrim(coalesce(x.item->>'id','')),x.position desc
+        ) n
         left join public.app_state d on d.id=v_prefix||btrim(coalesce(n.item->>'id',''))
        where d.id is null
           or d.data is distinct from jsonb_build_object('collection',v_name,'item',n.item)
@@ -118,7 +125,14 @@ begin
              jsonb_build_object('collection',v_name,'deleted',true,
                                 'deletedId',btrim(o.item->>'id'),'deletedAt',v_updated),
              v_updated,v_actor
-        from jsonb_array_elements(coalesce(v_old->v_name,'[]'::jsonb)) o(item)
+        from (
+          -- Deduplicate legacy old IDs by their canonical durable key,
+          -- avoiding repeated tombstone attempts in one SQL statement.
+          select distinct on (btrim(coalesce(x.item->>'id',''))) x.item
+          from jsonb_array_elements(coalesce(v_old->v_name,'[]'::jsonb))
+             with ordinality x(item,position)
+          order by btrim(coalesce(x.item->>'id','')),x.position desc
+        ) o
         left join jsonb_array_elements(v_new->v_name) n(item)
           on btrim(coalesce(n.item->>'id',''))=btrim(coalesce(o.item->>'id',''))
        where n.item is null
