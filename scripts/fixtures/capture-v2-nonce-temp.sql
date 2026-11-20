@@ -21,4 +21,4 @@ begin
                            then v_session_nonce::uuid else null end;
  return new;
 end;
-$function$
+$function$;
