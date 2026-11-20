@@ -27,6 +27,13 @@ do $preflight$ begin
     raise exception 'Compaction already enabled; refusing second activation'
       using errcode='22023';
   end if;
+  if to_regprocedure('public.patch_v2_sections_cas_compat(jsonb,jsonb,uuid,uuid)') is null
+     or not exists(select 1 from pg_trigger
+         where tgrelid='public.app_state'::regclass
+           and tgname='aa_capture_v2_catalog_write_nonce' and tgenabled='O') then
+    raise exception 'Falta puente de la aplicación V2; no se puede activar la compactación'
+      using errcode='23514';
+  end if;
   if (select catalog_write_nonce is null from public.app_state where id='main') then
     raise exception 'No verified save from a new browser since deployment'
       using errcode='22023';
