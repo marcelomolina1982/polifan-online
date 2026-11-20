@@ -13,8 +13,12 @@ const trigger=sql.slice(start+8,end)
   .replaceAll('public.app_state','pg_temp.app_state')
   .replaceAll('public.compact_main_catalog_images_before_write','pg_temp.compact_main_catalog_images_before_write')
   .replaceAll("table_schema='public'","table_schema like 'pg_temp_%'")
+  .replaceAll("to_regprocedure('public.patch_v2_sections_cas_compat","to_regprocedure('pg_temp.patch_v2_sections_cas_compat")
 assert.doesNotMatch(trigger,/public\.(app_state|catalog_product_images|compact_main_catalog_images_before_write)/,'Dry run may not reference live tables')
 assert.doesNotMatch(trigger,/table_schema='public'/,'All schema checks must be isolated in pg_temp')
+const captureFixture=fs.readFileSync(new URL('./fixtures/capture-v2-nonce-temp.sql',import.meta.url),'utf8')
+assert.match(captureFixture,/pg_temp\.capture_v2_catalog_write_nonce/)
+assert.doesNotMatch(captureFixture,/public\.capture_v2_catalog_write_nonce/)
 const syncFixture=fs.readFileSync(new URL('./fixtures/sync-public-catalog-items-temp.sql',import.meta.url),'utf8')
 assert.doesNotMatch(syncFixture,/public\.(app_state|public_catalog_items|public_catalog_revision|sync_public_catalog_items)/)
 assert.match(syncFixture,/pg_temp\.sync_public_catalog_items/)
@@ -41,6 +45,17 @@ insert into pg_temp.public_catalog_items(id,payload,image,updated_at)
 select 'demo'||n,jsonb_build_object('id','demo'||n,'name','Product'||n),
  case when n=1 then 'data:image/jpeg;base64,YQ==' else null end,'R1'
 from generate_series(1,100) g(n);
+-- Isolated prerequisite: V2 RPC bridge and capture trigger.
+create or replace function pg_temp.patch_v2_sections_cas_compat(
+  p_patch jsonb,p_expected_revisions jsonb,p_updated_by uuid,p_write_nonce uuid)
+returns table(updated_at timestamptz,canonical_catalog jsonb,compaction_active boolean)
+language sql as $stub$
+select pg_catalog.clock_timestamp(),null::jsonb,false
+$stub$;
+${captureFixture}
+create trigger aa_capture_v2_catalog_write_nonce
+  before update of data on pg_temp.app_state for each row when (new.id='main')
+  execute function pg_temp.capture_v2_catalog_write_nonce();
 ${trigger}
 ${syncFixture}
 create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
