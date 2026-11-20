@@ -39,6 +39,18 @@ export function loadV2Sections(keys,{fullCatalog=false}={}){
   return request
 }
 
-export async function patchV2Sections(patch,userId,expectedRevisions){const keys=Object.keys(patch||{}).filter(k=>!k.startsWith('_'));const clean=Object.fromEntries(keys.map(k=>[k,patch[k]]));const missing=keys.filter(key=>!Object.prototype.hasOwnProperty.call(expectedRevisions||{},key));if(missing.length)throw new Error('No se puede guardar sin revisión segura de: '+missing.join(', '));const args={p_patch:clean,p_expected_revisions:expectedRevisions||{},p_updated_by:userId||null};let lastError;for(let attempt=0;attempt<3;attempt+=1){const {data,error}=await supabase.rpc('patch_v2_sections_cas',args);if(!error){const row=Array.isArray(data)?data[0]:data;return{updatedAt:row?.updated_at||''}}lastError=error;if(!/statement timeout|canceling statement/i.test(String(error.message||error))||attempt===2)break;await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)))}throw lastError}
+export async function patchV2Sections(patch,userId,expectedRevisions){const keys=Object.keys(patch||{}).filter(k=>!k.startsWith('_'));const clean=Object.fromEntries(keys.map(k=>[k,patch[k]]));const missing=keys.filter(key=>!Object.prototype.hasOwnProperty.call(expectedRevisions||{},key));if(missing.length)throw new Error('No se puede guardar sin revisión segura de: '+missing.join(', '));const args={
+  p_patch:clean,p_expected_revisions:expectedRevisions||{},
+  p_updated_by:userId||null,p_write_nonce:crypto.randomUUID()
+};let lastError;for(let attempt=0;attempt<3;attempt+=1){
+  const {data,error}=await supabase.rpc('patch_v2_sections_cas_compat',args);
+  if(!error){
+    const row=Array.isArray(data)?data[0]:data
+    if(!row?.updated_at)throw new Error('Supabase no confirmó la revisión del guardado: recargá antes de continuar.')
+    if(row.compaction_active===true&&keys.includes('customerCatalog')&&!Array.isArray(row.canonical_catalog))
+      throw new Error('El cambio llegó a Supabase pero no se confirmó el catálogo: recargá antes de guardar nuevamente.')
+    return {updatedAt:row.updated_at,canonicalCatalog:row.canonical_catalog||null,
+      compactionActive:row.compaction_active===true}
+  }lastError=error;if(!/statement timeout|canceling statement/i.test(String(error.message||error))||attempt===2)break;await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)))}throw lastError}
 export function pageSections(page){return PAGE_SECTIONS[page]||['orders']}
 export const pageNeedsFullCatalog=page=>page==='catalog'
