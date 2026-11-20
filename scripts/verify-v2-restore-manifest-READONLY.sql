@@ -25,7 +25,8 @@ durable as (
 ),
 coverage as (
   select count(*) filter(where m.id is null or
-                         m.data->'item' is distinct from c.product) catalog_coverage_failures
+                         m.payload is distinct from
+                           c.product-'image'-'imageData'-'photo') catalog_coverage_failures
   from catalog c left join public.catalog_product_metadata_v3 m on m.id=c.id
 ),
 counts as (
