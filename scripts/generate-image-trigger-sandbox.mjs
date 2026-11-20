@@ -24,16 +24,22 @@ product_id text primary key,image text not null,
 updated_at timestamptz not null default clock_timestamp());
 create temp table public_catalog_items(id text primary key,payload jsonb not null,image text,updated_at text not null);
 create temp table public_catalog_revision(id text primary key,updated_at text not null);
-insert into pg_temp.app_state(id,data) values('main',
-'{"customerCatalog":[{"id":"demo1","name":"Heart","image":"data:image/jpeg;base64,YQ=="},{"id":"demo2","name":"Rainbow"}],"orders":[{"id":"order1"}]}'::jsonb);
+-- Use 100 sample products to satisfy the production-safe minimum, but
+-- never copy real product names, prices, orders or images into the test.
+insert into pg_temp.app_state(id,data,catalog_write_nonce)
+select 'main',jsonb_build_object(
+ 'customerCatalog',(select jsonb_agg(jsonb_build_object('id','demo'||n,'name','Product'||n)||
+     case when n=1 then jsonb_build_object('image','data:image/jpeg;base64,YQ==')
+     else '{}'::jsonb end order by n) from generate_series(1,100) g(n)),
+ 'orders','[{"id":"order1"}]'::jsonb),
+ '00000000-0000-4000-8000-000000000099';
 insert into pg_temp.catalog_product_images(product_id,image)
-values('demo1','data:image/jpeg;base64,YQ=='),
-('demo2','data:image/webp;base64,Yg==');
--- Pretend the last saved row came from the prepared client.
-update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000099' where id='main';
-insert into pg_temp.public_catalog_items(id,payload,image,updated_at) values
-('demo1','{"id":"demo1","name":"Heart"}','data:image/jpeg;base64,YQ==','R1'),
-('demo2','{"id":"demo2","name":"Rainbow"}',null,'R1');
+select 'demo'||n,case when n=1 then 'data:image/jpeg;base64,YQ=='
+ else 'data:image/webp;base64,Yg==' end from generate_series(1,100) g(n);
+insert into pg_temp.public_catalog_items(id,payload,image,updated_at)
+select 'demo'||n,jsonb_build_object('id','demo'||n,'name','Product'||n),
+ case when n=1 then 'data:image/jpeg;base64,YQ==' else null end,'R1'
+from generate_series(1,100) g(n);
 ${trigger}
 ${syncFixture}
 create trigger sync_public_catalog_items_temp after update of data on pg_temp.app_state for each row
@@ -71,9 +77,9 @@ do $test$ begin
  'https://eftksimpkkvmyfurwqii.supabase.co/functions/v1/catalog-image?id=demo2&v=%'
  from pg_temp.app_state where id='main') then
    raise exception 'Image absent from old JSON not restored via link';end if;
- if (select count(*)<>2 from pg_temp.catalog_product_images) then
+ if (select count(*)<>100 from pg_temp.catalog_product_images) then
    raise exception 'Unchanged image was duplicated';end if;
- if (select count(*)<>2 from pg_temp.public_catalog_items where image like 'https://%') then
+ if (select count(*)<>100 from pg_temp.public_catalog_items where image like 'https://%') then
    raise exception 'Public catalog items not synchronized';end if;
  if (select count(*)<>0 from pg_temp.public_catalog_items where image like 'data:%') then
    raise exception 'Public catalog still contains embedded image';end if;
@@ -92,14 +98,14 @@ end $test$;
 -- New product: insert its image through the same trigger.
 update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000003',data=jsonb_set(data,'{customerCatalog}',
 (data->'customerCatalog')||
-'[{"id":"demo3","name":"New","image":"data:image/jpeg;base64,Yw=="}]'::jsonb)
+'[{"id":"demo101","name":"New","image":"data:image/jpeg;base64,Yw=="}]'::jsonb)
 where id='main';
 do $test$ begin
- if (select count(*)<>3 from pg_temp.catalog_product_images) then
+ if (select count(*)<>101 from pg_temp.catalog_product_images) then
    raise exception 'New product image was not inserted';end if;
- if (select count(*)<>3 from pg_temp.public_catalog_items) then
+ if (select count(*)<>101 from pg_temp.public_catalog_items) then
    raise exception 'New product absent from published items';end if;
- if (select jsonb_array_length(data->'customerCatalog')<>3
+ if (select jsonb_array_length(data->'customerCatalog')<>101
  from pg_temp.app_state where id='main') then
    raise exception 'New product was not preserved';end if;
 end $test$;
