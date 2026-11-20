@@ -12,7 +12,7 @@ const prep=fs.readFileSync(new URL('./catalog-write-nonce-preparation-DRAFT.sql'
 assert.ok(prep.includes('alter table public.app_state'))
 assert.ok(prep.includes('add column if not exists catalog_write_nonce uuid'))
 assert.ok(prep.includes('add column if not exists catalog_image_compaction_enabled boolean not null default false'))
-assert.ok(sql.includes('catalog-write-nonce-preparation.sql'))
+assert.ok(sql.includes('catalog-write-nonce-preparation-DRAFT.sql'))
 assert.ok(sql.includes("column_name='catalog_write_nonce' and udt_name='uuid'"))
 assert.ok(sql.includes("column_name='catalog_image_compaction_enabled' and udt_name='bool'"))
 assert.ok(sql.includes('set catalog_image_compaction_enabled=true'))
