@@ -66,3 +66,23 @@ cuando la bandera está activa. Todas las pruebas terminaron con ROLLBACK.
 
 **No publicar solo esta rama sin instalar antes el RPC puente. No activar
 PR #74 en producción durante una jornada normal de trabajo.**
+
+## Avance verificado — 20/11/2026
+
+El bridge `v2_catalog_nonce_bridge_safe_20261120` ya se **instaló en
+producción**, bajo transacción con `lock_timeout=500ms` y
+`statement_timeout=15s`. Consultas posteriores verificaron:
+
+- `public.patch_v2_sections_cas_compat`: instalada.
+- `aa_capture_v2_catalog_write_nonce`: instalada y habilitada.
+- Rol `authenticated`: puede ejecutar la nueva función; `anon`: NO.
+- Función histórica `patch_v2_sections_cas`: no reemplazada.
+- `catalog_image_compaction_enabled=false` y trigger de compactación ausente.
+- 168 productos, 168 imágenes y proyecto `ACTIVE_HEALTHY`.
+
+**IMPORTANTE: no aplicar el borrador SQL por segunda vez**. El paso
+pendiente es publicar y verificar el cliente V2 de esta rama. Hasta
+entonces, los clientes anteriores pueden continuar usando el RPC
+histórico con la compactación apagada; todavía no es momento de activar
+PR #74. El respaldo físico reciente existe, pero no se comprobó una
+restauración en un entorno independiente.
