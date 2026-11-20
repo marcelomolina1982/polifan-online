@@ -1,7 +1,7 @@
 -- READ ONLY PREFLIGHT. Never alters production tables.
 -- Any "false" / nonzero difference blocks the migration.
 with main_state as (
-  select data,updated_at from public.app_state where id='main'
+  select data,updated_at,catalog_write_nonce,catalog_image_compaction_enabled from public.app_state where id='main'
 ),original as (
   select p->>'id' id,p-'image'-'imageData'-'photo' metadata,p->>'image' legacy_image
   from main_state m cross join lateral jsonb_array_elements(m.data->'customerCatalog') p
@@ -32,6 +32,14 @@ with main_state as (
     (select count(*) from information_schema.columns
        where table_schema='public' and table_name='app_state'
          and column_name='catalog_write_nonce' and udt_name='uuid') nonce_column_ready,
+    (select count(*) from information_schema.columns
+       where table_schema='public' and table_name='app_state'
+         and column_name='catalog_image_compaction_enabled' and udt_name='bool') flag_column_ready,
+    (select catalog_image_compaction_enabled from main_state) compaction_active,
+    (select catalog_write_nonce is not null from main_state) latest_save_has_nonce,
+    exists (select 1 from pg_trigger
+      where tgrelid='public.app_state'::regclass
+        and tgname='zz_compact_main_catalog_images_before_write') trigger_installed,
     (select pg_column_size(data) from main_state) main_bytes,
     (select updated_at from main_state) main_revision
 )
@@ -40,7 +48,9 @@ select *,
   and original_count=public_count and original_count=published_item_count
   and public_differences=0 and staged_differences=0 and published_item_differences=0
   and missing_images=0 and invalid_ids=0 and incompatible_images=0 as preflight_ok,
-  nonce_column_ready=1 and original_count>=100
+  nonce_column_ready=1 and flag_column_ready=1
+  and compaction_active is false and trigger_installed is false
+  and latest_save_has_nonce is true and original_count>=100
   and original_count=image_count and original_count=metadata_count
   and original_count=public_count and original_count=published_item_count
   and public_differences=0 and staged_differences=0 and published_item_differences=0
