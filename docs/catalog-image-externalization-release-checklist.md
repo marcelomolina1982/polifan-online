@@ -199,3 +199,35 @@ real a coincidir con una copia más antigua.
 Esta rama de corte solo incluye borradores SQL, pruebas y documentación.
 No debe volver a introducir cambios en `src/App.jsx` que ya están en
 la rama `main`.
+
+## Corrección del guardado real V2 — 20/11/2026
+
+La versión operativa de producción utiliza `src/main.jsx -> AppV2` y
+`patch_v2_sections_cas`; la ruta antigua `App.jsx` no era suficiente.
+Se creó y probó el **PR #75**, que implementa
+`patch_v2_sections_cas_compat` sin reemplazar el RPC histórico y
+sin convertir todavía las imágenes.
+
+- El puente SQL `v2_catalog_nonce_bridge_safe_20261120` está
+  **instalado en producción**, con trigger
+  `aa_capture_v2_catalog_write_nonce` y permisos restringidos a
+  usuarios autenticados.
+- El PR #75 se fusionó como
+  `ae415f12e0fcc682ac1fa0b0b449eb6f85feda9f` y Vercel publicó
+  `dpl_2iMc9HZFvtKa2FqXpjxUbFTswgCG` en estado `READY`.
+- Se verificaron 168 productos / 168 imágenes, Supabase
+  `ACTIVE_HEALTHY` y `catalog_image_compaction_enabled=false`.
+- La activación futura ahora exige **ambos** elementos:
+  `patch_v2_sections_cas_compat` y
+  `aa_capture_v2_catalog_write_nonce` activos. El preflight los comprueba.
+- La prueba PostgreSQL del nuevo corte con 100 productos ficticios,
+  el trigger de captura real adaptado a `pg_temp`, el catálogo público
+  y la protección de clientes antiguos se ejecutó con ROLLBACK y aprobó.
+- **PENDIENTE:** después del despliegue, aún no se observó un guardado
+  real de V2 que deje `catalog_write_nonce` distinto de NULL.
+  Mantener `database_prerequisites_ready=false` hasta observarlo.
+- **PENDIENTE:** respaldo externo y restauración comprobable en entorno
+  aislado. No instalar ni activar `zz_compact_main_catalog_images_before_write`
+  sin ambas garantías.
+
+La PR #74 permanece **draft** y no debe fusionarse ni desplegarse aún.
