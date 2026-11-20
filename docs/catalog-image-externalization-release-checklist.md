@@ -157,3 +157,45 @@ real a coincidir con una copia más antigua.
   (una vez publicado) no descargará un documento completo adicional por
   cada guardado. Al activar el trigger, la bandera se habilitará en la misma
   transacción para pedir el estado canónico solo cuando sea necesario.
+
+## Revisión del 20/11/2026 — versión cliente desplegada
+
+- La aplicación con la protección `catalog_write_nonce` y la bandera
+  `catalog_image_compaction_enabled` ya fue publicada en Vercel:
+  `dpl_47CGtgcTCMg9CQFdMneZu7SzStBt`, estado `READY`.
+- El código de compatibilidad se integró mediante PR #73 en
+  `ff5ac44e81d9d31181657355727ee88d0fa7b62d`.
+- Supabase tiene ambas columnas preparadas; la bandera sigue `false` y
+  no está instalado el disparador de compactación.
+- El catálogo creció a 168 productos/imágenes. La tabla auxiliar de
+  metadatos se sincronizó de nuevo con 7 cambios menores. El preflight
+  comprobó 168 filas en cada fuente y diferencias 0.
+- **BLOQUEO CONCRETO:** el último `app_state.main.catalog_write_nonce`
+  verificado es `NULL`, porque aún no se observó un guardado real efectuado
+  por el navegador nuevo desde el despliegue. El preflight lo marca como
+  `latest_save_has_nonce=false` y `database_prerequisites_ready=false`.
+  Antes del corte, pedir actualizar las tres computadoras y probar un
+  guardado legítimo; no fabricar uno en datos comerciales.
+- **RESPALDO EXTERNO NO VERIFICADO:** los registros
+  `backup_...` dentro de `app_state` son de agosto-octubre, no de hoy.
+  Supabase Pro incluye backups administrados diarios, pero aquí no hay
+  una API conectada para confirmar la fecha/restauración. Antes de
+  instalar el trigger, revisar **Dashboard > Database > Backups**
+  y conservar un respaldo/exportación actual recuperable fuera de la
+  misma tabla/base. Una restauración integral puede causar downtime y
+  perder cambios posteriores: probar la recuperación sin restaurar sobre
+  la base activa.
+- El trigger de borrador ahora adquiere un bloqueo limitado de la fila
+  principal, comprueba columna y nonce, usa `lock_timeout=500ms` y
+  `statement_timeout=15s`, y cambia la bandera dentro de la misma
+  transacción. Si falla, se revierte todo.
+- El SQL ya superó una simulación con 100 productos y 100 imágenes
+  **ficticios** sobre tablas `pg_temp`, con sincronización del catálogo
+  público, bloqueo de cliente antiguo y `ROLLBACK`.
+- **NO ejecutar la activación** hasta confirmar también que las fotos
+  y los PDF funcionan tras la migración, la versión nueva se actualizó
+  en todos los navegadores y hay respaldo actual verificado.
+
+Esta rama de corte solo incluye borradores SQL, pruebas y documentación.
+No debe volver a introducir cambios en `src/App.jsx` que ya están en
+la rama `main`.
