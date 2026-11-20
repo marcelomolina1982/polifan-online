@@ -100,3 +100,62 @@ ni modificar datos actuales.
   estable `patch_v2_sections_cas`. Vercel apunta al despliegue
   `dpl_47CGtgcTCMg9CQFdMneZu7SzStBt`. La función bridge instalada
   anteriormente **no se invoca** por ese cliente. No activarla.
+
+
+## Regresión adicional: IDs con espacios
+
+En SQL el RPC histórico recorta espacios al construir la clave durable,
+pero la validación inicial de duplicados compara los IDs sin recortar.
+Por ejemplo, `m1` y ` m1 ` pueden aparecer en el mismo lote: el RPC
+anterior los procesa en orden y conserva el **último**.
+
+La primera versión set-based fallaba en ese caso (PostgreSQL `21000`:
+varios registros de un mismo INSERT intentaban modificar la misma clave).
+Se reprodujo el problema usando únicamente `pg_temp`, se corrigió
+con `DISTINCT ON` y `WITH ORDINALITY` (última aparición por clave
+normalizada), y se volvió a comparar la salida real de ambas funciones.
+
+También se verificó que IDs duplicados del arreglo anterior, cuando
+ambos se borran, produzcan un único tombstone **equivalente al original**.
+La prueba reproducible es
+`scripts/generate-v2-normalized-ids-sandbox.mjs`; forma parte del CI.
+
+Una auditoría de solo lectura del estado real comprobó:
+- Movimientos: 3.326 registros, 0 IDs vacíos, 0 colisiones normalizadas.
+- Pedidos: 308 registros, 0 IDs vacíos, 0 colisiones normalizadas.
+- Lotes: 309 registros, 0 IDs vacíos, 0 colisiones normalizadas.
+
+La corrección no se desplegó: es una salvaguarda para casos futuros.
+
+## Plan de validación de respaldos sin modificar producción
+
+Se agregó `scripts/verify-v2-restore-manifest-READONLY.sql` para
+obtener un **manifiesto sin datos personales**: número de productos,
+pedidos, movimientos, lotes e imágenes; huellas del documento principal,
+de las imágenes y del RPC; y consistencia de las copias del catálogo.
+La consulta se ejecutó en producción exclusivamente en modo lectura:
+168 productos/imágenes, 308 pedidos, 3.326 movimientos, 309 lotes,
+0 diferencias de metadatos y `catalog_consistency_passed=true`.
+
+**No equivale a haber restaurado un respaldo.** Comparar huellas
+exactas requiere la misma instantánea de base: los respaldos físicos
+diarios pueden ser anteriores a movimientos comerciales nuevos.
+Si se recupera una copia independiente, ejecutar el manifiesto sobre
+esa copia y comparar con una referencia del mismo instante.
+
+Documentación oficial Supabase:
+- https://supabase.com/docs/guides/platform/backups
+- https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore
+- https://supabase.com/docs/guides/platform/clone-project
+
+Los respaldos físicos diarios no se descargan directamente como archivos.
+Crear un clon independiente puede generar **costos adicionales** y
+requiere autorización antes de hacerlo. Una alternativa es un respaldo
+lógico manual con Supabase CLI / pg_dump y restaurarlo en PostgreSQL
+local, separado de la base activa. Puede requerir acceso a la conexión
+de base de datos y Docker/PostgreSQL local; **no compartir contraseñas
+ni cadenas de conexión privadas por chat o repositorio**. Los backups
+de base NO incluyen objetos del servicio Storage; deben verificarse
+por separado.
+
+No ejecutar `Restore` sobre la base comercial para probar recuperación.
