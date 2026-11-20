@@ -29,6 +29,8 @@ insert into pg_temp.app_state(id,data) values('main',
 insert into pg_temp.catalog_product_images(product_id,image)
 values('demo1','data:image/jpeg;base64,YQ=='),
 ('demo2','data:image/webp;base64,Yg==');
+-- Pretend the last saved row came from the prepared client.
+update pg_temp.app_state set catalog_write_nonce='00000000-0000-4000-8000-000000000099' where id='main';
 insert into pg_temp.public_catalog_items(id,payload,image,updated_at) values
 ('demo1','{"id":"demo1","name":"Heart"}','data:image/jpeg;base64,YQ==','R1'),
 ('demo2','{"id":"demo2","name":"Rainbow"}',null,'R1');
