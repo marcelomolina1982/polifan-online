@@ -72,3 +72,31 @@ anterior con la lista nueva, repetidamente.
 
 El objetivo es mejorar rendimiento sin recrear el error de timeout
 ni modificar datos actuales.
+
+## Pruebas de escala y simulación del JSON — 20/11/2026
+
+- Se ejecutó el **SQL set-based exacto** (reescrito a tablas `pg_temp`)
+  sobre 3.326 movimientos ficticios, sin importar datos reales. Un cambio
+  produjo exactamente 1 UPDATE durable, un guardado igual produjo 0,
+  y eliminar una figura produjo exactamente 1 tombstone. Confirmadas
+  integridad de cantidades y conteos. La transacción terminó con
+  `ROLLBACK`, sin alterar Inventario comercial.
+- `scripts/generate-v2-inventory-scale-sandbox.mjs` reproduce esta
+  prueba y está incluido en las comprobaciones de `npm run build`.
+  No crea datos comerciales ni altera la base activa.
+- Prueba adicional de solo lectura del documento actual (168 productos):
+  `pg_column_size(app_state.main.data)=26.916.370` bytes. Sustituir en
+  memoria todas las imágenes incrustadas por referencias a la tabla
+  `catalog_product_images` daría aproximadamente `4.743.694` bytes,
+  una reducción simulada del **82,38 %**. No se aplicó ni modificó
+  ningún producto.
+- Esto **NO equivale** a reducir 82,38 % el Disk I/O. El consumo de
+  disco depende también de WAL, lecturas, índices y autovacuum. Quedan
+  separados dos frentes: **PR #78** evita registros durables
+  reescritos y **PR #74** prepara compactación del JSON, actualmente
+  bloqueada por incompatibilidad de versiones tras el incidente del
+  puente V2.
+- Estado del código productivo: PR #77 restauró `main` a la ruta
+  estable `patch_v2_sections_cas`. Vercel apunta al despliegue
+  `dpl_47CGtgcTCMg9CQFdMneZu7SzStBt`. La función bridge instalada
+  anteriormente **no se invoca** por ese cliente. No activarla.
