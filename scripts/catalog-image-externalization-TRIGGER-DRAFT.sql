@@ -1,19 +1,45 @@
 -- DRAFT — DO NOT APPLY UNTIL END-TO-END TESTS AND ROLLBACK ARE VERIFIED.
 -- This retains the legacy app_state JSON structure, all order data and the
 -- full customerCatalog array. It externalizes only embedded data:image URLs.
--- Existing 161 images live in catalog_product_images and the public Edge
+-- Existing catalog images live in catalog_product_images and the public Edge
 -- Function catalog-image is ACTIVE (verify_jwt=false), with versioned caching.
 --
 -- BEFORE UPDATE: image UPSERT and compact main JSON happen in one SQL
 -- transaction. A failed main update / guarded conflict rolls both back.
--- Old clients can still send base64 images; after reload they get HTTP URLs.
+-- Old clients without the new nonce are rejected; updated clients get HTTP URLs.
 --
 -- IMPORTANT: This is a migration prototype, not authorized for production.
 begin;
--- PREREQUISITE: First run catalog-write-nonce-preparation.sql, THEN
+-- Fail quickly during business activity; never wait indefinitely on writes.
+set local lock_timeout='500ms';
+set local statement_timeout='15s';
+-- PREREQUISITE: First run catalog-write-nonce-preparation-DRAFT.sql, THEN
 -- deploy the new web client that changes the nonce on every UPDATE.
 -- Older open tabs omit the nonce and are rejected after cutover.
 do $preflight$ begin
+  -- Lock the canonical row before checking; no other computer can update
+  -- it between this audit and transaction commit.
+  perform 1 from public.app_state where id='main' for update;
+  if not found then
+    raise exception 'Main state missing; refusing cutover' using errcode='23514';
+  end if;
+  if (select catalog_image_compaction_enabled from public.app_state where id='main') then
+    raise exception 'Compaction already enabled; refusing second activation'
+      using errcode='22023';
+  end if;
+  if (select catalog_write_nonce is null from public.app_state where id='main') then
+    raise exception 'No verified save from a new browser since deployment'
+      using errcode='22023';
+  end if;
+  if (select jsonb_array_length(data->'customerCatalog') < 100
+      from public.app_state where id='main') then
+    raise exception 'Main catalog unexpectedly small' using errcode='23514';
+  end if;
+  if (select jsonb_array_length(data->'customerCatalog') from public.app_state where id='main')
+     is distinct from
+     (select count(*) from public.catalog_product_images) then
+    raise exception 'Catalog and images count mismatch' using errcode='23514';
+  end if;
   if not exists(
     select 1 from information_schema.columns
     where table_schema='public' and table_name='app_state'
@@ -137,6 +163,15 @@ execute function public.compact_main_catalog_images_before_write();
 update public.app_state
 set catalog_image_compaction_enabled=true
 where id='main' and catalog_image_compaction_enabled is false;
+-- The flag update is itself transactional. Never report success if it
+-- updated no rows, because the client would remain in the wrong mode.
+do $confirm$ begin
+  if (select catalog_image_compaction_enabled from public.app_state where id='main')
+     is distinct from true then
+    raise exception 'Compaction flag not activated; rolling back'
+      using errcode='23514';
+  end if;
+end $confirm$;
 commit;
 -- Rollback SQL (ONLY if no new images were created since activation):
 -- drop trigger if exists zz_compact_main_catalog_images_before_write on public.app_state;
