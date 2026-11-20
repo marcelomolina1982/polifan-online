@@ -98,7 +98,7 @@ begin
       -- Compare against the DURABLE table itself. Never assume unchanged
       -- JSON in the main document means a durable row is present or correct.
       insert into public.app_state(id,data,updated_at,updated_by)
-      select v_prefix||n.item->>'id',
+      select v_prefix||btrim(coalesce(n.item->>'id','')),
              jsonb_build_object('collection',v_name,'item',n.item),
              v_updated,v_actor
         from jsonb_array_elements(v_new->v_name) n(item)
