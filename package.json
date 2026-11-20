@@ -6,12 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run test:v2-stable-route && npm run test:state-revision && node scripts/finalize-orders-operational-window.mjs && node scripts/test-web-requests-integrity.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/test-inventory-production-flow.mjs && node scripts/test-inventory-finished-batch-repair.mjs && node scripts/test-motor-component-registration.mjs && node scripts/test-ironnest-transport-guards.mjs && node scripts/test-order-communication-guards.mjs && node scripts/test-production-source-guards.mjs && vite build",
+    "build": "npm run test:v2-durable && npm run test:v2-stable-route && npm run test:state-revision && node scripts/finalize-orders-operational-window.mjs && node scripts/test-web-requests-integrity.mjs && node scripts/test-customer-journey-operational.mjs && node scripts/test-inventory-production-flow.mjs && node scripts/test-inventory-finished-batch-repair.mjs && node scripts/test-motor-component-registration.mjs && node scripts/test-ironnest-transport-guards.mjs && node scripts/test-order-communication-guards.mjs && node scripts/test-production-source-guards.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/render-install-chrome.cjs",
     "test:journey": "node scripts/test-customer-journey-operational.mjs",
     "test:state-revision": "node scripts/test-state-save-revision-guards.mjs && node scripts/test-save-revision-behavior.mjs && node scripts/test-save-catalog-canonicalization.mjs",
-    "test:v2-stable-route": "node scripts/test-v2-stable-route.mjs"
+    "test:v2-stable-route": "node scripts/test-v2-stable-route.mjs",
+    "test:v2-durable": "node scripts/generate-v2-durable-sandbox.mjs --check && node scripts/generate-v2-set-based-sandbox.mjs --check && node scripts/generate-v2-inventory-scale-sandbox.mjs --check && node scripts/generate-v2-normalized-ids-sandbox.mjs --check && node scripts/test-v2-restore-manifest.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
