@@ -12,7 +12,7 @@
     "test:journey": "node scripts/test-customer-journey-operational.mjs",
     "test:state-revision": "node scripts/test-state-save-revision-guards.mjs && node scripts/test-save-revision-behavior.mjs && node scripts/test-save-catalog-canonicalization.mjs",
     "test:v2-stable-route": "node scripts/test-v2-stable-route.mjs",
-    "test:v2-durable": "node scripts/generate-v2-durable-sandbox.mjs --check && node scripts/generate-v2-set-based-sandbox.mjs --check && node scripts/generate-v2-inventory-scale-sandbox.mjs --check && node scripts/generate-v2-normalized-ids-sandbox.mjs --check"
+    "test:v2-durable": "node scripts/generate-v2-durable-sandbox.mjs --check && node scripts/generate-v2-set-based-sandbox.mjs --check && node scripts/generate-v2-inventory-scale-sandbox.mjs --check && node scripts/generate-v2-normalized-ids-sandbox.mjs --check && node scripts/test-v2-restore-manifest.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
