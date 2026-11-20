@@ -37,6 +37,10 @@ with main_state as (
          and column_name='catalog_image_compaction_enabled' and udt_name='bool') flag_column_ready,
     (select catalog_image_compaction_enabled from main_state) compaction_active,
     (select catalog_write_nonce is not null from main_state) latest_save_has_nonce,
+    exists(select 1 from pg_proc where oid=to_regprocedure(
+      'public.patch_v2_sections_cas_compat(jsonb,jsonb,uuid,uuid)')) v2_bridge_available,
+    exists(select 1 from pg_trigger where tgrelid='public.app_state'::regclass
+      and tgname='aa_capture_v2_catalog_write_nonce' and tgenabled='O') v2_nonce_trigger_available,
     exists (select 1 from pg_trigger
       where tgrelid='public.app_state'::regclass
         and tgname='zz_compact_main_catalog_images_before_write') trigger_installed,
@@ -50,7 +54,8 @@ select *,
   and missing_images=0 and invalid_ids=0 and incompatible_images=0 as preflight_ok,
   nonce_column_ready=1 and flag_column_ready=1
   and compaction_active is false and trigger_installed is false
-  and latest_save_has_nonce is true and original_count>=100
+  and latest_save_has_nonce is true and v2_bridge_available and v2_nonce_trigger_available
+  and original_count>=100
   and original_count=image_count and original_count=metadata_count
   and original_count=public_count and original_count=published_item_count
   and public_differences=0 and staged_differences=0 and published_item_differences=0
