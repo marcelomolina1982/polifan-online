@@ -1,0 +1,68 @@
+name: V2 SQL aislado (sin acceso a produccion)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/patch-v2-*-DRAFT.sql'
+      - 'scripts/generate-v2-*-sandbox.mjs'
+      - 'scripts/fixtures/patch-v2-original-reference.sql'
+      - '.github/workflows/v2-sql-sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox-postgresql:
+    name: Probar SQL real con PostgreSQL 17 y ROLLBACK
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: sandbox
+          POSTGRES_USER: sandbox
+          POSTGRES_PASSWORD: sandbox_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sandbox -d sandbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generar transacciones de prueba desde el SQL verdadero
+        run: |
+          node scripts/generate-v2-durable-sandbox.mjs > /tmp/v2-durable.sql
+          node scripts/generate-v2-set-based-sandbox.mjs > /tmp/v2-setbased.sql
+          node scripts/generate-v2-inventory-scale-sandbox.mjs > /tmp/v2-scale.sql
+          node scripts/generate-v2-normalized-ids-sandbox.mjs > /tmp/v2-ids.sql
+          for file in /tmp/v2-*.sql; do
+            grep -Eq '^rollback;$' "$file"
+            if grep -Eiq '(insert into|update|delete from|alter table|drop table)[[:space:]]+public\.(app_state|app_state_section_revisions)' "$file"; then
+              echo "ERROR: acceso de escritura a tabla productiva en $file"
+              exit 1
+            fi
+          done
+      - name: Ejecutar las 4 pruebas en PostgreSQL 17 independiente
+        run: |
+          for name in durable setbased scale ids; do
+            echo "== Test: $name =="
+            docker run --rm --network host \
+              -e PGPASSWORD=sandbox_only \
+              -v /tmp:/sandbox:ro \
+              postgres:17-alpine \
+              psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+                -U sandbox -d sandbox -f "/sandbox/v2-$name.sql"
+          done
+      - name: Confirmar que las pruebas no dejaron tablas permanentes
+        run: |
+          docker run --rm --network host -e PGPASSWORD=sandbox_only \
+            postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U sandbox -d sandbox \
+              -Atc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('app_state','app_state_section_revisions')" | grep -qx 0
