@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+const sql=fs.readFileSync(new URL('./verify-v2-restore-manifest-READONLY.sql',import.meta.url),'utf8')
+assert.match(sql,/READ ONLY/)
+assert.match(sql,/canonical_state_digest/)
+assert.match(sql,/images_digest/)
+assert.match(sql,/v2_rpc_digest/)
+assert.match(sql,/catalog_consistency_passed/)
+assert.match(sql,/public\.catalog_product_metadata_v3/)
+assert.match(sql,/m\.payload is distinct from/)
+assert.match(sql,/public\.catalog_product_images/)
+assert.match(sql,/public\.public_catalog_items/)
+assert.doesNotMatch(sql,/\b(?:update|delete from|insert into|truncate|alter table|drop table)\s+public\./i)
+assert.doesNotMatch(sql,/\bcreate\s+(?:table|function|trigger)\b/i)
+console.log('OK: restore integrity manifest is read-only, checks products/images/canonical state and exposes no row contents')

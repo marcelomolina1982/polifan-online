@@ -1,0 +1,114 @@
+name: Recuperacion simulada de backup PostgreSQL (solo datos ficticios)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/fixtures/backup-restore-synthetic-pg17.sql'
+      - 'scripts/verify-v2-restore-manifest-READONLY.sql'
+      - '.github/workflows/v2-backup-restore-sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-backup-restore:
+    name: pg_dump y pg_restore con verificacion de integridad
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sandbox
+          POSTGRES_PASSWORD: synthetic_only
+          POSTGRES_DB: sandbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sandbox -d sandbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crear solamente tablas y registros sinteticos
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v "$PWD/scripts:/repo/scripts:ro" postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U sandbox -d sandbox \
+            -f /repo/scripts/fixtures/backup-restore-synthetic-pg17.sql
+      - name: Crear manifiesto original, dump y una segunda base vacia
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v "$PWD/scripts:/repo/scripts:ro" postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -A -t -F '|' -h 127.0.0.1 \
+              -U sandbox -d sandbox \
+              -f /repo/scripts/verify-v2-restore-manifest-READONLY.sql \
+              | sed -E 's/^[^|]*\|//' > /tmp/original-manifest.txt
+          grep -q 't$' /tmp/original-manifest.txt
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v /tmp:/backup postgres:17-alpine \
+            pg_dump -h 127.0.0.1 -U sandbox -d sandbox \
+              -Fc --schema=public --no-owner --no-privileges \
+              -f /backup/synthetic-only.backup
+          test -s /tmp/synthetic-only.backup
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            postgres:17-alpine \
+            createdb -h 127.0.0.1 -U sandbox sandbox_restored
+      - name: Restaurar backup sintetico en sandbox_restored
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v /tmp:/backup postgres:17-alpine \
+            pg_restore -h 127.0.0.1 -U sandbox -d sandbox_restored \
+              --no-owner --no-privileges --clean --if-exists \
+              --exit-on-error /backup/synthetic-only.backup
+      - name: Comprobar cantidades y huellas contra el origen
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v "$PWD/scripts:/repo/scripts:ro" postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -A -t -F '|' -h 127.0.0.1 \
+              -U sandbox -d sandbox_restored \
+              -f /repo/scripts/verify-v2-restore-manifest-READONLY.sql \
+              | sed -E 's/^[^|]*\|//' > /tmp/restored-manifest.txt
+          diff -u /tmp/original-manifest.txt /tmp/restored-manifest.txt
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -A -t -h 127.0.0.1 \
+              -U sandbox -d sandbox_restored \
+              -c "select (select count(*) from public.catalog_product_images)=3
+                         and (select jsonb_array_length(data->'orders')
+                           from public.app_state where id='main')=2
+                         and (select jsonb_array_length(data->'movements')
+                           from public.app_state where id='main')=4" \
+              | grep -qx 't'
+          echo 'OK: backup y restauracion real de datos sintéticos, manifiestos identicos'
+      - name: Confirmar que el manifiesto detecta una restauracion alterada
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Alter ONLY the independent restored database with synthetic rows.
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U sandbox \
+              -d sandbox_restored \
+              -c "update public.app_state set data=jsonb_set(data,'{movements,0,qty}','999'::jsonb) where id='main'"
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v "$PWD/scripts:/repo/scripts:ro" postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -A -t -F '|' -h 127.0.0.1 \
+              -U sandbox -d sandbox_restored \
+              -f /repo/scripts/verify-v2-restore-manifest-READONLY.sql \
+              | sed -E 's/^[^|]*\|//' > /tmp/modified-manifest.txt
+          if cmp -s /tmp/original-manifest.txt /tmp/modified-manifest.txt; then
+            echo "ERROR: el manifiesto no detecto un movimiento modificado"
+            exit 1
+          fi
+          echo "OK: detectada diferencia en movimiento ficticio restaurado"
