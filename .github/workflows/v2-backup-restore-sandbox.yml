@@ -91,3 +91,24 @@ jobs:
                            from public.app_state where id='main')=4" \
               | grep -qx 't'
           echo 'OK: backup y restauracion real de datos sintéticos, manifiestos identicos'
+      - name: Confirmar que el manifiesto detecta una restauracion alterada
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Alter ONLY the independent restored database with synthetic rows.
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U sandbox \
+              -d sandbox_restored \
+              -c "update public.app_state set data=jsonb_set(data,'{movements,0,qty}','999'::jsonb) where id='main'"
+          docker run --rm --network host -e PGPASSWORD=synthetic_only \
+            -v "$PWD/scripts:/repo/scripts:ro" postgres:17-alpine \
+            psql -X -v ON_ERROR_STOP=1 -A -t -F '|' -h 127.0.0.1 \
+              -U sandbox -d sandbox_restored \
+              -f /repo/scripts/verify-v2-restore-manifest-READONLY.sql \
+              | sed -E 's/^[^|]*\|//' > /tmp/modified-manifest.txt
+          if cmp -s /tmp/original-manifest.txt /tmp/modified-manifest.txt; then
+            echo "ERROR: el manifiesto no detecto un movimiento modificado"
+            exit 1
+          fi
+          echo "OK: detectada diferencia en movimiento ficticio restaurado"
