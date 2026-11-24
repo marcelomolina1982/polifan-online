@@ -66,3 +66,52 @@ jobs:
             postgres:17-alpine \
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U sandbox -d sandbox \
               -Atc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('app_state','app_state_section_revisions')" | grep -qx 0
+
+      - name: Dos sesiones simultaneas, misma revision CAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/generate-v2-concurrency-sandbox.mjs > /tmp/v2-concurrent-init.sql
+          docker run --rm --network host -e PGPASSWORD=sandbox_only -v /tmp:/sandbox:ro \
+            postgres:17-alpine psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+            -U sandbox -d sandbox -f /sandbox/v2-concurrent-init.sql
+
+          cat > /tmp/v2-writer-a.sql <<'SQL'
+          BEGIN;
+          SELECT * FROM sandbox_concurrency.patch_v2_sections_cas(
+            '{"movements":[{"id":"m1","qty":2}]}'::jsonb,
+            '{"movements":"2026-11-20T10:00:00Z"}'::jsonb,
+            '11111111-1111-4111-8111-111111111111'::uuid);
+          SELECT pg_sleep(2);
+          COMMIT;
+          SQL
+
+          cat > /tmp/v2-writer-b.sql <<'SQL'
+          SELECT * FROM sandbox_concurrency.patch_v2_sections_cas(
+            '{"movements":[{"id":"m1","qty":3}]}'::jsonb,
+            '{"movements":"2026-11-20T10:00:00Z"}'::jsonb,
+            '11111111-1111-4111-8111-111111111111'::uuid);
+          SQL
+
+          docker run --rm --network host -e PGPASSWORD=sandbox_only -v /tmp:/sandbox:ro \
+            postgres:17-alpine psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+            -U sandbox -d sandbox -f /sandbox/v2-writer-a.sql > /tmp/v2-a.log 2>&1 &
+          writer_a=$!
+          sleep 1
+          set +e
+          docker run --rm --network host -e PGPASSWORD=sandbox_only -v /tmp:/sandbox:ro \
+            postgres:17-alpine psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+            -U sandbox -d sandbox -f /sandbox/v2-writer-b.sql > /tmp/v2-b.log 2>&1
+          status_b=$?
+          set -e
+          wait "$writer_a"
+          if [ "$status_b" -eq 0 ]; then
+            echo "ERROR: dos versiones incompatibles guardaron la misma revision"
+            exit 1
+          fi
+          grep -q 'Conflicto de sincronización' /tmp/v2-b.log
+          docker run --rm --network host -e PGPASSWORD=sandbox_only \
+            postgres:17-alpine psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+            -U sandbox -d sandbox -Atc \
+            "select data #>> '{item,qty}' from sandbox_concurrency.app_state where id='movement_m1'" | grep -qx 2
+          echo "OK: la segunda PC no pudo sobreescribir el movimiento guardado por la primera"
