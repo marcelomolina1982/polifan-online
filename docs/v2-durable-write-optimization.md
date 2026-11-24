@@ -196,3 +196,31 @@ procedimiento para respaldo lógico en una PC propia, usando Supabase
 CLI/Docker y sin contratar un clon Supabase. **No se ejecutó todavía
 una restauración real**, por lo que no habilitar el SQL definitivo ni
 la compactación PR #74.
+
+## 24/11/2026 — ensayo de pg_dump/pg_restore con datos ficticios
+
+Se agregó un ensayo que **sí ejecuta una exportación y una
+restauración PostgreSQL**, pero únicamente de datos sintéticos:
+
+- `scripts/fixtures/backup-restore-synthetic-pg17.sql` genera un esquema
+  ficticio con catálogo, imágenes, pedidos, movimientos y lotes.
+- `.github/workflows/v2-backup-restore-sandbox.yml` crea un `pg_dump`
+  en formato custom, restaura con `pg_restore` en otra base PostgreSQL 17
+  independiente, ejecuta el manifiesto de integridad en
+  origen y destino, y verifica que las huellas coincidan.
+- La prueba negativa modifica intencionadamente un movimiento de la
+  **base restaurada ficticia** y exige que el manifiesto detecte la
+  diferencia.
+- La compilación, las cuatro pruebas del SQL y el ensayo de
+  backup/restore terminaron en `SUCCESS` en GitHub Actions el
+  24/11/2026.
+- Esta prueba **NO copia, descarga ni restaura la base de Gestión Polifan**,
+  ni sus datos de clientes, ni demuestra que un backup físico de Supabase
+  se pueda restaurar. Valida el procedimiento y la consulta de
+  verificación sobre PostgreSQL 17 aislado.
+
+**Puerta pendiente para migraciones productivas:** obtener una copia
+lógica real del proyecto, con credenciales gestionadas en la PC del
+comercio, comprobar que se restaura en PostgreSQL local aislado,
+inspeccionar los servicios Supabase fuera del esquema `public` y
+dejar documentada la reversión antes de modificar el RPC comercial.
