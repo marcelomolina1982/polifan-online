@@ -159,3 +159,40 @@ de base NO incluyen objetos del servicio Storage; deben verificarse
 por separado.
 
 No ejecutar `Restore` sobre la base comercial para probar recuperación.
+
+## Validación 24/11/2026 — CI independiente y concurrencia
+
+**Estado productivo confirmado:** Supabase `ACTIVE_HEALTHY`,
+Vercel sigue apuntando a `dpl_47CGtgcTCMg9CQFdMneZu7SzStBt`;
+3342 movimientos, 311 pedidos, 312 lotes, 168 productos y 168
+imágenes. La compactación está apagada. PR #78 sigue en borrador.
+
+**Nueva automatización:** `.github/workflows/v2-sql-sandbox.yml`.
+En cada cambio pertinente de la PR, GitHub levanta PostgreSQL 17
+efímero y ejecuta el **SQL generado a partir del borrador real**:
+`generate-v2-durable-sandbox.mjs`,
+`generate-v2-set-based-sandbox.mjs`,
+`generate-v2-inventory-scale-sandbox.mjs` y
+`generate-v2-normalized-ids-sandbox.mjs`. Los cuatro terminaron con
+`ROLLBACK`. Se verifica que el esquema productivo no fue creado allí.
+
+**Prueba de guardados simultáneos:** una quinta prueba genera el
+borrador set-based para un esquema independiente llamado
+`sandbox_concurrency`, con un guardia que impide ejecutarlo fuera
+de una base denominada `sandbox`. Dos sesiones PostgreSQL guardan
+desde la misma revisión: el primer movimiento persiste y el segundo
+recibe correctamente `Conflicto de sincronización`. GitHub Actions
+aprobó el ensayo el 24/11. No se utilizaron credenciales ni datos
+reales de Supabase.
+
+**Estadísticas observadas en Supabase** (acumuladas desde el reinicio de
+estadísticas, NO tasas de hoy): la firma RPC V2 monitorizada presentó
+22 ejecuciones, 9,3 segundos de promedio, 16,3 segundos de máximo y
+840 MB de WAL. No atribuir el valor total exclusivamente a movimientos
+ni asegurar un ahorro de WAL sin medición posterior.
+
+Se preparó `docs/backup-polifan-offsite-windows.md` con el
+procedimiento para respaldo lógico en una PC propia, usando Supabase
+CLI/Docker y sin contratar un clon Supabase. **No se ejecutó todavía
+una restauración real**, por lo que no habilitar el SQL definitivo ni
+la compactación PR #74.
