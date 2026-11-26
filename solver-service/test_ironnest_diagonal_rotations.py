@@ -63,6 +63,7 @@ ns = dict(
     IRON_BUDGET=24, IRON_RESTARTS=1,
     IRON_SEPARATION_EFFORT="fast", IRON_STRATEGY="sampling",
     IRON_SIMPLIFY_MM=.6, IRON_SOLVER_GAP_MM=4.5,
+    IRON_SOLVE_TIMEOUT_SECONDS=150,
     _outline=lambda geom:geom
 )
 module = ast.Module(body=[funcs["_solve_process"],funcs["_run_ironnest"]],type_ignores=[])
