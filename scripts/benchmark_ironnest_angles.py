@@ -5,6 +5,7 @@ the production dense-SVG geometry validator is NOT replaced by this benchmark.
 """
 import json, multiprocessing, queue, time
 from shapely.geometry import Polygon
+from shapely.affinity import rotate as shp_rotate, translate as shp_translate
 import ironnest
 
 PLATE_W=1230
@@ -45,8 +46,26 @@ def worker(shapes,rotations,q):
             restarts=1,separation_effort='fast'
         )
         seconds=round(time.perf_counter()-start,2)
+        geometries=[]
+        for idx,x,y,angle in placements:
+            original=Polygon(shapes[int(idx)])
+            placed=shp_translate(shp_rotate(original,float(angle),origin=(0,0)),
+                                 xoff=float(x),yoff=float(y))
+            geometries.append(placed)
+        min_gap=min((a.distance(b) for i,a in enumerate(geometries)
+                     for b in geometries[i+1:]),default=None)
+        xs=[g.bounds[0] for g in geometries]+[g.bounds[2] for g in geometries]
+        ys=[g.bounds[1] for g in geometries]+[g.bounds[3] for g in geometries]
+        used_width=round(max(xs)-min(xs),1) if xs else None
+        used_height=round(max(ys)-min(ys),1) if ys else None
+        outside=any(g.bounds[0]<-.35 or g.bounds[1]<-.35 or
+                    g.bounds[2]>PLATE_W+.35 or g.bounds[3]>PLATE_H+.35
+                    for g in geometries)
+        safety_ok=not outside and (min_gap is None or min_gap>=3-0.001)
         q.put(dict(ok=True,seconds=seconds,placed=len(placements),
-                   missing=len(unplaced),
+                   missing=len(unplaced),geometry_certified=safety_ok,
+                   minimum_gap_mm=round(min_gap,2) if min_gap is not None else None,
+                   used_width_mm=used_width,used_height_mm=used_height,
                    angles=sorted(set(round(float(p[3]),4) for p in placements))))
     except BaseException as e:
         q.put(dict(ok=False,error=repr(e)))
@@ -75,7 +94,7 @@ if __name__=='__main__':
     result=[run_mode('4 angles',FOUR),run_mode('8 angles',EIGHT)]
     assert result[0]['allowed_angles']==FOUR
     assert result[1]['allowed_angles']==EIGHT
-    assert all(x.get('ok') and x.get('placed',0)+x.get('missing',0)==20 for x in result),result
+    assert all(x.get('ok') and x.get('placed',0)+x.get('missing',0)==20 and x.get('geometry_certified') for x in result),result
     output={'fixture':'20 synthetic pieces, 10 complete 2-part kits',
             'method':'same synthetic geometry, same solver settings and seed; only available angles differ',
             'min_separation_search_mm':GAP,'plate_mm':[PLATE_W,PLATE_H],
