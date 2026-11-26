@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       - name: Check Python syntax
         run: python -m py_compile solver-service/ironnest_benchmark_app.py
       - name: Verify rotation sets and unchanged normal mode
