@@ -289,6 +289,7 @@ def _execute_industrial(payload,job_id):
     if mode not in ('fast','compact','diagonal'):
         return {'ok':False,'error':'Modo de optimizacion no admitido'},422
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
+    expected_part_ids={str(p['instanceId']) for k in kits for p in k['parts']}
     # 'diagonal' is an opt-in experiment; the everyday 'fast' mode
     # keeps its original four rotations and its fastpack route.
     # Diagonal mode compares BOTH rotation lists and retains the narrower
@@ -333,11 +334,16 @@ def _execute_industrial(payload,job_id):
         attempt_no+=1
         try:
             p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110),rotations=angle_override)
-            if u or len(p)!=n:
-                if first_unplaced is None: first_unplaced=len(u)
+            placed_ids=[str(placement.get('instanceId')) for placement in p]
+            misplaced=(n!=len(expected_part_ids) or len(set(placed_ids))!=len(placed_ids) or set(placed_ids)!=expected_part_ids)
+            if u or len(p)!=n or misplaced:
+                if first_unplaced is None:
+                    first_unplaced=max(len(u),len(expected_part_ids)-len(set(placed_ids)),n-len(p))
                 if not missing_ids:
                     part_ids=[str(part.get('instanceId')) for kit in kits for part in kit.get('parts', [])]
                     missing_ids=[part_ids[int(x)] for x in u if 0 <= int(x) < len(part_ids)]
+                    if not missing_ids:
+                        missing_ids=[part_id for part_id in part_ids if part_id not in placed_ids]
                 # Reparación sólo para lotes base chicos: mantiene acotado el
                 # tiempo y ataca exactamente el caso 18/20 observado en producción.
                 if attempt_no==1 and mode!='fast' and n<=20 and 0<len(u)<=4:
@@ -376,6 +382,10 @@ def _execute_industrial(payload,job_id):
         if last_exc: raise last_exc
         return {'ok':False,'error':'IronNest no encontro una distribucion completa valida','pieceCount':sum(len(k['parts']) for k in kits)},422
     _,placements,unplaced,elapsed,item_count,vertex_count=best
+    final_ids=[str(p.get('instanceId')) for p in placements]
+    if (unplaced or item_count!=len(expected_part_ids) or len(final_ids)!=item_count
+            or len(set(final_ids))!=len(final_ids) or set(final_ids)!=expected_part_ids):
+        return {'ok':False,'error':'El motor devolvio piezas duplicadas o faltantes; se descarta la placa','pieceCount':item_count},422
     detailed=_industrial_kits(payload,detailed=True)
     validation,rows=br._validate_layout(detailed,placements)
     exact_gap=None
