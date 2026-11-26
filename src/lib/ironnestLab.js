@@ -11,7 +11,7 @@ async function fetchStatus(url,signal){
   catch(error){if(controller.signal.aborted&&!signal?.aborted)throw new Error('IronNest no respondió al consultar el estado durante 20 segundos. El trabajo se conserva para recuperarlo.');throw error}
   finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
 }
-export const isIronNestTransientError=error=>/no respondió|failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)/i.test(String(error?.message||error||''))
+export const isIronNestTransientError=error=>/no respondió|failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)|IronNest laboratorio supero \d+ segundos/i.test(String(error?.message||error||''))
 
 export function ironNestLabUrl(){
   const configured=String((import.meta.env.VITE_IRONNEST_LAB_URL)||'').trim()
@@ -153,6 +153,10 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
 
   const startedOverall=Date.now()
   const MAX_TOTAL_SOLVE_MS=8*60*1000
+  // Reservar tiempo para ensayar 9 figuras completas si las 10 no entran.
+  // Antes, los intentos de 10 podían agotar los 8 minutos disponibles.
+  const NINE_FALLBACK_RESERVE_MS=200000
+  const MIN_ATTEMPT_MS=25000
   const baseTarget=Math.min(Math.max(1,Number(targetComplete)||10),10,ordered.length)
   let best=null
   const solveBatch=async(batch,label,timeoutMs=150000)=>{
@@ -179,27 +183,30 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   // variantes determinísticas de 10 y conservamos la primera certificada.
   const baseVariants=uniqueKitVariants(ordered,baseTarget)
   let lastBaseError=null
+  let placementFailureSeen=false
+  const incompletePlacement=error=>/IronNest acomodo \d+ piezas, pero faltaron \d+|IronNest no devolvió el lote completo/i.test(String(error?.message||''))
+  const reserved=baseTarget===10?NINE_FALLBACK_RESERVE_MS:0
   for(const variant of baseVariants){
-    if(Date.now()-startedOverall>=MAX_TOTAL_SOLVE_MS)break
+    const baseRemaining=MAX_TOTAL_SOLVE_MS-reserved-(Date.now()-startedOverall)
+    if(baseRemaining<MIN_ATTEMPT_MS)break
     try{
-      best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,360000)
+      best=await solveBatch(variant.kits,`base productiva · ${variant.label}`,Math.min(135000,baseRemaining))
       break
     }catch(error){
-      if(isIronNestTransientError(error))throw error
+      if(isIronNestTransientError(error)||error?.name==='AbortError')throw error
+      if(incompletePlacement(error))placementFailureSeen=true
       lastBaseError=error
     }
   }
-  // Si las 10 figuras (20 piezas) no caben juntas, buscar otra placa
-  // de 9 FIGURAS COMPLETAS. Nunca aceptar 19/20 piezas como si fueran 10.
-  // Un error de red, cancelación, autenticación o geometría inválida no
-  // habilita este camino: sólo un límite físico de distribución.
-  const incompletePlacement=error=>/IronNest acomodo \d+ piezas, pero faltaron \d+|IronNest no devolvió el lote completo/i.test(String(error?.message||''))
-  if(!best&&baseTarget===10&&lastBaseError&&incompletePlacement(lastBaseError)){
+  // Un error geométrico de 10 figuras abre una alternativa de 9 completas,
+  // pero sólo si queda tiempo suficiente y la certificación valida TODO.
+  if(!best&&baseTarget===10&&placementFailureSeen){
     const fallbackVariants=uniqueKitVariants(ordered,9)
     for(const variant of fallbackVariants){
-      if(Date.now()-startedOverall>=MAX_TOTAL_SOLVE_MS)break
+      const fallbackRemaining=MAX_TOTAL_SOLVE_MS-(Date.now()-startedOverall)
+      if(fallbackRemaining<MIN_ATTEMPT_MS)break
       try{
-        best=await solveBatch(variant.kits,`base alternativa certificada de 9 · ${variant.label}`,Math.min(180000,MAX_TOTAL_SOLVE_MS-(Date.now()-startedOverall)))
+        best=await solveBatch(variant.kits,`base alternativa certificada de 9 · ${variant.label}`,Math.min(135000,fallbackRemaining))
         break
       }catch(error){
         if(isIronNestTransientError(error)||error?.name==='AbortError')throw error
