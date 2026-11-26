@@ -15,7 +15,7 @@ tree = ast.parse(source)
 fn = next(x for x in tree.body if isinstance(x, ast.FunctionDef) and x.name == "_execute_industrial")
 
 ids = [f"synthetic-{i:02d}" for i in range(20)]
-payload = {"kits": [{"kitId":"synthetic","parts":[{"instanceId":x,"kitId":"synthetic","trimXmm":0,"trimYmm":0} for x in ids]}]}
+payload = {"optimizationMode":"diagonal","kits": [{"kitId":"synthetic","parts":[{"instanceId":x,"kitId":"synthetic","trimXmm":0,"trimYmm":0} for x in ids]}]}
 
 class FakeGeometry:
     def __init__(self,x):
