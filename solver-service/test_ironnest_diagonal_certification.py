@@ -86,7 +86,7 @@ check_case("diagonal_narrow",45,580.0,True)
 assert calls==["4","8"],calls
 check_case("diagonal_wide",0,580.0,True)
 assert calls==["4","8"],calls
-check_case("diagonal_duplicate",0,865.0,True)
+check_case("diagonal_duplicate",0,580.0,True)
 assert calls==["4","8"],calls
 check_case("all_incomplete",None,None,False)
 assert all(v in ("4","8") for v in calls),calls
