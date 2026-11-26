@@ -193,7 +193,7 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   // de 9 FIGURAS COMPLETAS. Nunca aceptar 19/20 piezas como si fueran 10.
   // Un error de red, cancelación, autenticación o geometría inválida no
   // habilita este camino: sólo un límite físico de distribución.
-  const incompletePlacement=error=>/IronNest acomodo \\d+ piezas, pero faltaron \\d+|IronNest no devolvió el lote completo/i.test(String(error?.message||''))
+  const incompletePlacement=error=>/IronNest acomodo \d+ piezas, pero faltaron \d+|IronNest no devolvió el lote completo/i.test(String(error?.message||''))
   if(!best&&baseTarget===10&&lastBaseError&&incompletePlacement(lastBaseError)){
     const fallbackVariants=uniqueKitVariants(ordered,9)
     for(const variant of fallbackVariants){
