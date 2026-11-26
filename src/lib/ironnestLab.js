@@ -11,7 +11,7 @@ async function fetchStatus(url,signal){
   catch(error){if(controller.signal.aborted&&!signal?.aborted)throw new Error('IronNest no respondió al consultar el estado durante 20 segundos. El trabajo se conserva para recuperarlo.');throw error}
   finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
 }
-export const isIronNestTransientError=error=>/no respondió|failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)/i.test(String(error?.message||error||''))
+export const isIronNestTransientError=error=>/no respondió|failed to fetch|networkerror|network error|load failed|fetch|respuesta transitoria \((?:408|425|429|500|502|503|504)\)|IronNest laboratorio supero \d+ segundos/i.test(String(error?.message||error||''))
 
 export function ironNestLabUrl(){
   const configured=String((import.meta.env.VITE_IRONNEST_LAB_URL)||'').trim()
