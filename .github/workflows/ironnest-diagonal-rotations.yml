@@ -1,11 +1,14 @@
 name: IronNest diagonal rotations experimental
 
 on:
+  push:
+    branches: ['experiment/ironnest-diagonal-rotations-20261126']
   pull_request:
     branches: [motor-ironnest-hardbound-lab]
     paths:
       - 'solver-service/ironnest_benchmark_app.py'
       - 'solver-service/test_ironnest_diagonal_rotations.py'
+      - 'solver-service/benchmark_ironnest_angles.py'
       - '.github/workflows/ironnest-diagonal-rotations.yml'
   workflow_dispatch:
 
@@ -15,7 +18,7 @@ permissions:
 jobs:
   verify-diagonal-option:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,3 +28,7 @@ jobs:
         run: python -m py_compile solver-service/ironnest_benchmark_app.py
       - name: Run actual IronNest worker functions with synthetic figures
         run: python solver-service/test_ironnest_diagonal_rotations.py
+      - name: Install real IronNest engine for isolated angle benchmark
+        run: python -m pip install --disable-pip-version-check ironnest==0.6.2 shapely==2.1.2
+      - name: Compare real solver 4 vs 8 rotations on 20 synthetic parts
+        run: python -u solver-service/benchmark_ironnest_angles.py
