@@ -13,6 +13,9 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
 IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
+# Experimental ONLY: 45-degree diagonals require an explicit request.
+# Do not expand the default solver search on the production lab CPU.
+IRON_DIAGONAL_ROTATIONS=[float(a) for a in range(0,360,45)]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
 IRON_BUDGET=24
@@ -46,20 +49,21 @@ def _solve_process(items, container, rotation_sets, result_queue, settings, seed
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
 
-def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,column_weight=3):
+def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,column_weight=3,rotations=None):
     settings=settings or {'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,
                           'restarts':IRON_RESTARTS,'separation_effort':IRON_SEPARATION_EFFORT}
+    allowed_rotations=rotations if rotations is not None else IRON_ROTATIONS
     items=[]; ids=[]; rotation_sets=[]
     for k in kits:
         for p in (k.get('parts') or []):
             items.append(_outline(p['geom']))
             ids.append(str(p.get('instanceId')))
             i=len(items)-1
-            rotation_sets.append([0.0] if p.get('allowRotate') is False else (IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS))
+            rotation_sets.append([0.0] if p.get('allowRotate') is False else (allowed_rotations if rotations is not None else (IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS)))
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
     vertex_count=sum(len(x) for x in items)
-    print(f"IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={settings['strategy']} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={settings['budget']} restarts={settings['restarts']} effort={settings['separation_effort']} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}",flush=True)
+    print(f"IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={settings['strategy']} rotations={len(allowed_rotations)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={settings['budget']} restarts={settings['restarts']} effort={settings['separation_effort']} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}",flush=True)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
@@ -282,9 +286,12 @@ def _fastpack_rectangles(kits):
 def _execute_industrial(payload,job_id):
     kits=_industrial_kits(payload)
     mode=str(payload.get('optimizationMode') or 'fast')
-    if mode not in ('fast','compact'):
+    if mode not in ('fast','compact','diagonal'):
         return {'ok':False,'error':'Modo de optimizacion no admitido'},422
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
+    # 'diagonal' is an opt-in experiment; the everyday 'fast' mode
+    # keeps its original four rotations and its fastpack route.
+    experimental_rotations=IRON_DIAGONAL_ROTATIONS if mode=='diagonal' else None
     # Primera pasada rápida. Si queda sólo una figura incompleta (típicamente
     # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
@@ -320,7 +327,7 @@ def _execute_industrial(payload,job_id):
         seed,column_weight,attempt_settings=attempts.pop(0)
         attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110))
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110),rotations=experimental_rotations)
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 if not missing_ids:
