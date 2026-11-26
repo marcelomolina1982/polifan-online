@@ -13,13 +13,18 @@ assert.match(motor,/reducedBase.*?'IronNest/)
 assert.match(motor,/plan\.warning/)
 assert.match(motor,/registerPlan\(plan\)/)
 assert.match(motor,/if\(!String\(plan\.status\|\|''\)\.startsWith\('CERTIFICADO'\)/)
+assert.match(source,/NINE_FALLBACK_RESERVE_MS=200000/)
+assert.match(source,/MAX_TOTAL_SOLVE_MS-reserved-/)
+assert.match(motor,/\{!busy&&plans\.filter/)
+assert.match(motor,/\{busy&&<tr>/)
 
 const kits=Array.from({length:10},(_,i)=>({
  kitId:'kit'+i,figure:'Synthetic'+i,priority:i,
  parts:[0,1].map(j=>({kitId:'kit'+i,instanceId:'kit'+i+'-piece'+j,
  svgText:'<svg/>',sourceWidthCm:10,sourceHeightCm:10}))
 }))
-let mode,starts,getCount
+let mode,starts,getCount,simulatedNow=0
+const realNow=Date.now
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})
 const placements=(batch)=>batch.flatMap(k=>k.parts.map(p=>({
  kitId:k.kitId,instanceId:p.instanceId,xCm:0,yCm:0,angle:0
@@ -37,7 +42,8 @@ globalThis.fetch=async(url,options={})=>{
   const batch=starts[Number(id.slice(5))]
   if(mode==='transient')return new Response('<html>gateway unavailable</html>',{status:503})
   const ten=batch.length===10
-  if(ten&&(mode==='nine'||mode==='incomplete'||(mode==='grow'&&starts.filter(k=>k.length===10).length===1))){
+  if(mode==='budget'&&ten)simulatedNow+=130000
+  if(ten&&(mode==='nine'||mode==='budget'||mode==='incomplete'||(mode==='grow'&&starts.filter(k=>k.length===10).length===1))){
    return json({ok:false,result:{ok:false,error:'IronNest acomodo 19 piezas, pero faltaron 1. No se registro ninguna placa.'}},422)
   }
   const pieces=placements(batch)
@@ -48,16 +54,19 @@ globalThis.fetch=async(url,options={})=>{
 }
 async function testScenario(name){
  mode=name;starts=[];getCount=0
+ simulatedNow=10000
+ Date.now=name==='budget'?()=>simulatedNow:realNow
  try{
-  const result=await lab.solveCompleteKitsWithIronNestLab(kits,{targetComplete:10,maxGrowth:10,pollMs:1})
+  const result=await lab.solveCompleteKitsWithIronNestLab(kits,{targetComplete:10,maxGrowth:name==='budget'?9:10,pollMs:1})
   if(name==='incomplete'||name==='transient')throw new Error('Unsafe scenario unexpectedly succeeded')
-  const expected=name==='nine'?9:10
+  const expected=name==='nine'||name==='budget'?9:10
   assert.equal(result.selectedKits.length,expected)
-  assert.equal(result.fallbackUsed,name==='nine')
+  assert.equal(result.fallbackUsed,name==='nine'||name==='budget')
   assert.equal(result.placements.length,expected*2)
   assert.equal(result.layoutValidation.ok,true)
   assert.equal(result.requestedComplete,10)
   if(name==='nine')assert.ok(starts.some(b=>b.length===10)&&starts.some(b=>b.length===9))
+  if(name==='budget'){assert.equal(starts.filter(b=>b.length===10).length,2,'Two ten-kit attempts must leave time for 9');assert.ok(starts.some(b=>b.length===9),'The nine-kit fallback was never attempted');assert.ok(simulatedNow-10000<480000,'Solver budget exceeded')}
   if(name==='full')assert.ok(starts.every(b=>b.length===10))
   if(name==='grow')assert.ok(starts.some(b=>b.length===9)&&starts.filter(b=>b.length===10).length>=2)
  }catch(error){
@@ -68,7 +77,9 @@ async function testScenario(name){
 }
 await testScenario('full')
 await testScenario('nine')
+await testScenario('budget')
 await testScenario('grow')
 await testScenario('transient')
 await testScenario('incomplete')
-console.log('OK: IronNest certified 10, certified 9 fallback, recover 10, reject transient and partial pieces')
+Date.now=realNow
+console.log('OK: IronNest certified 10, reserved time for certified 9, recover 10, reject transient and partial pieces')
