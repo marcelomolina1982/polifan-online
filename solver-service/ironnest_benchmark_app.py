@@ -291,7 +291,8 @@ def _execute_industrial(payload,job_id):
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
     # 'diagonal' is an opt-in experiment; the everyday 'fast' mode
     # keeps its original four rotations and its fastpack route.
-    experimental_rotations=IRON_DIAGONAL_ROTATIONS if mode=='diagonal' else None
+    # Diagonal mode compares BOTH rotation lists and retains the narrower
+    # complete result after exact detailed-SVG certification.
     # Primera pasada rápida. Si queda sólo una figura incompleta (típicamente
     # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
@@ -306,12 +307,16 @@ def _execute_industrial(payload,job_id):
         else:
             print(f'IRON_FASTPACK_REJECT job={job_id}',flush=True)
             fast_placements=None
-    attempts=[] if fast_placements else [(1777,3,settings)]
+    attempts=[] if fast_placements else [(1777,3,settings,None)]
     # Reserve time for a second deterministic layout if the first search stalls.
     if mode=='fast' and not fast_placements:
-        attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
+        attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'},None))
     if mode=='compact':
-        attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
+        attempts.extend([(2713,2,IRON_COMPACT_SETTINGS,None),(3911,1,IRON_COMPACT_SETTINGS,None)])
+    if mode=='diagonal':
+        # First test 4 normal rotations, then 8 diagonals. Preserve the
+        # better fully certified plate; diagonals can also use MORE width.
+        attempts.append((2713,2,settings,IRON_DIAGONAL_ROTATIONS))
     best=((0,0,0),fast_placements,[],0,len(fast_placements),0) if fast_placements else None
     last_exc=None; first_unplaced=None; missing_ids=[]
     detailed_try=None
@@ -324,10 +329,10 @@ def _execute_industrial(payload,job_id):
         if remaining<8:
             print(f'IRON_RETRY_BUDGET_EXHAUSTED job={job_id} attempts={attempt_no}',flush=True)
             break
-        seed,column_weight,attempt_settings=attempts.pop(0)
+        seed,column_weight,attempt_settings,angle_override=attempts.pop(0)
         attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110),rotations=experimental_rotations)
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110),rotations=angle_override)
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 if not missing_ids:
@@ -338,7 +343,7 @@ def _execute_industrial(payload,job_id):
                 if attempt_no==1 and mode!='fast' and n<=20 and 0<len(u)<=4:
                     # One bounded repair instead of three expensive retries.
                     repair={'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}
-                    attempts.append((2713,2,repair))
+                    attempts.append((3911,1,repair,angle_override))
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
             if detailed_try is None: detailed_try=_industrial_kits(payload,detailed=True)
@@ -352,6 +357,8 @@ def _execute_industrial(payload,job_id):
                 used_width=maxx-minx; used_height=maxy-miny
             else: used_width=br.PLATE_WIDTH_MM; used_height=br.PLATE_HEIGHT_MM
             score=(used_width,used_height,e)
+            if mode=='diagonal':
+                print(f'IRON_ANGLE_COMPARE job={job_id} choices={len(angle_override) if angle_override else 4} widthMm={used_width:.2f} heightMm={used_height:.2f} certified=1',flush=True)
             if best is None or score<best[0]: best=(score,p,u,e,n,v)
             # En modo fast alcanza con una solución completa certificable; el
             # frontend luego prueba 11, 12, etc. No gastamos CPU innecesaria.
