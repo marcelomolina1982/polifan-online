@@ -18,8 +18,12 @@ funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 assert "_run_ironnest" in funcs and "_solve_process" in funcs
 assert "_execute_industrial" in funcs
 assert "if mode not in ('fast','compact','diagonal'):" in src
-assert "experimental_rotations=IRON_DIAGONAL_ROTATIONS if mode=='diagonal' else None" in src
-assert "rotations=experimental_rotations" in src
+assert "if mode=='diagonal':" in src
+assert "attempts.append((2713,2,settings,IRON_DIAGONAL_ROTATIONS))" in src
+assert "rotations=angle_override" in src
+assert "score=(used_width,used_height,e)" in src
+assert "if best is None or score<best[0]: best=(score,p,u,e,n,v)" in src
+assert "br._validate_layout(detailed_try,p)" in src
 assert "fast_placements=_fastpack_rectangles(kits) if mode=='fast' else None" in src
 assert "br._validate_layout(detailed_try,p)" in src
 assert "gap<br.ABSOLUTE_MIN_GAP_MM-0.000001" in src
@@ -74,4 +78,4 @@ diagonal=ns["_run_ironnest"](
 assert diagonal[3]==2 and diagonal[1]==[]
 assert rotations[-1]==[[0.,45.,90.,135.,180.,225.,270.,315.],[0.0]]
 assert ns["IRON_BUDGET"]==24 and ns["IRON_RESTARTS"]==1
-print("OK: real IronNest runner defaults to 4 angles; opt-in adds 45° diagonals, respects rotation locks, keeps bounded settings")
+print("OK: 4-angle mode unchanged; optional 8-angle solver available; opt-in compares certified widths and retains the best")
