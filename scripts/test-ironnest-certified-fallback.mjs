@@ -35,7 +35,7 @@ globalThis.fetch=async(url,options={})=>{
   getCount++
   const id=new URL(url).searchParams.get('id')
   const batch=starts[Number(id.slice(5))]
-  if(mode==='transient')return json({error:'Gateway unavailable'},503)
+  if(mode==='transient')return new Response('<html>gateway unavailable</html>',{status:503})
   const ten=batch.length===10
   if(ten&&(mode==='nine'||mode==='incomplete'||(mode==='grow'&&starts.filter(k=>k.length===10).length===1))){
    return json({ok:false,result:{ok:false,error:'IronNest acomodo 19 piezas, pero faltaron 1. No se registro ninguna placa.'}},422)
