@@ -13,6 +13,9 @@ _SOLVE_SEMAPHORE=threading.BoundedSemaphore(1)
 # 8 restarts, separation_effort=max).  On the free lab CPU that can explode the
 # amount of exact-NFP work.  This benchmark intentionally starts bounded and fast.
 IRON_ROTATIONS=[0.0,90.0,180.0,270.0]
+# Experimental ONLY: 45-degree diagonals require an explicit request.
+# Do not expand the default solver search on the production lab CPU.
+IRON_DIAGONAL_ROTATIONS=[float(a) for a in range(0,360,45)]
 IRON_EXTRA_ROTATIONS=IRON_ROTATIONS
 IRON_EXTRA_ROTATION_ITEMS=()
 IRON_BUDGET=24
@@ -46,20 +49,21 @@ def _solve_process(items, container, rotation_sets, result_queue, settings, seed
     except Exception as exc:
         result_queue.put(('error', repr(exc)))
 
-def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,column_weight=3):
+def _run_ironnest(kits,job_id=None,settings=None,seed=1777,timeout_seconds=None,column_weight=3,rotations=None):
     settings=settings or {'strategy':IRON_STRATEGY,'budget':IRON_BUDGET,
                           'restarts':IRON_RESTARTS,'separation_effort':IRON_SEPARATION_EFFORT}
+    allowed_rotations=rotations if rotations is not None else IRON_ROTATIONS
     items=[]; ids=[]; rotation_sets=[]
     for k in kits:
         for p in (k.get('parts') or []):
             items.append(_outline(p['geom']))
             ids.append(str(p.get('instanceId')))
             i=len(items)-1
-            rotation_sets.append([0.0] if p.get('allowRotate') is False else (IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS))
+            rotation_sets.append([0.0] if p.get('allowRotate') is False else (allowed_rotations if rotations is not None else (IRON_EXTRA_ROTATIONS if i in IRON_EXTRA_ROTATION_ITEMS else IRON_ROTATIONS)))
     inset=IRON_SIMPLIFY_MM+0.1
     container=[(inset,inset),(br.PLATE_WIDTH_MM-inset,inset),(br.PLATE_WIDTH_MM-inset,br.PLATE_HEIGHT_MM-inset),(inset,br.PLATE_HEIGHT_MM-inset)]
     vertex_count=sum(len(x) for x in items)
-    print(f"IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={settings['strategy']} rotations={len(IRON_ROTATIONS)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={settings['budget']} restarts={settings['restarts']} effort={settings['separation_effort']} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}",flush=True)
+    print(f"IRON_START job={job_id} items={len(items)} vertices={vertex_count} strategy={settings['strategy']} rotations={len(allowed_rotations)} extra_items={IRON_EXTRA_ROTATION_ITEMS} extra_rotations={len(IRON_EXTRA_ROTATIONS)} budget={settings['budget']} restarts={settings['restarts']} effort={settings['separation_effort']} simplify={IRON_SIMPLIFY_MM} solver_gap={IRON_SOLVER_GAP_MM}",flush=True)
     started=time.time()
     ctx=multiprocessing.get_context('spawn')
     result_queue=ctx.Queue(maxsize=1)
@@ -282,9 +286,13 @@ def _fastpack_rectangles(kits):
 def _execute_industrial(payload,job_id):
     kits=_industrial_kits(payload)
     mode=str(payload.get('optimizationMode') or 'fast')
-    if mode not in ('fast','compact'):
+    if mode not in ('fast','compact','diagonal'):
         return {'ok':False,'error':'Modo de optimizacion no admitido'},422
     settings=IRON_COMPACT_SETTINGS if mode=='compact' else None
+    # 'diagonal' is an opt-in experiment; the everyday 'fast' mode
+    # keeps its original four rotations and its fastpack route.
+    # Diagonal mode compares BOTH rotation lists and retains the narrower
+    # complete result after exact detailed-SVG certification.
     # Primera pasada rápida. Si queda sólo una figura incompleta (típicamente
     # 18/20 piezas), no declaramos fracaso: hacemos una reparación determinística
     # con semillas y sesgos distintos para obligar a IronNest a reacomodar TODO
@@ -299,12 +307,16 @@ def _execute_industrial(payload,job_id):
         else:
             print(f'IRON_FASTPACK_REJECT job={job_id}',flush=True)
             fast_placements=None
-    attempts=[] if fast_placements else [(1777,3,settings)]
+    attempts=[] if fast_placements else [(1777,3,settings,None)]
     # Reserve time for a second deterministic layout if the first search stalls.
     if mode=='fast' and not fast_placements:
-        attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}))
+        attempts.append((2713,2,{'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'},None))
     if mode=='compact':
-        attempts.extend([(2713,2,IRON_COMPACT_SETTINGS),(3911,1,IRON_COMPACT_SETTINGS)])
+        attempts.extend([(2713,2,IRON_COMPACT_SETTINGS,None),(3911,1,IRON_COMPACT_SETTINGS,None)])
+    if mode=='diagonal':
+        # First test 4 normal rotations, then 8 diagonals. Preserve the
+        # better fully certified plate; diagonals can also use MORE width.
+        attempts.append((2713,2,settings,IRON_DIAGONAL_ROTATIONS))
     best=((0,0,0),fast_placements,[],0,len(fast_placements),0) if fast_placements else None
     last_exc=None; first_unplaced=None; missing_ids=[]
     detailed_try=None
@@ -317,10 +329,10 @@ def _execute_industrial(payload,job_id):
         if remaining<8:
             print(f'IRON_RETRY_BUDGET_EXHAUSTED job={job_id} attempts={attempt_no}',flush=True)
             break
-        seed,column_weight,attempt_settings=attempts.pop(0)
+        seed,column_weight,attempt_settings,angle_override=attempts.pop(0)
         attempt_no+=1
         try:
-            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110))
+            p,u,e,n,v=_run_ironnest(kits,f'{job_id}-a{attempt_no}',attempt_settings,seed=seed,column_weight=column_weight,timeout_seconds=min(remaining,65 if mode=='fast' else 110),rotations=angle_override)
             if u or len(p)!=n:
                 if first_unplaced is None: first_unplaced=len(u)
                 if not missing_ids:
@@ -331,7 +343,7 @@ def _execute_industrial(payload,job_id):
                 if attempt_no==1 and mode!='fast' and n<=20 and 0<len(u)<=4:
                     # One bounded repair instead of three expensive retries.
                     repair={'strategy':'sampling','budget':24,'restarts':1,'separation_effort':'fast'}
-                    attempts.append((2713,2,repair))
+                    attempts.append((3911,1,repair,angle_override))
                     print(f'IRON_REPAIR job={job_id} unplaced={len(u)} attempts={len(attempts)}',flush=True)
                 continue
             if detailed_try is None: detailed_try=_industrial_kits(payload,detailed=True)
@@ -345,6 +357,8 @@ def _execute_industrial(payload,job_id):
                 used_width=maxx-minx; used_height=maxy-miny
             else: used_width=br.PLATE_WIDTH_MM; used_height=br.PLATE_HEIGHT_MM
             score=(used_width,used_height,e)
+            if mode=='diagonal':
+                print(f'IRON_ANGLE_COMPARE job={job_id} choices={len(angle_override) if angle_override else 4} widthMm={used_width:.2f} heightMm={used_height:.2f} certified=1',flush=True)
             if best is None or score<best[0]: best=(score,p,u,e,n,v)
             # En modo fast alcanza con una solución completa certificable; el
             # frontend luego prueba 11, 12, etc. No gastamos CPU innecesaria.
