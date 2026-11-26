@@ -8,6 +8,14 @@ on:
       - 'solver-service/test_ironnest_diagonal_rotations.py'
       - 'solver-service/benchmark_ironnest_angles.py'
       - '.github/workflows/ironnest-diagonal-rotations.yml'
+  push:
+    branches: ['experiment/ironnest-diagonal-rotations-20261126']
+    paths:
+      - 'solver-service/ironnest_benchmark_app.py'
+      - 'solver-service/test_ironnest_diagonal_rotations.py'
+      - 'solver-service/benchmark_ironnest_angles.py'
+      - '.github/workflows/ironnest-diagonal-rotations.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
