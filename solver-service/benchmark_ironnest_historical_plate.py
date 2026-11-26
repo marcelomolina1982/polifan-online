@@ -30,25 +30,30 @@ EIGHT = [float(a) for a in range(0, 360, 45)]
 def tag(el):
     return el.tag.rsplit("}", 1)[-1]
 
-def read_paths():
+def read_kits():
     compressed = "".join((BASE/"fixtures"/f"plate113.b64.{i}").read_text().strip() for i in range(4))
     root = ET.fromstring(gzip.decompress(base64.b64decode(compressed)).decode("utf-8"))
-    found = []
+    by_kit={}
     for child in root:
         if tag(child) != "g" or not child.get("data-instance") or not child.get("data-kit"):
             continue
         paths = [el.get("d") for el in child.iter() if tag(el)=="path" and el.get("d")]
-        if len(paths) != 1:
+        if len(paths)!=1:
             raise ValueError("Historical source component has an unexpected number of paths")
-        found.extend(paths)
+        by_kit.setdefault(child.get("data-kit"),[]).extend(paths)
     special = {child.get("id"):child.get("d") for child in root if tag(child)=="path"}
     for key in ("path3", "path1-1", "path2-9"):
         if not special.get(key):
             raise ValueError("Missing a historical fixture component")
-        found.append(special[key])
-    if len(found)!=24:
-        raise ValueError(f"Expected 24 historical parts, got {len(found)}")
-    return found
+    mate=next((key for key in by_kit if "mate yuyero" in key.lower()),None)
+    if not mate:
+        raise ValueError("Missing historical mate kit")
+    by_kit[mate].append(special["path3"])
+    by_kit["manual-lapiz"]=[special["path1-1"],special["path2-9"]]
+    kits=list(by_kit.values())
+    if len(kits)!=12 or any(len(k)!=2 for k in kits):
+        raise ValueError(f"Expected 12 historical two-part kits, got {len(kits)}")
+    return kits
 
 def polygon_from_svg(d, step_mm, tolerance_mm):
     options=[]
@@ -75,8 +80,7 @@ def polygon_from_svg(d, step_mm, tolerance_mm):
     xmin,ymin,_,_=poly.bounds
     return translate(poly,xoff=-xmin,yoff=-ymin)
 
-def contours():
-    data=read_paths()
+def contours(data):
     detailed=[polygon_from_svg(d,1.0,0.1) for d in data]
     solver=[polygon_from_svg(d,2.0,0.6) for d in data]
     # Preserve identical trim origins for solver and validation to avoid
@@ -143,15 +147,20 @@ def bounded_run(label,outlines,detailed,rotations,limit=90):
     return {"mode":label,**result}
 
 if __name__=="__main__":
-    outlines,detailed=contours()
-    start=time.monotonic()
-    results=[bounded_run("4 rotations",outlines,detailed,FOUR),
-             bounded_run("8 rotations",outlines,detailed,EIGHT)]
+    # Compare complete historical kits, never count an orphan base or lid.
+    kits=read_kits()
+    cases=[]
+    for kit_count in (10,11,12):
+        data=[d for kit in kits[:kit_count] for d in kit]
+        outlines,detailed=contours(data)
+        start=time.monotonic()
+        results=[bounded_run("4 rotations",outlines,detailed,FOUR),
+                 bounded_run("8 rotations",outlines,detailed,EIGHT)]
+        cases.append({"completeKitsRequested":kit_count,"parts":len(outlines),
+                      "results":results,"totalSeconds":round(time.monotonic()-start,2)})
     print("IRONNEST_HISTORICAL_PLATE="+json.dumps({
         "fixture":"Existing historical plate 113; sampled contours only",
-        "parts":len(outlines),"plateMm":[W,H],
-        "solverGapMm":GAP_SEARCH,"hardGapMm":GAP_HARD,
-        "results":results,"totalSeconds":round(time.monotonic()-start,2),
-        "productionReady":False,
-        "caveat":"Historical not current 39 parts; detailed production SVG validator still required."
+        "plateMm":[W,H],"solverGapMm":GAP_SEARCH,"hardGapMm":GAP_HARD,
+        "cases":cases,"productionReady":False,
+        "caveat":"Historical rather than current 39 parts; strict production detailed-SVG verification still required."
     },ensure_ascii=False),flush=True)
