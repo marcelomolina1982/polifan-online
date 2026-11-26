@@ -77,6 +77,7 @@ if __name__=='__main__':
     assert result[1]['allowed_angles']==EIGHT
     assert all(x.get('ok') and x.get('placed',0)+x.get('missing',0)==20 for x in result),result
     output={'fixture':'20 synthetic pieces, 10 complete 2-part kits',
+            'method':'same synthetic geometry, same solver settings and seed; only available angles differ',
             'min_separation_search_mm':GAP,'plate_mm':[PLATE_W,PLATE_H],
             'runs':result,
             'caveat':'Synthetic only. Real production certification requires detailed SVG geometry.'}
