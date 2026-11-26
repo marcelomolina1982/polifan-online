@@ -8,6 +8,7 @@ on:
       - 'solver-service/test_ironnest_diagonal_rotations.py'
       - 'solver-service/test_ironnest_diagonal_certification.py'
       - 'solver-service/benchmark_ironnest_angles.py'
+      - 'solver-service/benchmark_ironnest_historical_plate.py'
       - '.github/workflows/ironnest-diagonal-rotations.yml'
   push:
     branches: ['experiment/ironnest-diagonal-rotations-20261126']
@@ -16,6 +17,7 @@ on:
       - 'solver-service/test_ironnest_diagonal_rotations.py'
       - 'solver-service/test_ironnest_diagonal_certification.py'
       - 'solver-service/benchmark_ironnest_angles.py'
+      - 'solver-service/benchmark_ironnest_historical_plate.py'
       - '.github/workflows/ironnest-diagonal-rotations.yml'
   workflow_dispatch:
 
@@ -38,6 +40,8 @@ jobs:
       - name: Verify complete, unique and narrower industrial layouts
         run: python solver-service/test_ironnest_diagonal_certification.py
       - name: Install real IronNest engine
-        run: python -m pip install --disable-pip-version-check ironnest==0.6.2 shapely==2.1.2
+        run: python -m pip install --disable-pip-version-check ironnest==0.6.2 shapely==2.1.2 svgpathtools==1.7.4
       - name: Benchmark 4 vs 8 rotations on synthetic parts
         run: python -u solver-service/benchmark_ironnest_angles.py
+      - name: Benchmark 4 vs 8 rotations on existing historical SVG plate
+        run: python -u solver-service/benchmark_ironnest_historical_plate.py
