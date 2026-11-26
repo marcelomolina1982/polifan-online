@@ -1,0 +1,27 @@
+name: IronNest diagonal rotations experimental
+
+on:
+  pull_request:
+    branches: [motor-ironnest-hardbound-lab]
+    paths:
+      - 'solver-service/ironnest_benchmark_app.py'
+      - 'solver-service/test_ironnest_diagonal_rotations.py'
+      - '.github/workflows/ironnest-diagonal-rotations.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-diagonal-option:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check Python syntax without starting server
+        run: python -m py_compile solver-service/ironnest_benchmark_app.py
+      - name: Run actual IronNest worker functions with synthetic figures
+        run: python solver-service/test_ironnest_diagonal_rotations.py
