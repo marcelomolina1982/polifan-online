@@ -18,10 +18,10 @@ assert.match(source,/MAX_TOTAL_SOLVE_MS-reserved-/)
 assert.match(motor,/\{!busy&&plans\.filter/)
 assert.match(motor,/\{busy&&<tr>/)
 
-const kits=Array.from({length:10},(_,i)=>({
+const kits=Array.from({length:12},(_,i)=>({
  kitId:'kit'+i,figure:'Synthetic'+i,priority:i,
  parts:[0,1].map(j=>({kitId:'kit'+i,instanceId:'kit'+i+'-piece'+j,
- svgText:'<svg/>',sourceWidthCm:10,sourceHeightCm:10}))
+ svgText:'<svg/>',sourceWidthCm:i>=10?5:15+i,sourceHeightCm:10}))
 }))
 let mode,starts,getCount,simulatedNow=0
 const realNow=Date.now
@@ -43,7 +43,7 @@ globalThis.fetch=async(url,options={})=>{
   if(mode==='transient')return new Response('<html>gateway unavailable</html>',{status:503})
   const ten=batch.length===10
   if(mode==='budget'&&ten)simulatedNow+=130000
-  if(ten&&(mode==='nine'||mode==='budget'||mode==='incomplete'||(mode==='grow'&&starts.filter(k=>k.length===10).length===1))){
+  if(ten&&(mode==='nine'||mode==='budget'||mode==='incomplete'||(mode==='grow'&&!starts.some(k=>k.length===9)))){
    return json({ok:false,result:{ok:false,error:'IronNest acomodo 19 piezas, pero faltaron 1. No se registro ninguna placa.'}},422)
   }
   const pieces=placements(batch)
