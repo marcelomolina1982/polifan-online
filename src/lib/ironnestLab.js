@@ -145,7 +145,8 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   optimizationMode='fast',
   signal,
   onProgress,
-  onJobStarted
+  onJobStarted,
+  pollMs=1500
 }={}){
   const ordered=[...(Array.isArray(kits)?kits:[])].sort((a,b)=>kitPriority(a)-kitPriority(b))
   if(!ordered.length)throw new Error('No hay kits completos para calcular.')
@@ -157,9 +158,16 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
   const solveBatch=async(batch,label,timeoutMs=150000)=>{
     onProgress?.({stage:`IronNest · ${label} (${batch.length} figuras)…`,percent:5,completeFigures:best?.selectedKits?.length||0})
     const result=await solveWithIronNestLab(batch,{
-      optimizationMode,timeoutMs,signal,onProgress,
+      optimizationMode,timeoutMs,signal,onProgress,pollMs,
       onJobStarted:j=>onJobStarted?.({...j,kitIds:batch.map(k=>k.kitId),fallbackResult:best?{...best,selectedKits:best.selectedKits.map(k=>({kitId:k.kitId}))}:null})
     })
+    // Una figura sólo cuenta si se recibió CADA una de sus piezas.
+    // Nunca convertir un resultado parcial en una placa certificada.
+    const expected=new Set(batch.flatMap(k=>(k.parts||[]).map(p=>String(p.instanceId))))
+    const received=(result.placements||[]).map(p=>String(p.instanceId||''))
+    if(!result.ok||!result.layoutValidation?.ok||received.length!==expected.size||
+       new Set(received).size!==expected.size||received.some(id=>!expected.has(id)))
+      throw new Error(result.error||'IronNest devolvió piezas incompletas o sin certificar.')
     const ids=new Set((result.placements||[]).map(p=>String(p.kitId||'')).filter(Boolean))
     const selected=batch.filter(k=>ids.has(String(k.kitId)))
     if(selected.length!==batch.length)throw new Error(result.error||'IronNest no devolvió el lote completo.')
@@ -181,7 +189,25 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
       lastBaseError=error
     }
   }
-  if(!best)throw lastBaseError||new Error('IronNest no encontró una combinación válida de 10 figuras completas.')
+  // Si las 10 figuras (20 piezas) no caben juntas, buscar otra placa
+  // de 9 FIGURAS COMPLETAS. Nunca aceptar 19/20 piezas como si fueran 10.
+  // Un error de red, cancelación, autenticación o geometría inválida no
+  // habilita este camino: sólo un límite físico de distribución.
+  const incompletePlacement=error=>/IronNest acomodo \d+ piezas, pero faltaron \d+|IronNest no devolvió el lote completo/i.test(String(error?.message||''))
+  if(!best&&baseTarget===10&&lastBaseError&&incompletePlacement(lastBaseError)){
+    const fallbackVariants=uniqueKitVariants(ordered,9)
+    for(const variant of fallbackVariants){
+      if(Date.now()-startedOverall>=MAX_TOTAL_SOLVE_MS)break
+      try{
+        best=await solveBatch(variant.kits,`base alternativa certificada de 9 · ${variant.label}`,Math.min(180000,MAX_TOTAL_SOLVE_MS-(Date.now()-startedOverall)))
+        break
+      }catch(error){
+        if(isIronNestTransientError(error)||error?.name==='AbortError')throw error
+        lastBaseError=error
+      }
+    }
+  }
+  if(!best)throw lastBaseError||new Error('IronNest no encontró una combinación válida de figuras completas.')
 
   // Crecer sin perder la base certificada. Un extra que no entra no significa
   // que ningún otro extra entre: probamos varios pendientes y aceptamos el primero
@@ -223,5 +249,5 @@ export async function solveCompleteKitsWithIronNestLab(kits,{
     best=grown
     selectedIds=new Set(best.selectedKits.map(k=>String(k.kitId)))
   }
-  return best
+  return {...best,requestedComplete:baseTarget,fallbackUsed:best.selectedKits.length<baseTarget}
 }
