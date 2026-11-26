@@ -338,7 +338,7 @@ def _execute_industrial(payload,job_id):
             misplaced=(n!=len(expected_part_ids) or len(set(placed_ids))!=len(placed_ids) or set(placed_ids)!=expected_part_ids)
             if u or len(p)!=n or misplaced:
                 if first_unplaced is None:
-                    first_unplaced=max(len(u),len(expected_part_ids)-len(set(placed_ids)),n-len(p))
+                    first_unplaced=max(len(u),len(expected_part_ids-set(placed_ids)),n-len(p))
                 if not missing_ids:
                     part_ids=[str(part.get('instanceId')) for kit in kits for part in kit.get('parts', [])]
                     missing_ids=[part_ids[int(x)] for x in u if 0 <= int(x) < len(part_ids)]
